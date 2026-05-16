@@ -1,66 +1,333 @@
-# 知读 后端
+# 知读后端
 
-## API 清单
+第一阶段后端地基：Node.js + Express + PostgreSQL + JWT + bcrypt。
 
-| 方法 | 路径 | 鉴权 | 说明 |
-|------|------|------|------|
-| GET | `/api/health` | 无 | 健康检查 |
-| POST | `/api/register` | 无 | 邮箱注册（限流 20次/15分钟） |
-| POST | `/api/login` | 无 | 邮箱登录（限流 20次/15分钟） |
-| GET | `/api/classes/:table` | Bearer | 查询数据（where/order/limit） |
-| POST | `/api/classes/:table` | Bearer | 新增数据 |
-| GET | `/api/classes/:table/:id` | Bearer | 查单条 |
-| PUT | `/api/classes/:table/:id` | Bearer | 更新数据 |
-| DELETE | `/api/classes/:table/:id` | Bearer | 删除数据 |
-| POST | `/api/chunk` | Bearer | 文本切片 |
-| GET | `/api/cache` | Bearer | 查询 AI 缓存 |
-| POST | `/api/cache` | Bearer | 写入 AI 缓存 |
+暂不实现 embedding、RAG、思维导图、小U对话。
 
-## 已实现功能
+## 文件结构
 
-- ✅ JWT 用户鉴权（bcrypt 密码哈希）
-- ✅ 环境变量配置（dotenv + .env.example）
-- ✅ 请求日志（morgan）
-- ✅ 登录/注册限流（express-rate-limit）
-- ✅ AI 缓存（in-memory，1 小时 TTL）
-- ✅ 文本切片 API
-- ✅ CORS 跨域
-- ✅ 部署脚本（deploy.sh + PM2）
-- ✅ Nginx HTTPS 反向代理模板
-
-## 快速开始
-
-```bash
-# 1. 配置环境变量
-cp .env.example .env
-# 编辑 .env，修改 JWT_SECRET 为随机字符串
-
-# 2. 安装运行
-npm install
-npm start
+```txt
+backend/
+  package.json
+  .env.example
+  server.js
+  src/
+    app.js
+    server.js
+    config/
+      db.js
+      env.js
+    controllers/
+      auth.controller.js
+      entries.controller.js
+    db/
+      init.js
+      schema.sql
+    middleware/
+      auth.js
+      errorHandler.js
+    repositories/
+      entry.repository.js
+      user.repository.js
+    routes/
+      auth.routes.js
+      entries.routes.js
+    utils/
+      httpError.js
 ```
 
-## 部署到服务器
+## 安装依赖
 
-```bash
-scp -r backend/ root@你的服务器IP:/opt/reader-backend
-ssh root@你的服务器IP
-cd /opt/reader-backend
-chmod +x deploy.sh && ./deploy.sh
+PowerShell 可能会拦截 `npm.ps1`，推荐使用：
+
+```powershell
+cd C:\Users\29319\Desktop\reader\backend
+npm.cmd install
 ```
 
-## 配置 HTTPS
+如果 npm 默认缓存目录没有权限，可以使用工作区缓存：
 
-1. 安装 nginx + certbot
-2. 将 `nginx.conf` 中的 `YOUR_DOMAIN` 替换为你的域名
-3. `cp nginx.conf /etc/nginx/sites-available/reader && ln -s ...`
-4. `certbot --nginx -d YOUR_DOMAIN`
-5. 更新 Flutter 端 `constants.dart` → `apiBaseUrl = 'https://YOUR_DOMAIN'`
+```powershell
+npm.cmd install --cache .\.npm-cache
+```
 
-## 你需要准备的
+## PostgreSQL 安装步骤
 
-| 事项 | 说明 |
-|------|------|
-| 云服务器 | 1 核 1G 即可，开放 80/443/3000 端口 |
-| 域名 | 已备案（如使用国内服务器） |
-| SSL 证书 | certbot 自动申请（免费） |
+### Windows 图形安装
+
+1. 打开 PostgreSQL 官网下载安装包：https://www.postgresql.org/download/windows/
+2. 安装 PostgreSQL 16 或 17。
+3. 安装时记住 `postgres` 用户密码。
+4. 保持默认端口 `5432`。
+5. 安装完成后打开 pgAdmin 或 SQL Shell。
+
+### 创建数据库
+
+在 SQL Shell 或 pgAdmin 中执行：
+
+```sql
+CREATE DATABASE reader;
+```
+
+如果使用命令行：
+
+```powershell
+psql -U postgres -c "CREATE DATABASE reader;"
+```
+
+## .env 示例
+
+复制 `.env.example` 为 `.env`：
+
+```powershell
+copy .env.example .env
+```
+
+示例内容：
+
+```env
+PORT=3000
+NODE_ENV=development
+
+JWT_SECRET=replace-with-a-long-random-secret
+JWT_EXPIRES_IN=30d
+
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/reader
+CORS_ORIGIN=http://localhost:3000
+```
+
+把 `DATABASE_URL` 中第二个 `postgres` 改成你安装 PostgreSQL 时设置的密码。
+
+`JWT_SECRET` 请换成足够长的随机字符串。
+
+## 初始化数据库表
+
+后端启动时会自动执行 `src/db/schema.sql` 创建表。也可以手动执行：
+
+```powershell
+npm.cmd run db:init
+```
+
+会创建：
+
+- `users`
+- `user_entries`
+
+## 启动后端
+
+```powershell
+cd C:\Users\29319\Desktop\reader\backend
+npm.cmd start
+```
+
+开发模式：
+
+```powershell
+npm.cmd run dev
+```
+
+启动成功后访问：
+
+```txt
+http://localhost:3000/api/health
+```
+
+返回：
+
+```json
+{
+  "status": "ok",
+  "env": "development"
+}
+```
+
+## API 设计
+
+### 注册
+
+```http
+POST /api/auth/register
+Content-Type: application/json
+```
+
+```json
+{
+  "email": "a@example.com",
+  "password": "123456"
+}
+```
+
+返回：
+
+```json
+{
+  "user": {
+    "id": "uuid",
+    "email": "a@example.com",
+    "created_at": "...",
+    "updated_at": "..."
+  },
+  "token": "jwt"
+}
+```
+
+### 登录
+
+```http
+POST /api/auth/login
+Content-Type: application/json
+```
+
+```json
+{
+  "email": "a@example.com",
+  "password": "123456"
+}
+```
+
+返回同注册。
+
+### 创建 user_entry
+
+```http
+POST /api/entries
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+```json
+{
+  "source": "highlight",
+  "book_id": "book-001",
+  "book_title": "局外人",
+  "chapter_index": "1",
+  "chapter_title": "第一章",
+  "original_text": "今天，妈妈死了。",
+  "user_input": "",
+  "ai_explanation": "",
+  "auto_tags": ["划线"],
+  "auto_summary": "",
+  "metadata_json": {
+    "color": "#B39DDB"
+  }
+}
+```
+
+说明：
+
+- `source` 只允许 `highlight`、`thought`、`ai_explanation`、`manual`
+- `user_id` 不从请求体读取，永远来自当前 JWT
+
+### 查询自己的 entries
+
+```http
+GET /api/entries
+Authorization: Bearer <token>
+```
+
+支持筛选：
+
+```txt
+GET /api/entries?book_id=book-001
+GET /api/entries?source=highlight
+GET /api/entries?tag=划线
+GET /api/entries?created_at_from=2026-05-01&created_at_to=2026-05-16
+```
+
+返回：
+
+```json
+{
+  "entries": []
+}
+```
+
+## curl 测试
+
+### 1. 健康检查
+
+```powershell
+curl.exe http://localhost:3000/api/health
+```
+
+### 2. 注册用户 A
+
+```powershell
+curl.exe -X POST http://localhost:3000/api/auth/register `
+  -H "Content-Type: application/json" `
+  -d "{\"email\":\"a@example.com\",\"password\":\"123456\"}"
+```
+
+复制返回里的 `token`。
+
+### 3. 登录用户 A
+
+```powershell
+curl.exe -X POST http://localhost:3000/api/auth/login `
+  -H "Content-Type: application/json" `
+  -d "{\"email\":\"a@example.com\",\"password\":\"123456\"}"
+```
+
+### 4. 不带 token 访问 entries
+
+```powershell
+curl.exe http://localhost:3000/api/entries
+```
+
+预期返回 `401 Unauthorized`。
+
+### 5. 带 token 创建 entry
+
+```powershell
+curl.exe -X POST http://localhost:3000/api/entries `
+  -H "Content-Type: application/json" `
+  -H "Authorization: Bearer <A_TOKEN>" `
+  -d "{\"source\":\"highlight\",\"book_id\":\"book-001\",\"book_title\":\"局外人\",\"original_text\":\"今天，妈妈死了。\",\"auto_tags\":[\"划线\"],\"metadata_json\":{\"color\":\"#B39DDB\"}}"
+```
+
+### 6. 查询用户 A 的 entries
+
+```powershell
+curl.exe http://localhost:3000/api/entries `
+  -H "Authorization: Bearer <A_TOKEN>"
+```
+
+### 7. 验证 A/B 用户隔离
+
+注册或登录用户 B：
+
+```powershell
+curl.exe -X POST http://localhost:3000/api/auth/register `
+  -H "Content-Type: application/json" `
+  -d "{\"email\":\"b@example.com\",\"password\":\"123456\"}"
+```
+
+用 B 的 token 查询：
+
+```powershell
+curl.exe http://localhost:3000/api/entries `
+  -H "Authorization: Bearer <B_TOKEN>"
+```
+
+预期看不到用户 A 创建的 entry。
+
+## Postman 测试方式
+
+1. 创建 `POST http://localhost:3000/api/auth/register`
+2. Body 选择 raw JSON，填入 email/password
+3. 从响应中复制 `token`
+4. 创建 `POST http://localhost:3000/api/entries`
+5. Authorization 选择 Bearer Token，填入 token
+6. Body 填入 entry JSON
+7. 创建 `GET http://localhost:3000/api/entries`
+8. Authorization 填同一个 token，确认能看到自己的数据
+9. 换另一个用户 token，确认看不到前一个用户的数据
+
+## 确认 JWT 生效
+
+JWT 生效的判断：
+
+- 不带 `Authorization` 请求 `/api/entries` 返回 `401`
+- `Authorization: Bearer <错误 token>` 返回 `401`
+- `Authorization: Bearer <正确 token>` 可以创建和查询 entries
+- A 用户 token 查询不到 B 用户数据，B 用户 token 查询不到 A 用户数据

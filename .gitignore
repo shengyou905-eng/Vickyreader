@@ -33,6 +33,12 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Node backend
+**/node_modules/
+**/.npm-cache/
+**/.env
+!**/.env.example
+
 # Symbolication related
 app.*.symbols
 
