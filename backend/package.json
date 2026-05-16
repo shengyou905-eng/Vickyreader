@@ -1,0 +1,23 @@
+{
+  "name": "reader-backend",
+  "version": "1.0.0",
+  "description": "知读 阅读器自建后端",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "prod": "pm2 start server.js --name reader-backend",
+    "prod:stop": "pm2 stop reader-backend",
+    "prod:logs": "pm2 logs reader-backend",
+    "prod:restart": "pm2 restart reader-backend"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0",
+    "express-rate-limit": "^7.4.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0"
+  }
+}
