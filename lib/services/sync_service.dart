@@ -26,22 +26,6 @@ class SyncService {
   }
 
   /// Full sync: pull then push
-  Future<void> sync() async {
-    if (_userId == null || _userId!.isEmpty) return;
-    final lastSync = await _getLastSyncTime();
-    final syncStartedAt = DateTime.now().toUtc().toIso8601String();
-    final db = await DatabaseService.database;
-    final api = BmobApi.instance;
-
-    for (final table in _syncTables) {
-      await _pullTable(db, api, table, lastSync);
-    }
-    for (final table in _syncTables) {
-      await _pushTable(db, api, table, lastSync);
-    }
-
-    await _setLastSyncTime(syncStartedAt);
-  }
 
   /// Pull remote changes and merge into local DB
   Future<void> pullAll() async {

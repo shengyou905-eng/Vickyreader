@@ -29,7 +29,21 @@ async function listEntries(req, res, next) {
   }
 }
 
+async function deleteEntry(req, res, next) {
+  try {
+    const deleted = await entryRepository.deleteEntry(req.user.id, req.params.id);
+    if (!deleted) {
+      throw httpError(404, 'Entry not found');
+    }
+
+    return res.status(204).send();
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   createEntry,
   listEntries,
+  deleteEntry,
 };

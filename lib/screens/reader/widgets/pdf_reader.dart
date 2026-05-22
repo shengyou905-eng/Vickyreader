@@ -49,14 +49,18 @@ class _PdfReaderWidgetState extends State<PdfReaderWidget> {
       final documentFuture = PdfDocument.openFile(pdfPath);
       final doc = await documentFuture;
       final pagesCount = doc.pagesCount;
+      final restoredPage = reader.scrollOffset > 0
+          ? reader.scrollOffset.round().clamp(1, pagesCount).toInt()
+          : 1;
 
       _pdfController = PdfController(
         document: documentFuture,
-        initialPage: 1,
+        initialPage: restoredPage,
       );
 
       setState(() {
         _totalPages = pagesCount;
+        _currentPage = restoredPage;
         _isLoading = false;
       });
     } catch (e) {
@@ -113,6 +117,7 @@ class _PdfReaderWidgetState extends State<PdfReaderWidget> {
             scrollDirection: widget.scrollDirection,
             onPageChanged: (page) {
               setState(() => _currentPage = page);
+              context.read<ReaderProvider>().setScrollOffset(page.toDouble());
             },
           ),
         ),

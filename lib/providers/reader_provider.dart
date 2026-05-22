@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -22,6 +23,10 @@ class ReaderProvider extends ChangeNotifier {
   String? _scrollToText;
   List<Bookmark> _bookmarks = [];
   bool _isBookmarked = false;
+  Timer? _progressSaveTimer;
+  int _openBookToken = 0;
+  int _readingPositionRevision = 0;
+  String? _loadError;
 
   Book? get book => _book;
   List<EpubChapter> get chapters => _chapters;
@@ -38,6 +43,8 @@ class ReaderProvider extends ChangeNotifier {
   String? get scrollToTextTarget => _scrollToText;
   List<Bookmark> get bookmarks => _bookmarks;
   bool get isBookmarked => _isBookmarked;
+  int get readingPositionRevision => _readingPositionRevision;
+  String? get loadError => _loadError;
 
   void setScrollTarget(String? text) {
     _scrollToText = text;
@@ -50,25 +57,103 @@ class ReaderProvider extends ChangeNotifier {
       _chapters.isNotEmpty ? _currentChapterIndex / _chapters.length : 0.0;
 
   Future<void> openBook(Book book) async {
+    final token = ++_openBookToken;
+    _progressSaveTimer?.cancel();
+    _book = book;
+    _chapters = [];
+    _highlights = [];
+    _bookmarks = [];
+    _currentChapterIndex = 0;
+    _scrollOffset = 0.0;
+    _selectedText = null;
+    _showAiPanel = false;
+    _scrollToText = null;
+    _isBookmarked = false;
+    _loadError = null;
     _isLoading = true;
     notifyListeners();
-    _book = book;
-    if (book.format == 'pdf') {
-      _chapters = [EpubChapter(title: 'PDF 文档', content: '', index: 0)];
-    } else {
-      _chapters = await EpubService.getChapters(book.id);
-    }
-    _highlights = await BookService.getHighlights(book.id);
-    _bookmarks = await BookService.getBookmarks(book.id);
-    _checkBookmarkStatus();
 
-    // Restore reading progress
-    final progress = await BookService.getReadingProgress(book.id);
-    if (progress != null) {
-      _currentChapterIndex = int.tryParse(progress.chapterIndex) ?? 0;
-      _scrollOffset = progress.scrollOffset;
+    final chaptersFuture = book.format == 'pdf'
+        ? Future.value([EpubChapter(title: 'PDF 文档', content: '', index: 0)])
+        : EpubService.getChapters(book.id);
+    final highlightsFuture = BookService.getHighlights(book.id);
+    final bookmarksFuture = BookService.getBookmarks(book.id);
+    final progressFuture = BookService.getReadingProgress(book.id);
+
+    try {
+      final results = await Future.wait<Object?>([
+        chaptersFuture,
+        highlightsFuture,
+        bookmarksFuture,
+        progressFuture,
+      ]);
+      if (token != _openBookToken || _disposed) return;
+
+      _chapters = results[0] as List<EpubChapter>;
+      _highlights = results[1] as List<Highlight>;
+      _bookmarks = results[2] as List<Bookmark>;
+
+      final restored = _applyReadingProgress(
+        results[3] as ({String chapterIndex, double scrollOffset})?,
+      );
+      _checkBookmarkStatus();
+      _isLoading = false;
+      notifyListeners();
+
+      unawaited(_refreshRemoteReadingProgress(
+        book.id,
+        token,
+        baseChapterIndex: restored.chapterIndex,
+        baseScrollOffset: restored.scrollOffset,
+      ));
+    } catch (e) {
+      if (token != _openBookToken || _disposed) return;
+      _isLoading = false;
+      _loadError = '打开书籍失败：$e';
+      notifyListeners();
     }
-    _isLoading = false;
+  }
+
+  ({int chapterIndex, double scrollOffset}) _applyReadingProgress(
+    ({String chapterIndex, double scrollOffset})? progress,
+  ) {
+    var chapterIndex = 0;
+    var scrollOffset = 0.0;
+    if (progress != null) {
+      final restoredChapter = int.tryParse(progress.chapterIndex) ?? 0;
+      chapterIndex = _chapters.isEmpty
+          ? 0
+          : restoredChapter.clamp(0, _chapters.length - 1).toInt();
+      scrollOffset = progress.scrollOffset;
+    }
+
+    _currentChapterIndex = chapterIndex;
+    _scrollOffset = scrollOffset;
+    _readingPositionRevision++;
+    return (chapterIndex: chapterIndex, scrollOffset: scrollOffset);
+  }
+
+  Future<void> _refreshRemoteReadingProgress(
+    String bookId,
+    int token, {
+    required int baseChapterIndex,
+    required double baseScrollOffset,
+  }) async {
+    final progress = await BookService.refreshRemoteReadingProgress(bookId)
+        .catchError((_) => null);
+    if (progress == null ||
+        token != _openBookToken ||
+        _disposed ||
+        _book?.id != bookId) {
+      return;
+    }
+
+    final userHasNotMoved = _currentChapterIndex == baseChapterIndex &&
+        (_scrollOffset - baseScrollOffset).abs() < 0.5;
+    if (!userHasNotMoved) return;
+
+    _applyReadingProgress(progress);
+    _checkBookmarkStatus();
     notifyListeners();
   }
 
@@ -77,6 +162,7 @@ class ReaderProvider extends ChangeNotifier {
       _currentChapterIndex = index;
       _scrollOffset = 0.0;
       _checkBookmarkStatus();
+      _scheduleProgressSave();
       notifyListeners();
     }
   }
@@ -122,7 +208,10 @@ class ReaderProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void updateScrollOffset(double offset) => setScrollOffset(offset);
+  void updateScrollOffset(double offset) {
+    setScrollOffset(offset);
+    _scheduleProgressSave();
+  }
 
   Future<void> saveProgress() async {
     if (_book != null) {
@@ -284,8 +373,22 @@ class ReaderProvider extends ChangeNotifier {
     return AuthService.userId ?? '';
   }
 
+  void _scheduleProgressSave() {
+    _progressSaveTimer?.cancel();
+    _progressSaveTimer = Timer(const Duration(seconds: 2), () {
+      if (!_disposed) {
+        saveProgress();
+      }
+    });
+  }
+
+  void cancelScheduledSave() {
+    _progressSaveTimer?.cancel();
+  }
+
   @override
   void dispose() {
+    _progressSaveTimer?.cancel();
     _disposed = true;
     saveProgress(); // fire-and-forget: persists progress before disposal
     super.dispose();

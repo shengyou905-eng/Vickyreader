@@ -46,6 +46,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              // Account
+              _SectionHeader(title: '账户'),
+              const SizedBox(height: 8),
+              Consumer<AuthProvider>(
+                builder: (context, auth, _) {
+                  return Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppTheme.dividerColor),
+                    ),
+                    child: auth.isLoggedIn
+                        ? _buildLoggedIn(auth)
+                        : _buildLoggedOut(),
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+
               // AI Settings
               _SectionHeader(title: 'AI 服务'),
               const SizedBox(height: 8),
@@ -132,24 +152,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Account
-              _SectionHeader(title: '账号与同步'),
-              const SizedBox(height: 8),
-              Consumer<AuthProvider>(
-                builder: (context, auth, _) {
-                  return Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppTheme.dividerColor),
-                    ),
-                    child: auth.isLoggedIn ? _buildLoggedIn(auth) : _buildLoggedOut(),
-                  );
-                },
-              ),
-              const SizedBox(height: 24),
-
               // About
               _SectionHeader(title: '关于'),
               const SizedBox(height: 8),
@@ -196,30 +198,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildLoggedOut() {
     return Row(
       children: [
-        const Icon(Icons.account_circle, size: 20, color: AppTheme.primary),
-        const SizedBox(width: 8),
+        const Icon(Icons.account_circle, size: 22, color: AppTheme.primary),
+        const SizedBox(width: 10),
         const Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('未登录',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+              Text(
+                '未登录',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+              ),
               SizedBox(height: 2),
-              Text('登录后可在多设备同步阅读进度和笔记',
-                  style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+              Text(
+                '登录后同步阅读进度和小U条目',
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+              ),
             ],
           ),
         ),
         ElevatedButton(
-          onPressed: () async {
-            final result = await Navigator.of(context).push<bool>(
-              MaterialPageRoute(builder: (_) => const AuthScreen()),
-            );
-            if (result == true && mounted) {
-              _onLoginSuccess();
-            }
-          },
-          child: const Text('注册/登录'),
+          onPressed: _openAuth,
+          child: const Text('登录 / 注册'),
         ),
       ],
     );
@@ -231,65 +230,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
       children: [
         Row(
           children: [
-            const Icon(Icons.check_circle, size: 20, color: Colors.green),
-            const SizedBox(width: 8),
+            const Icon(Icons.check_circle, size: 22, color: Colors.green),
+            const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                auth.email ?? '',
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    auth.email ?? '',
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    '已连接云端账号',
+                    style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                  ),
+                ],
               ),
-            ),
-            TextButton(
-              onPressed: () => auth.signOut(),
-              child: const Text('退出', style: TextStyle(color: Colors.red)),
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        const Text('数据已关联到此账号，可在其他设备登录后同步',
-            style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
         const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            icon: const Icon(Icons.sync, size: 18),
-            label: const Text('手动同步'),
-            onPressed: _manualSync,
-          ),
+        Row(
+          children: [
+            OutlinedButton(
+              onPressed: _switchAccount,
+              child: const Text('切换账户'),
+            ),
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: () => auth.signOut(),
+              child: const Text('退出登录', style: TextStyle(color: Colors.red)),
+            ),
+          ],
         ),
       ],
     );
   }
 
+  Future<void> _openAuth() async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const AuthScreen()),
+    );
+    if (result == true && mounted) {
+      await _onLoginSuccess();
+    }
+  }
+
+  Future<void> _switchAccount() async {
+    await context.read<AuthProvider>().signOut();
+    if (!mounted) return;
+    await _openAuth();
+  }
+
   Future<void> _onLoginSuccess() async {
     final auth = context.read<AuthProvider>();
     final userId = auth.userId;
-    if (userId == null) return;
+    if (userId == null || userId.isEmpty) return;
 
-    // Merge anonymous data to the new account
-    await SyncService.instance.mergeAnonymousData(userId);
-    await SyncService.instance.pullAll();
-  }
-
-  Future<void> _manualSync() async {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('正在同步...'), behavior: SnackBarBehavior.floating),
-    );
     try {
-      await SyncService.instance.sync();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('同步完成'), behavior: SnackBarBehavior.floating),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('同步失败：$e'), behavior: SnackBarBehavior.floating),
-        );
-      }
-    }
+      SyncService.instance.setUserId(userId);
+      await SyncService.instance.mergeAnonymousData(userId);
+      await SyncService.instance.pullAll();
+    } catch (_) {}
   }
 
   @override

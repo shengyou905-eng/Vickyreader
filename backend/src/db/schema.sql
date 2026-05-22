@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS user_entries (
   book_id TEXT,
   book_title TEXT,
   chapter_index TEXT,
+  chapter_title TEXT,
 
   original_text TEXT,
   user_input TEXT,
@@ -29,6 +30,9 @@ CREATE TABLE IF NOT EXISTS user_entries (
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE user_entries
+  ADD COLUMN IF NOT EXISTS chapter_title TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_user_entries_user_id
   ON user_entries(user_id);
@@ -41,3 +45,19 @@ CREATE INDEX IF NOT EXISTS idx_user_entries_user_source
 
 CREATE INDEX IF NOT EXISTS idx_user_entries_tags
   ON user_entries USING GIN(auto_tags);
+
+CREATE TABLE IF NOT EXISTS reading_progresses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  book_id TEXT NOT NULL,
+  progress DOUBLE PRECISION NOT NULL DEFAULT 0,
+  chapter_index TEXT NOT NULL DEFAULT '0',
+  scroll_offset DOUBLE PRECISION NOT NULL DEFAULT 0,
+  cfi TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(user_id, book_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reading_progresses_user_book
+  ON reading_progresses(user_id, book_id);

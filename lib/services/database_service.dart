@@ -128,21 +128,6 @@ class DatabaseService {
     ''');
 
     await db.execute('''
-      CREATE TABLE mingtai_items (
-        id TEXT PRIMARY KEY,
-        book_id TEXT NOT NULL,
-        book_title TEXT DEFAULT '',
-        chapter_index TEXT DEFAULT '',
-        original_text TEXT NOT NULL,
-        user_note TEXT DEFAULT '',
-        ai_tags TEXT DEFAULT '',
-        ai_understanding TEXT DEFAULT '',
-        created_at TEXT NOT NULL,
-        updated_at TEXT DEFAULT ''
-      )
-    ''');
-
-    await db.execute('''
       CREATE TABLE user_entries (
         id TEXT PRIMARY KEY,
         user_id TEXT DEFAULT '',
@@ -201,22 +186,6 @@ class DatabaseService {
     }
     if (oldVersion < 6) {
       await db.execute("ALTER TABLE books ADD COLUMN chapterTitles TEXT DEFAULT ''");
-    }
-    if (oldVersion < 8) {
-      await db.execute('''
-        CREATE TABLE IF NOT EXISTS mingtai_items (
-          id TEXT PRIMARY KEY,
-          book_id TEXT NOT NULL,
-          book_title TEXT DEFAULT '',
-          chapter_index TEXT DEFAULT '',
-          original_text TEXT NOT NULL,
-          user_note TEXT DEFAULT '',
-          ai_tags TEXT DEFAULT '',
-          ai_understanding TEXT DEFAULT '',
-          created_at TEXT NOT NULL,
-          updated_at TEXT DEFAULT ''
-        )
-      ''');
     }
     if (oldVersion < 9) {
       await _addColumnIfMissing(db, 'bookmarks', 'user_id', "TEXT DEFAULT ''");

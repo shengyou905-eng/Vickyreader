@@ -42,6 +42,7 @@ async function createEntry(userId, payload) {
        book_id,
        book_title,
        chapter_index,
+       chapter_title,
        original_text,
        user_input,
        ai_explanation,
@@ -49,7 +50,7 @@ async function createEntry(userId, payload) {
        auto_summary,
        metadata_json
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING *`,
     [
       userId,
@@ -57,6 +58,7 @@ async function createEntry(userId, payload) {
       payload.book_id || null,
       payload.book_title || null,
       payload.chapter_index || null,
+      payload.chapter_title || null,
       payload.original_text || null,
       payload.user_input || null,
       payload.ai_explanation || null,
@@ -118,8 +120,20 @@ async function listEntries(userId, filters) {
   return result.rows;
 }
 
+async function deleteEntry(userId, entryId) {
+  const result = await query(
+    `DELETE FROM user_entries
+     WHERE id = $1 AND user_id = $2
+     RETURNING id`,
+    [entryId, userId],
+  );
+
+  return result.rowCount > 0;
+}
+
 module.exports = {
   createEntry,
   listEntries,
+  deleteEntry,
   normalizeTags,
 };

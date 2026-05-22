@@ -14,6 +14,8 @@ class ReaderDocumentHtml {
     required SettingsProvider settings,
     required List<Highlight> highlights,
     required ReaderPagingMode pagingMode,
+    double topInset = 16,
+    double bottomInset = 32,
     List<Map<String, String>> nextChapters = const [],
   }) {
     final bgHex = _colorToHex(settings.backgroundColor);
@@ -43,6 +45,8 @@ class ReaderDocumentHtml {
     --text-color: $textHex;
     --page-pad-x: 18px;
     --page-pad-y: 16px;
+    --reader-top-inset: ${topInset.toStringAsFixed(0)}px;
+    --reader-bottom-inset: ${bottomInset.toStringAsFixed(0)}px;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
@@ -60,7 +64,7 @@ class ReaderDocumentHtml {
   }
   #readSurface {
     width: 100%; height: 100%;
-    padding: var(--page-pad-y) var(--page-pad-x) 32px;
+    padding: var(--reader-top-inset) var(--page-pad-x) var(--reader-bottom-inset);
     -webkit-overflow-scrolling: touch;
   }
   #readSurface[data-paging="vertical"] {
@@ -69,9 +73,9 @@ class ReaderDocumentHtml {
     touch-action: pan-y;
   }
   #readSurface[data-paging="horizontal"] {
-    overflow-x: auto;
+    overflow-x: hidden;
     overflow-y: hidden;
-    touch-action: pan-x;
+    touch-action: manipulation;
     column-width: calc(100vw - 2 * var(--page-pad-x));
     column-gap: 28px;
     scroll-snap-type: x proximity;
@@ -80,12 +84,35 @@ class ReaderDocumentHtml {
     font-size: calc(var(--font-size) + 4px);
     font-weight: bold;
     text-align: center;
-    margin-bottom: 20px;
+    line-height: 1.35;
+    margin: 0 0 20px;
     break-after: avoid;
+  }
+  .chapter-body {
+    width: 100%;
+    max-width: 760px;
+    margin: 0 auto;
+    text-align: start;
+    overflow-wrap: anywhere;
+  }
+  .chapter-body * {
+    max-width: 100% !important;
+    box-sizing: border-box;
   }
   .chapter-body img { max-width: 100%; height: auto; display: block; margin: 12px auto; border-radius: 4px; }
   .chapter-body h1, .chapter-body h2, .chapter-body h3 { margin: 16px 0 8px; }
+  .chapter-body p, .chapter-body div, .chapter-body section, .chapter-body article, .chapter-body li {
+    text-align: start !important;
+    width: auto !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
   .chapter-body p { margin: 8px 0; text-indent: 2em; }
+  .chapter-body table {
+    width: 100% !important;
+    table-layout: auto;
+    border-collapse: collapse;
+  }
   .chapter-body blockquote {
     border-left: 3px solid #B39DDB;
     padding-left: 12px;
@@ -116,8 +143,26 @@ class ReaderDocumentHtml {
     (function() {
       var s = document.getElementById('readSurface');
       var _currentCh = 0; // 0 = current chapter, 1+ = next-chapter offset
+      var _selectionActive = false;
+      var _suppressClickUntil = 0;
       function isHorizontal() {
         return s && s.getAttribute('data-paging') === 'horizontal';
+      }
+      function hasSelection() {
+        var sel = window.getSelection();
+        return !!(sel && sel.toString().trim());
+      }
+      function pageStep() {
+        return window.innerWidth - 8;
+      }
+      function scrollPage(direction) {
+        if (!s || !isHorizontal() || hasSelection() || _selectionActive) return;
+        var step = pageStep();
+        if (direction < 0) {
+          s.scrollLeft = Math.max(0, s.scrollLeft - step);
+        } else {
+          s.scrollLeft = Math.min(s.scrollWidth - s.clientWidth, s.scrollLeft + step);
+        }
       }
       function postScroll() {
         if (!s) return;
@@ -160,7 +205,7 @@ class ReaderDocumentHtml {
         if (!isHorizontal()) return;
         clearTimeout(_snapT);
         _snapT = setTimeout(function() {
-          var colW = window.innerWidth - 8;
+          var colW = pageStep();
           var nearest = Math.round(s.scrollLeft / colW) * colW;
           if (Math.abs(s.scrollLeft - nearest) > 3) {
             s.scrollTo({left: nearest, behavior: 'auto'});
@@ -175,20 +220,42 @@ class ReaderDocumentHtml {
           FlutterBridge.postMessage('NAV|' + (a.getAttribute('href') || ''));
           return;
         }
+        if (Date.now() < _suppressClickUntil) return;
+        if (hasSelection() || _selectionActive) return;
         var w = window.innerWidth, x = e.clientX;
-        if (isHorizontal()) {
-          var step = window.innerWidth - 8;
-          if (x < w * 0.22) {
-            s.scrollLeft = Math.max(0, s.scrollLeft - step);
-          } else if (x > w * 0.78) {
-            s.scrollLeft = Math.min(s.scrollWidth - s.clientWidth, s.scrollLeft + step);
-          } else if (x > w * 0.32 && x < w * 0.68) {
-            FlutterBridge.postMessage('TAP|');
-          }
-        } else {
-          if (x > w * 0.32 && x < w * 0.68) FlutterBridge.postMessage('TAP|');
+        if (isHorizontal() && x < w * 0.30) {
+          scrollPage(-1);
+        } else if (isHorizontal() && x > w * 0.70) {
+          scrollPage(1);
+        } else if (x > w * 0.30 && x < w * 0.70) {
+          FlutterBridge.postMessage('TAP|');
         }
       }, true);
+
+      var _touchStartX = 0;
+      var _touchStartY = 0;
+      var _touchStartAt = 0;
+      if (s) {
+        s.addEventListener('touchstart', function(e) {
+          if (!isHorizontal() || !e.touches || !e.touches.length) return;
+          _touchStartX = e.touches[0].clientX;
+          _touchStartY = e.touches[0].clientY;
+          _touchStartAt = Date.now();
+        }, { passive: true });
+
+        s.addEventListener('touchend', function(e) {
+          if (!isHorizontal() || !e.changedTouches || !e.changedTouches.length) return;
+          if (hasSelection() || _selectionActive) return;
+          var dx = e.changedTouches[0].clientX - _touchStartX;
+          var dy = e.changedTouches[0].clientY - _touchStartY;
+          var elapsed = Date.now() - _touchStartAt;
+          if (elapsed > 520) return;
+          if (Math.abs(dx) < 96 || Math.abs(dx) < Math.abs(dy) * 1.7) return;
+          scrollPage(dx > 0 ? -1 : 1);
+          _suppressClickUntil = Date.now() + 260;
+          e.preventDefault();
+        }, { passive: false });
+      }
 
       var t;
       document.addEventListener('selectionchange', function() {
@@ -196,6 +263,7 @@ class ReaderDocumentHtml {
         t = setTimeout(function() {
           var sel = window.getSelection();
           var text = sel ? sel.toString().trim() : '';
+          _selectionActive = !!text;
           if (text) FlutterBridge.postMessage('SELECT|' + text);
         }, 280);
       });
@@ -237,6 +305,13 @@ class ReaderDocumentHtml {
           range.insertNode(span);
         }
         sel.removeAllRanges();
+        _selectionActive = false;
+      };
+
+      window.clearSelection = function() {
+        var sel = window.getSelection();
+        if (sel) sel.removeAllRanges();
+        _selectionActive = false;
       };
 
       document.body.addEventListener('error', function(e) {
@@ -253,24 +328,20 @@ class ReaderDocumentHtml {
     if (t.startsWith(RegExp(r'<!DOCTYPE', caseSensitive: false)) ||
         RegExp(r'<html[\s>]', caseSensitive: false).hasMatch(t)) {
       final doc = html_parser.parse(content);
-      // Extract <style> blocks from <head>
-      final headStyles = StringBuffer();
-      final head = doc.head;
-      if (head != null) {
-        for (final style in head.querySelectorAll('style')) {
-          headStyles.write(style.outerHtml);
-        }
-      }
       var body = (doc.body?.innerHtml ?? '').trim();
       // Fall back to raw content if body is empty after parsing
       if (body.isEmpty) body = content;
+      body = body.replaceAll(
+        RegExp(r'<style[^>]*>.*?</style>', dotAll: true, caseSensitive: false),
+        '',
+      );
       // Strip leading <h1 class="chapter-title">...</h1> from TXT imports
       final trimmed = body.trimLeft();
       if (trimmed.startsWith('<h1 class="chapter-title">')) {
         final endIdx = body.indexOf('</h1>');
         if (endIdx > 0) body = body.substring(endIdx + 5);
       }
-      return '$headStyles$body';
+      return body;
     }
     return content;
   }

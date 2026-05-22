@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
@@ -26,18 +27,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
   late WebViewController _webViewController;
   bool _showControls = true;
   bool _ignoreChapterMessages = false;
+  bool _isExiting = false;
+  bool _hasWebSelection = false;
+  String? _loadedChapterKey;
+  int _appliedReadingPositionRevision = -1;
 
   @override
   void initState() {
     super.initState();
     _initWebView();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final reader = context.read<ReaderProvider>();
-      if (reader.book?.format != 'pdf' && reader.currentChapter != null) {
-        _loadChapter();
-      }
-    });
   }
 
   void _initWebView() {
@@ -67,14 +65,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final settings = context.read<SettingsProvider>();
     _applyReaderStyles(settings);
     if (reader.scrollOffset > 0) {
-      final v = reader.scrollOffset;
-      final horizontal =
-          settings.readerPagingMode == ReaderPagingMode.horizontal;
-      _webViewController.runJavaScript(
-        horizontal
-            ? "(function(){var s=document.getElementById('readSurface');if(s)s.scrollLeft=$v;})();"
-            : "(function(){var s=document.getElementById('readSurface');if(s)s.scrollTop=$v;})();",
-      );
+      _restoreScrollOffset(reader.scrollOffset, settings);
     }
     final target = reader.scrollToTextTarget;
     if (target != null) {
@@ -83,6 +74,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
       );
       reader.setScrollTarget(null);
     }
+  }
+
+  void _restoreScrollOffset(double offset, SettingsProvider settings) {
+    if (offset <= 0) return;
+    final horizontal =
+        settings.readerPagingMode == ReaderPagingMode.horizontal;
+    _webViewController.runJavaScript(
+      horizontal
+          ? "(function(){var s=document.getElementById('readSurface');if(s)s.scrollLeft=$offset;})();"
+          : "(function(){var s=document.getElementById('readSurface');if(s)s.scrollTop=$offset;})();",
+    );
   }
 
   void _applyReaderStyles(SettingsProvider settings) {
@@ -115,6 +117,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final text = message.message;
     if (text.startsWith('SELECT|')) {
       final selectedText = text.substring(7);
+      _hasWebSelection = selectedText.isNotEmpty;
       context.read<ReaderProvider>().selectText(selectedText);
     } else if (text.startsWith('CHAPTER|')) {
       if (_ignoreChapterMessages) return;
@@ -124,6 +127,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         final newIdx = reader.currentChapterIndex + offset;
         if (newIdx < reader.chapters.length && newIdx != reader.currentChapterIndex) {
           reader.goToChapter(newIdx);
+          _loadChapter();
         }
       }
     } else if (text.startsWith('SCROLL|')) {
@@ -159,6 +163,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final chapter = reader.currentChapter;
     if (chapter == null) return;
     if (reader.book == null) return;
+    _loadedChapterKey = _chapterLoadKey(reader);
+    _appliedReadingPositionRevision = reader.readingPositionRevision;
 
     final settings = context.read<SettingsProvider>();
     final chapterIdx = reader.currentChapterIndex.toString();
@@ -190,16 +196,54 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _webViewController.loadHtmlString(html, baseUrl: baseDir);
   }
 
+  String? _chapterLoadKey(ReaderProvider reader) {
+    final bookId = reader.book?.id;
+    final chapter = reader.currentChapter;
+    if (bookId == null || chapter == null) return null;
+    return '$bookId:${reader.currentChapterIndex}:${chapter.index}:${chapter.content.length}';
+  }
+
+  bool _scheduleChapterLoadIfNeeded(ReaderProvider reader) {
+    final key = _chapterLoadKey(reader);
+    if (key == null || key == _loadedChapterKey) return false;
+    _loadedChapterKey = key;
+    _appliedReadingPositionRevision = reader.readingPositionRevision;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _loadChapter();
+    });
+    return true;
+  }
+
+  void _scheduleScrollRestoreIfNeeded(
+    ReaderProvider reader,
+    SettingsProvider settings,
+  ) {
+    if (reader.currentChapter == null ||
+        reader.readingPositionRevision == _appliedReadingPositionRevision) {
+      return;
+    }
+    final offset = reader.scrollOffset;
+    _appliedReadingPositionRevision = reader.readingPositionRevision;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _restoreScrollOffset(offset, settings);
+    });
+  }
+
   String _buildChapterHtml(
       String title, String content, SettingsProvider settings,
       {List<Highlight> highlights = const [],
        List<Map<String, String>> nextChapters = const []}) {
+    final media = MediaQuery.of(context);
     return ReaderDocumentHtml.build(
       title: title,
       content: content,
       settings: settings,
       highlights: highlights,
       pagingMode: settings.readerPagingMode,
+      topInset: media.padding.top + 64,
+      bottomInset: media.padding.bottom + 72,
       nextChapters: nextChapters,
     );
   }
@@ -247,96 +291,205 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Consumer2<ReaderProvider, SettingsProvider>(
-        builder: (context, reader, settings, _) {
-          if (reader.isLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
+    return PopScope(
+      canPop: _isExiting,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        _exitReader();
+      },
+      child: Scaffold(
+        body: Consumer2<ReaderProvider, SettingsProvider>(
+          builder: (context, reader, settings, _) {
+            if (reader.isLoading) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (reader.loadError != null) {
+              return _buildLoadError(reader.loadError!);
+            }
 
-          final isPdf = reader.book?.format == 'pdf';
+            final isPdf = reader.book?.format == 'pdf';
+            if (!isPdf) {
+              final chapterChanged = _scheduleChapterLoadIfNeeded(reader);
+              if (!chapterChanged) {
+                _scheduleScrollRestoreIfNeeded(reader, settings);
+              }
+            }
+            if (!isPdf && reader.selectedText == null && _hasWebSelection) {
+              _hasWebSelection = false;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                _webViewController.runJavaScript(
+                  'window.clearSelection && window.clearSelection();',
+                );
+              });
+            }
 
-          return Stack(
-            children: [
-              if (isPdf)
-                Stack(
-                  children: [
-                    PdfReaderWidget(
-                      key: ValueKey(settings.readerPagingMode),
-                      scrollDirection:
-                          settings.readerPagingMode == ReaderPagingMode.horizontal
-                              ? Axis.horizontal
-                              : Axis.vertical,
-                    ),
-                    Positioned(
-                      top: 0, left: 0, right: 0,
-                      height: 48,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTap: _toggleControls,
+            return Stack(
+              children: [
+                if (isPdf)
+                  Stack(
+                    children: [
+                      PdfReaderWidget(
+                        key: ValueKey(settings.readerPagingMode),
+                        scrollDirection:
+                            settings.readerPagingMode == ReaderPagingMode.horizontal
+                                ? Axis.horizontal
+                                : Axis.vertical,
                       ),
-                    ),
-                  ],
-                )
-              else
-                WebViewWidget(controller: _webViewController),
+                      Positioned(
+                        top: 0, left: 0, right: 0,
+                        height: 48,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onTap: _toggleControls,
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  WebViewWidget(controller: _webViewController),
 
-              if (reader.selectedText != null)
-                Positioned(
-                  bottom: 0, left: 0, right: 0,
-                  child: SelectionMenu(
-                    selectedText: reader.selectedText!,
-                    onExplain: () => reader.showAiExplanation(),
-                    onHighlight: (color) async {
-                      final chapter = reader.currentChapter;
-                      if (chapter != null) {
-                        final plainText = EpubService.getPlainText(chapter.content);
-                        final startIdx = plainText.indexOf(reader.selectedText!);
-                        if (startIdx >= 0) {
-                          final textContext = EpubService.getContext(
-                            chapter.content,
-                            reader.selectedText!,
-                            200,
+                if (reader.selectedText != null)
+                  Positioned(
+                    bottom: 0, left: 0, right: 0,
+                    child: SelectionMenu(
+                      selectedText: reader.selectedText!,
+                      onExplain: () => reader.showAiExplanation(),
+                      onHighlight: (color) async {
+                        final chapter = reader.currentChapter;
+                        if (chapter != null) {
+                          final plainText = EpubService.getPlainText(chapter.content);
+                          final selectedText = reader.selectedText!;
+                          final startIdx = _findSelectedTextOffset(
+                            plainText,
+                            selectedText,
                           );
+                          final textContext = startIdx >= 0
+                              ? EpubService.getContext(
+                                  chapter.content,
+                                  selectedText,
+                                  200,
+                                )
+                              : (before: '', after: '');
                           await reader.addHighlight(
-                            selectedText: reader.selectedText!,
+                            selectedText: selectedText,
                             contextBefore: textContext.before,
                             contextAfter: textContext.after,
-                            startOffset: startIdx,
-                            endOffset: startIdx + reader.selectedText!.length,
+                            startOffset: startIdx >= 0 ? startIdx : 0,
+                            endOffset: startIdx >= 0
+                                ? startIdx + selectedText.length
+                                : selectedText.length,
                             color: color,
                           );
                           _webViewController.runJavaScript(
-                            "wrapSelection('$color', '${_jsEscape(reader.selectedText!)}')",
+                            "wrapSelection('$color', '${_jsEscape(selectedText)}')",
                           );
+                          _hasWebSelection = false;
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('已由小U整理'), duration: Duration(seconds: 1)),
+                              const SnackBar(
+                                content: Text('已由小U整理'),
+                                duration: Duration(seconds: 1),
+                              ),
                             );
                           }
                         }
-                      }
-                      reader.clearSelection();
-                    },
-                    onNote: () => _showNoteDialog(reader),
-                    onDismiss: () => reader.clearSelection(),
+                        reader.clearSelection();
+                      },
+                      onNote: () => _showNoteDialog(reader),
+                      onDismiss: () => _clearReaderSelection(reader),
+                    ),
                   ),
-                ),
 
-              if (reader.showAiPanel)
-                Positioned(
-                  bottom: 0, left: 0, right: 0,
-                  height: MediaQuery.of(context).size.height * 0.4,
-                  child: const AiExplanationCard(),
-                ),
+                if (reader.showAiPanel)
+                  Positioned(
+                    bottom: 0, left: 0, right: 0,
+                    height: MediaQuery.of(context).size.height * 0.4,
+                    child: const AiExplanationCard(),
+                  ),
 
-              if (_showControls) _buildTopBar(reader),
-              if (_showControls) _buildBottomBar(reader),
-            ],
-          );
-        },
+                if (_showControls) _buildTopBar(reader),
+                if (_showControls) _buildBottomBar(reader),
+              ],
+            );
+          },
+        ),
       ),
     );
+  }
+
+  void _exitReader() {
+    if (_isExiting) return;
+
+    final reader = context.read<ReaderProvider>();
+    reader.cancelScheduledSave();
+    unawaited(reader.saveProgress().catchError((_) {}));
+
+    if (!mounted) return;
+    setState(() => _isExiting = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    });
+  }
+
+  int _findSelectedTextOffset(String plainText, String selectedText) {
+    final direct = plainText.indexOf(selectedText);
+    if (direct >= 0) return direct;
+
+    final normalized = _normalizeWithIndexMap(plainText);
+    final normalizedSelected = selectedText.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalizedSelected.isEmpty) return -1;
+
+    final normalizedIndex = normalized.text.indexOf(normalizedSelected);
+    if (normalizedIndex < 0 || normalizedIndex >= normalized.indexMap.length) {
+      return -1;
+    }
+    return normalized.indexMap[normalizedIndex];
+  }
+
+  ({String text, List<int> indexMap}) _normalizeWithIndexMap(String text) {
+    final buffer = StringBuffer();
+    final indexMap = <int>[];
+    var previousWasSpace = true;
+
+    for (var i = 0; i < text.length; i++) {
+      final char = text[i];
+      final isSpace = RegExp(r'\s').hasMatch(char);
+      if (isSpace) {
+        if (!previousWasSpace) {
+          buffer.write(' ');
+          indexMap.add(i);
+          previousWasSpace = true;
+        }
+      } else {
+        buffer.write(char);
+        indexMap.add(i);
+        previousWasSpace = false;
+      }
+    }
+
+    return (text: buffer.toString().trim(), indexMap: indexMap);
+  }
+
+  void _clearReaderSelection(ReaderProvider reader) {
+    reader.clearSelection();
+    _hasWebSelection = false;
+    _webViewController.runJavaScript('window.clearSelection && window.clearSelection();');
+  }
+
+  String _bookTitleForDisplay(ReaderProvider reader) {
+    final title = reader.book?.title.trim() ?? '';
+    final normalizedTitle = title.toLowerCase();
+    if (title.isNotEmpty &&
+        normalizedTitle != 'unknown title' &&
+        normalizedTitle != 'untitled') {
+      return title;
+    }
+
+    final filePath = reader.book?.filePath ?? '';
+    final fallback = p.basenameWithoutExtension(filePath).trim();
+    return fallback.isNotEmpty ? fallback : '未命名书籍';
   }
 
   Widget _buildTopBar(ReaderProvider reader) {
@@ -349,21 +502,20 @@ class _ReaderScreenState extends State<ReaderScreen> {
           children: [
             IconButton(
               icon: const Icon(Icons.arrow_back),
-              onPressed: () {
-                reader.saveProgress();
-                Navigator.of(context).pop();
-              },
+              onPressed: _exitReader,
             ),
             Expanded(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(reader.book?.title ?? '',
+                  Text(
+                    _bookTitleForDisplay(reader),
                     style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
                     overflow: TextOverflow.ellipsis,
                   ),
                   if (reader.currentChapter != null)
-                    Text(reader.currentChapter!.title,
+                    Text(
+                      reader.currentChapter!.title,
                       style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -432,6 +584,36 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
+  Widget _buildLoadError(String message) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: _exitReader,
+            ),
+            const Spacer(),
+            const Icon(Icons.error_outline, size: 44, color: AppTheme.primary),
+            const SizedBox(height: 16),
+            const Text(
+              '书籍打开失败',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              style: const TextStyle(color: AppTheme.textSecondary, height: 1.4),
+            ),
+            const Spacer(flex: 2),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showTableOfContents(ReaderProvider reader) {
     showModalBottomSheet(
       context: context,
@@ -483,7 +665,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         actions: [
           TextButton(
             onPressed: () {
-              reader.clearSelection();
+              _clearReaderSelection(reader);
               Navigator.pop(ctx);
             },
             child: const Text('取消'),
@@ -499,7 +681,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   );
                 }
               }
-              reader.clearSelection();
+              _clearReaderSelection(reader);
               Navigator.pop(ctx);
             },
             child: const Text('保存'),

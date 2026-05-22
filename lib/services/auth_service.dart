@@ -10,6 +10,7 @@ class AuthService {
   static bool get isLoggedIn => _api.isLoggedIn;
   static String? get userId => _api.userId;
   static String? get email => _api.email;
+  static String? get token => _api.token;
 
   static Future<Map<String, dynamic>?> signUp(
       String email, String password) async {

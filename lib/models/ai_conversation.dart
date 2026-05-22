@@ -29,19 +29,3 @@ class AiMessage {
     return {'role': role, 'content': content};
   }
 }
-
-class AiConversation {
-  final String id;
-  final String bookId;
-  final List<AiMessage> messages;
-  final DateTime createdAt;
-  final DateTime updatedAt;
-
-  AiConversation({
-    required this.id,
-    required this.bookId,
-    required this.messages,
-    required this.createdAt,
-    required this.updatedAt,
-  });
-}

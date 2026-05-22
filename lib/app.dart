@@ -7,12 +7,12 @@ import 'providers/bookshelf_provider.dart';
 import 'providers/reader_provider.dart';
 import 'providers/ai_provider.dart';
 import 'providers/settings_provider.dart';
+import 'providers/xiaou_chat_provider.dart';
 import 'screens/bookmarks/bookmarks_screen.dart';
 import 'screens/bookshelf/bookshelf_screen.dart';
-import 'screens/mingtai/mingtai_screen.dart';
+import 'screens/xiaou/xiaou_home_screen.dart';
 import 'screens/notes/notes_screen.dart';
 import 'screens/notes_free/notes_free_screen.dart';
-import 'screens/profile/profile_screen.dart';
 import 'screens/settings/settings_screen.dart';
 
 class AiReaderApp extends StatelessWidget {
@@ -27,6 +27,7 @@ class AiReaderApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ReaderProvider()),
         ChangeNotifierProvider(create: (_) => AiProvider()),
         ChangeNotifierProvider(create: (_) => SettingsProvider()..loadSettings()),
+        ChangeNotifierProvider(create: (_) => XiaouChatProvider()),
       ],
       child: MaterialApp(
         title: AppConstants.appName,
@@ -52,13 +53,16 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
+  int _xiaouRefreshSignal = 0;
 
-  final _pages = const [
-    BookshelfScreen(),
-    MingtaiScreen(),
-    NotesFreeScreen(),
-    ProfileScreen(),
-  ];
+  List<Widget> get _pages => [
+        const BookshelfScreen(),
+        XiaouHomeScreen(
+          refreshSignal: _xiaouRefreshSignal,
+          autoLoad: false,
+        ),
+        const NotesFreeScreen(),
+      ];
 
   @override
   Widget build(BuildContext context) {
@@ -69,12 +73,27 @@ class _MainScreenState extends State<MainScreen> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
-        onDestinationSelected: (i) => setState(() => _currentIndex = i),
+        onDestinationSelected: (i) => setState(() {
+          final wasOnXiaou = _currentIndex == 1;
+          _currentIndex = i;
+          if (i == 1 && !wasOnXiaou) _xiaouRefreshSignal++;
+        }),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.menu_book_outlined), selectedIcon: Icon(Icons.menu_book), label: '书架'),
-          NavigationDestination(icon: Icon(Icons.lightbulb_outline), selectedIcon: Icon(Icons.lightbulb), label: '明台'),
-          NavigationDestination(icon: Icon(Icons.edit_note_outlined), selectedIcon: Icon(Icons.edit_note), label: '随心记'),
-          NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: '我的'),
+          NavigationDestination(
+            icon: Icon(Icons.menu_book_outlined),
+            selectedIcon: Icon(Icons.menu_book),
+            label: '书架',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.lightbulb_outline),
+            selectedIcon: Icon(Icons.lightbulb),
+            label: '小U',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.edit_note_outlined),
+            selectedIcon: Icon(Icons.edit_note),
+            label: '随心记',
+          ),
         ],
       ),
     );

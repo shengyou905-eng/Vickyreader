@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import '../../../config/theme.dart';
+import '../../../services/book_service.dart';
 
-class MingtaiCard extends StatelessWidget {
+class XiaouCard extends StatelessWidget {
   final String originalText;
   final String? userNote;
   final String? aiTags;
   final String? aiUnderstanding;
   final String? bookTitle;
   final VoidCallback? onDelete;
+  final ValueChanged<String>? onTagTap;
 
-  const MingtaiCard({
+  const XiaouCard({
     super.key,
     required this.originalText,
     this.userNote,
@@ -17,6 +19,7 @@ class MingtaiCard extends StatelessWidget {
     this.aiUnderstanding,
     this.bookTitle,
     this.onDelete,
+    this.onTagTap,
   });
 
   @override
@@ -62,13 +65,31 @@ class MingtaiCard extends StatelessWidget {
             // Tags
             if (tags.isNotEmpty) ...[
               const SizedBox(height: 10),
-              Wrap(spacing: 6, children: tags.map((t) => Chip(
-                label: Text(t, style: const TextStyle(fontSize: 11)),
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                visualDensity: VisualDensity.compact,
-                backgroundColor: AppTheme.primaryLight.withAlpha(25),
-                side: BorderSide.none,
-              )).toList()),
+              Wrap(
+                spacing: 6,
+                children: tags.map((t) {
+                  final label = Text(t, style: const TextStyle(fontSize: 11));
+                  final canOpenTopic = onTagTap != null &&
+                      BookService.isMingtaiTopicTag(t);
+                  if (!canOpenTopic) {
+                    return Chip(
+                      label: label,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      visualDensity: VisualDensity.compact,
+                      backgroundColor: AppTheme.primaryLight.withAlpha(25),
+                      side: BorderSide.none,
+                    );
+                  }
+                  return ActionChip(
+                    label: label,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                    backgroundColor: AppTheme.primaryLight.withAlpha(25),
+                    side: BorderSide.none,
+                    onPressed: () => onTagTap!(t),
+                  );
+                }).toList(),
+              ),
             ],
             // Source
             if (bookTitle != null && bookTitle!.isNotEmpty) ...[

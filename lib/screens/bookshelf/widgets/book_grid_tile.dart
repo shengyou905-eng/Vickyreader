@@ -38,8 +38,7 @@ class BookGridTile extends StatelessWidget {
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: book.coverPath != null &&
-                        File(book.coverPath!).existsSync()
+                child: book.coverPath != null
                     ? Image.file(
                         File(book.coverPath!),
                         fit: BoxFit.cover,

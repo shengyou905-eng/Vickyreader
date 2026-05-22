@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../config/theme.dart';
@@ -66,9 +68,9 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
     }
   }
 
-  void _openBook(Book book) async {
+  void _openBook(Book book) {
     final readerProvider = context.read<ReaderProvider>();
-    await readerProvider.openBook(book);
+    unawaited(readerProvider.openBook(book));
     if (mounted) {
       Navigator.of(context).push(
         MaterialPageRoute(

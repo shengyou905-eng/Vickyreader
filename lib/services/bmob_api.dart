@@ -1,5 +1,6 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
+import 'dart:async';
+
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/constants.dart';
@@ -27,24 +28,25 @@ class BmobApi {
   bool get isLoggedIn => _token != null;
   String? get userId => _userId;
   String? get email => _email;
+  String? get token => _token;
 
   // ---- Auth ----
 
-  Future<Map<String, dynamic>?> signUp(
-      String email, String password) async {
+  Future<Map<String, dynamic>?> signUp(String email, String password) async {
     try {
       final res = await http.post(
-        Uri.parse('${AppConstants.apiBaseUrl}/api/register'),
+        Uri.parse('${AppConstants.apiBaseUrl}/api/auth/register'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'email': email, 'password': password}),
       ).timeout(const Duration(seconds: 15));
 
       if (res.statusCode == 201) {
-        final data = jsonDecode(res.body);
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final user = data['user'] as Map<String, dynamic>;
         await _saveSession(
-          token: data['sessionToken'] as String,
-          userId: data['objectId'] as String,
-          email: email,
+          token: data['token'] as String,
+          userId: user['id'] as String,
+          email: user['email'] as String? ?? email,
         );
         return data;
       }
@@ -55,21 +57,21 @@ class BmobApi {
     }
   }
 
-  Future<Map<String, dynamic>?> signIn(
-      String email, String password) async {
+  Future<Map<String, dynamic>?> signIn(String email, String password) async {
     try {
       final res = await http.post(
-        Uri.parse('${AppConstants.apiBaseUrl}/api/login'),
+        Uri.parse('${AppConstants.apiBaseUrl}/api/auth/login'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'email': email, 'password': password}),
       ).timeout(const Duration(seconds: 15));
 
       if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final user = data['user'] as Map<String, dynamic>;
         await _saveSession(
-          token: data['sessionToken'] as String,
-          userId: data['objectId'] as String,
-          email: email,
+          token: data['token'] as String,
+          userId: user['id'] as String,
+          email: user['email'] as String? ?? email,
         );
         return data;
       }
@@ -106,7 +108,8 @@ class BmobApi {
     final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/classes/$table')
         .replace(queryParameters: queryParams.isNotEmpty ? queryParams : null);
 
-    final res = await http.get(uri, headers: _authHeaders())
+    final res = await http
+        .get(uri, headers: _authHeaders())
         .timeout(const Duration(seconds: 10));
     if (res.statusCode == 200) {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -115,8 +118,7 @@ class BmobApi {
     throw Exception('查询失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
-  Future<Map<String, dynamic>?> create(
-      String table, Map<String, dynamic> body) async {
+  Future<Map<String, dynamic>?> create(String table, Map<String, dynamic> body) async {
     final res = await http.post(
       Uri.parse('${AppConstants.apiBaseUrl}/api/classes/$table'),
       headers: _authHeaders(),
@@ -128,8 +130,7 @@ class BmobApi {
     throw Exception('创建失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
-  Future<bool> update(
-      String table, String objectId, Map<String, dynamic> body) async {
+  Future<bool> update(String table, String objectId, Map<String, dynamic> body) async {
     final res = await http.put(
       Uri.parse('${AppConstants.apiBaseUrl}/api/classes/$table/$objectId'),
       headers: _authHeaders(),
@@ -148,15 +149,15 @@ class BmobApi {
     throw Exception('删除失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
-  Future<Map<String, dynamic>?> createUserEntry(
-      Map<String, dynamic> body) async {
+  Future<Map<String, dynamic>?> createUserEntry(Map<String, dynamic> body) async {
     final res = await http.post(
-      Uri.parse('${AppConstants.apiBaseUrl}/api/user_entries'),
+      Uri.parse('${AppConstants.apiBaseUrl}/api/entries'),
       headers: _authHeaders(),
       body: jsonEncode(body),
     ).timeout(const Duration(seconds: 10));
     if (res.statusCode == 201) {
-      return jsonDecode(res.body) as Map<String, dynamic>;
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return data['entry'] as Map<String, dynamic>?;
     }
     throw Exception('创建 user_entry 失败 (HTTP ${res.statusCode}): ${res.body}');
   }
@@ -185,16 +186,84 @@ class BmobApi {
     }
     if (limit != null) queryParams['limit'] = limit.toString();
 
-    final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/user_entries')
+    final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/entries')
         .replace(queryParameters: queryParams.isNotEmpty ? queryParams : null);
 
-    final res = await http.get(uri, headers: _authHeaders())
+    final res = await http
+        .get(uri, headers: _authHeaders())
         .timeout(const Duration(seconds: 10));
     if (res.statusCode == 200) {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
-      return List<Map<String, dynamic>>.from(data['results'] ?? []);
+      return List<Map<String, dynamic>>.from(data['entries'] ?? []);
     }
     throw Exception('查询 user_entries 失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<bool> deleteUserEntry(String id) async {
+    try {
+      final res = await http.delete(
+        Uri.parse('${AppConstants.apiBaseUrl}/api/entries/$id'),
+        headers: _authHeaders(),
+      ).timeout(const Duration(seconds: 6));
+
+      if (res.statusCode == 204) return true;
+      if (res.statusCode == 404) return false;
+      throw Exception('删除 user_entry 失败 (HTTP ${res.statusCode}): ${res.body}');
+    } on TimeoutException {
+      throw Exception('删除接口超时：请确认线上后端已部署 DELETE /api/entries/:id');
+    }
+  }
+
+  Future<Map<String, dynamic>> answerInsightQuestion(String questionId) async {
+    final res = await http.post(
+      Uri.parse('${AppConstants.apiBaseUrl}/api/insights/questions/$questionId/answer'),
+      headers: _authHeaders(),
+    ).timeout(const Duration(seconds: 15));
+
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    throw Exception('生成小U回答失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>?> saveReadingProgress({
+    required String bookId,
+    required double progress,
+    required String chapterIndex,
+    required double scrollOffset,
+    String? cfi,
+  }) async {
+    final res = await http.post(
+      Uri.parse('${AppConstants.apiBaseUrl}/api/reading-progress'),
+      headers: _authHeaders(),
+      body: jsonEncode({
+        'book_id': bookId,
+        'progress': progress,
+        'chapter_index': chapterIndex,
+        'scroll_offset': scrollOffset,
+        if (cfi != null && cfi.isNotEmpty) 'cfi': cfi,
+      }),
+    ).timeout(const Duration(seconds: 10));
+
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return data['reading_progress'] as Map<String, dynamic>?;
+    }
+    throw Exception('保存阅读进度失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>?> getReadingProgress(String bookId) async {
+    final res = await http.get(
+      Uri.parse('${AppConstants.apiBaseUrl}/api/reading-progress/$bookId'),
+      headers: _authHeaders(),
+    ).timeout(const Duration(seconds: 10));
+
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return data['reading_progress'] as Map<String, dynamic>?;
+    }
+    if (res.statusCode == 404) return null;
+    throw Exception('查询阅读进度失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
   // ---- Internal ----

@@ -13,7 +13,7 @@ class AppConstants {
   //   iOS 模拟器:      'http://localhost:3000'
   //   真机调试:         'http://<你的局域网IP>:3000'
   // 生产环境:          'https://your-domain.com'
-  static const String apiBaseUrl = 'http://192.168.10.9:3000';
+  static const String apiBaseUrl = 'http://101.32.186.151:3000';
 
   // Storage
   static const String dbName = 'ai_reader.db';
