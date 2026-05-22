@@ -70,6 +70,58 @@ class MingtaiQuestionAnswer {
   });
 }
 
+class MingtaiPublicBook {
+  final String id;
+  final String sourceBookId;
+  final String title;
+  final String author;
+  final String coverUrl;
+  final String description;
+  final String copyrightStatus;
+  final int borrowCount;
+  final int annotationCount;
+  final DateTime? createdAt;
+
+  const MingtaiPublicBook({
+    required this.id,
+    required this.sourceBookId,
+    required this.title,
+    required this.author,
+    required this.coverUrl,
+    required this.description,
+    required this.copyrightStatus,
+    required this.borrowCount,
+    required this.annotationCount,
+    required this.createdAt,
+  });
+
+  factory MingtaiPublicBook.fromRemote(Map<String, dynamic> row) {
+    return MingtaiPublicBook(
+      id: row['id']?.toString() ?? '',
+      sourceBookId: row['source_book_id']?.toString() ?? '',
+      title: row['title']?.toString() ?? '未知书名',
+      author: row['author']?.toString() ?? '未知作者',
+      coverUrl: row['cover_url']?.toString() ?? '',
+      description: row['description']?.toString() ?? '',
+      copyrightStatus: row['copyright_status']?.toString() ?? '',
+      borrowCount: int.tryParse(row['borrow_count']?.toString() ?? '') ?? 0,
+      annotationCount:
+          int.tryParse(row['annotation_count']?.toString() ?? '') ?? 0,
+      createdAt: BookService._tryParseDate(row['created_at']),
+    );
+  }
+}
+
+class MingtaiBookDetail {
+  final MingtaiPublicBook book;
+  final List<MingtaiFeedItem> annotations;
+
+  const MingtaiBookDetail({
+    required this.book,
+    required this.annotations,
+  });
+}
+
 class MingtaiFeedItem {
   final String id;
   final String entryId;
@@ -84,6 +136,7 @@ class MingtaiFeedItem {
   final String annotationText;
   final List<String> tags;
   final Map<String, dynamic> metadata;
+  final int resonanceCount;
   final DateTime? createdAt;
 
   const MingtaiFeedItem({
@@ -100,6 +153,7 @@ class MingtaiFeedItem {
     required this.annotationText,
     required this.tags,
     required this.metadata,
+    required this.resonanceCount,
     required this.createdAt,
   });
 
@@ -127,6 +181,8 @@ class MingtaiFeedItem {
       annotationText: row['annotation_text']?.toString() ?? '',
       tags: BookService._remoteTags(row['auto_tags']),
       metadata: metadata,
+      resonanceCount:
+          int.tryParse(row['resonance_count']?.toString() ?? '') ?? 0,
       createdAt: BookService._tryParseDate(row['created_at']),
     );
   }
@@ -503,6 +559,80 @@ class BookService {
   static Future<List<MingtaiFeedItem>> getMingtaiFeed({int limit = 50}) async {
     final rows = await BmobApi.instance.listMingtaiFeed(limit: limit);
     return rows.map(MingtaiFeedItem.fromRemote).toList();
+  }
+
+  static Future<List<MingtaiPublicBook>> getMingtaiBooks({int limit = 50}) async {
+    final rows = await BmobApi.instance.listMingtaiBooks(limit: limit);
+    return rows.map(MingtaiPublicBook.fromRemote).toList();
+  }
+
+  static Future<MingtaiBookDetail> getMingtaiBookDetail(String bookId) async {
+    final data = await BmobApi.instance.getMingtaiBook(bookId);
+    final book = MingtaiPublicBook.fromRemote(
+      Map<String, dynamic>.from(data['book'] ?? {}),
+    );
+    final annotations = List<Map<String, dynamic>>.from(
+      data['annotations'] ?? [],
+    ).map(MingtaiFeedItem.fromRemote).toList();
+    return MingtaiBookDetail(book: book, annotations: annotations);
+  }
+
+  static Future<void> publishBookToMingtai({
+    required Book book,
+    required String copyrightStatus,
+    required List<String> entryIds,
+  }) async {
+    await BmobApi.instance.publishMingtaiBook(
+      sourceBookId: book.id,
+      title: book.title,
+      author: book.author,
+      coverUrl: book.coverPath,
+      description: book.description,
+      copyrightStatus: copyrightStatus,
+      entryIds: entryIds,
+    );
+  }
+
+  static Future<Book> borrowMingtaiBook(MingtaiPublicBook publicBook) async {
+    final data = await BmobApi.instance.borrowMingtaiBook(publicBook.id);
+    final remoteBook = MingtaiPublicBook.fromRemote(
+      Map<String, dynamic>.from(data['book'] ?? {}),
+    );
+    final now = DateTime.now();
+    final book = Book(
+      id: 'mingtai:${remoteBook.id}',
+      title: remoteBook.title,
+      author: remoteBook.author,
+      coverPath: null,
+      filePath: '',
+      format: 'public',
+      description: remoteBook.description,
+      addedAt: now,
+      lastOpenedAt: now,
+      updatedAt: now.toUtc().toIso8601String(),
+    );
+    await insertBook(book);
+    return book;
+  }
+
+  static Future<List<Map<String, dynamic>>> getPublishableEntriesForBook(
+    String bookId,
+  ) async {
+    final rows = await BmobApi.instance.listUserEntries(
+      bookId: bookId,
+      limit: 200,
+    );
+    return rows.where((row) => (row['id']?.toString() ?? '').isNotEmpty).toList();
+  }
+
+  static Future<void> createMingtaiResonance({
+    required String annotationId,
+    required String content,
+  }) async {
+    await BmobApi.instance.createMingtaiResonance(
+      annotationId: annotationId,
+      content: content,
+    );
   }
 
   static Future<void> publishEntryToMingtai(String itemId) async {

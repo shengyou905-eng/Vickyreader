@@ -1,9 +1,25 @@
 const { query } = require('../config/db');
 
+function shapeBook(row) {
+  return {
+    id: row.id,
+    source_book_id: row.source_book_id || '',
+    title: row.title || '',
+    author: row.author || '',
+    cover_url: row.cover_url || '',
+    description: row.description || '',
+    copyright_status: row.copyright_status || '',
+    borrow_count: Number(row.borrow_count || 0),
+    annotation_count: Number(row.annotation_count || 0),
+    created_at: row.created_at,
+  };
+}
+
 function shapeAnnotation(row) {
   return {
     id: row.id,
     entry_id: row.entry_id,
+    public_book_id: row.public_book_id || '',
     source: row.source,
     book_id: row.book_id || '',
     book_title: row.book_title || '',
@@ -15,14 +31,96 @@ function shapeAnnotation(row) {
     annotation_text: row.annotation_text || '',
     auto_tags: row.auto_tags || [],
     metadata_json: row.metadata_json || {},
+    resonance_count: Number(row.resonance_count || 0),
     created_at: row.created_at,
   };
 }
 
-async function publishEntries(userId, entryIds) {
+function normalizeMetadata(metadata) {
+  if (!metadata) return {};
+  if (typeof metadata === 'object' && !Array.isArray(metadata)) return metadata;
+  if (typeof metadata === 'string') {
+    try {
+      const parsed = JSON.parse(metadata);
+      return typeof parsed === 'object' && parsed && !Array.isArray(parsed)
+        ? parsed
+        : {};
+    } catch (_) {
+      return {};
+    }
+  }
+  return {};
+}
+
+async function upsertPublicBook(userId, payload) {
+  const metadata = normalizeMetadata(payload.metadata_json);
+  const result = await query(
+    `INSERT INTO public_books (
+       publisher_user_id,
+       source_book_id,
+       title,
+       author,
+       cover_url,
+       description,
+       copyright_status,
+       metadata_json
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (publisher_user_id, source_book_id) DO UPDATE SET
+       title = EXCLUDED.title,
+       author = EXCLUDED.author,
+       cover_url = EXCLUDED.cover_url,
+       description = EXCLUDED.description,
+       copyright_status = EXCLUDED.copyright_status,
+       metadata_json = EXCLUDED.metadata_json,
+       updated_at = now()
+     RETURNING
+       id,
+       source_book_id,
+       title,
+       author,
+       cover_url,
+       description,
+       copyright_status,
+       borrow_count,
+       0 AS annotation_count,
+       created_at`,
+    [
+      userId,
+      payload.source_book_id,
+      payload.title,
+      payload.author || null,
+      payload.cover_url || null,
+      payload.description || null,
+      payload.copyright_status,
+      metadata,
+    ],
+  );
+
+  return shapeBook(result.rows[0]);
+}
+
+async function publishBook(userId, payload) {
+  const book = await upsertPublicBook(userId, payload);
+  const entryIds = Array.isArray(payload.entry_ids) ? payload.entry_ids : [];
+  const annotations = entryIds.length > 0
+    ? await publishEntries(userId, entryIds, book.id)
+    : [];
+
+  return {
+    book: {
+      ...book,
+      annotation_count: annotations.length,
+    },
+    annotations,
+  };
+}
+
+async function publishEntries(userId, entryIds, publicBookId = null) {
   const result = await query(
     `INSERT INTO public_annotations (
        entry_id,
+       public_book_id,
        user_id,
        source,
        book_id,
@@ -38,6 +136,7 @@ async function publishEntries(userId, entryIds) {
      )
      SELECT
        e.id,
+       COALESCE($3::uuid, pb.id),
        e.user_id,
        e.source,
        e.book_id,
@@ -45,12 +144,14 @@ async function publishEntries(userId, entryIds) {
        COALESCE(
          NULLIF(e.metadata_json->>'book_author', ''),
          NULLIF(e.metadata_json->>'author', ''),
+         pb.author,
          '未知作者'
        ) AS book_author,
        COALESCE(
          NULLIF(e.metadata_json->>'book_cover', ''),
          NULLIF(e.metadata_json->>'cover_path', ''),
          NULLIF(e.metadata_json->>'coverPath', ''),
+         pb.cover_url,
          ''
        ) AS book_cover,
        e.chapter_index,
@@ -65,9 +166,13 @@ async function publishEntries(userId, entryIds) {
        e.auto_tags,
        e.metadata_json || jsonb_build_object('published_from_entry_id', e.id::text)
      FROM user_entries e
+     LEFT JOIN public_books pb
+       ON pb.publisher_user_id = e.user_id
+      AND pb.source_book_id = e.book_id
      WHERE e.user_id = $1
        AND e.id = ANY($2::uuid[])
      ON CONFLICT (entry_id) DO UPDATE SET
+       public_book_id = COALESCE(EXCLUDED.public_book_id, public_annotations.public_book_id),
        source = EXCLUDED.source,
        book_id = EXCLUDED.book_id,
        book_title = EXCLUDED.book_title,
@@ -83,6 +188,7 @@ async function publishEntries(userId, entryIds) {
      RETURNING
        id,
        entry_id,
+       public_book_id,
        source,
        book_id,
        book_title,
@@ -94,8 +200,92 @@ async function publishEntries(userId, entryIds) {
        annotation_text,
        auto_tags,
        metadata_json,
+       0 AS resonance_count,
        created_at`,
-    [userId, entryIds],
+    [userId, entryIds, publicBookId],
+  );
+
+  return result.rows.map(shapeAnnotation);
+}
+
+async function listBooks({ limit = 50 } = {}) {
+  const result = await query(
+    `SELECT
+       b.id,
+       b.source_book_id,
+       b.title,
+       b.author,
+       b.cover_url,
+       b.description,
+       b.copyright_status,
+       b.borrow_count,
+       COUNT(a.id) AS annotation_count,
+       b.created_at
+     FROM public_books b
+     LEFT JOIN public_annotations a ON a.public_book_id = b.id
+     GROUP BY b.id
+     ORDER BY b.created_at DESC
+     LIMIT $1`,
+    [limit],
+  );
+
+  return result.rows.map(shapeBook);
+}
+
+async function getBook(publicBookId) {
+  const bookResult = await query(
+    `SELECT
+       b.id,
+       b.source_book_id,
+       b.title,
+       b.author,
+       b.cover_url,
+       b.description,
+       b.copyright_status,
+       b.borrow_count,
+       COUNT(a.id) AS annotation_count,
+       b.created_at
+     FROM public_books b
+     LEFT JOIN public_annotations a ON a.public_book_id = b.id
+     WHERE b.id = $1
+     GROUP BY b.id`,
+    [publicBookId],
+  );
+
+  if (bookResult.rows.length === 0) return null;
+
+  const annotations = await listAnnotationsByBook(publicBookId);
+  return {
+    book: shapeBook(bookResult.rows[0]),
+    annotations,
+  };
+}
+
+async function listAnnotationsByBook(publicBookId) {
+  const result = await query(
+    `SELECT
+       a.id,
+       a.entry_id,
+       a.public_book_id,
+       a.source,
+       a.book_id,
+       a.book_title,
+       a.book_author,
+       a.book_cover,
+       a.chapter_index,
+       a.chapter_title,
+       a.original_text,
+       a.annotation_text,
+       a.auto_tags,
+       a.metadata_json,
+       COUNT(r.id) AS resonance_count,
+       a.created_at
+     FROM public_annotations a
+     LEFT JOIN resonances r ON r.annotation_id = a.id
+     WHERE a.public_book_id = $1
+     GROUP BY a.id
+     ORDER BY a.created_at DESC`,
+    [publicBookId],
   );
 
   return result.rows.map(shapeAnnotation);
@@ -104,22 +294,26 @@ async function publishEntries(userId, entryIds) {
 async function listFeed({ limit = 50 } = {}) {
   const result = await query(
     `SELECT
-       id,
-       entry_id,
-       source,
-       book_id,
-       book_title,
-       book_author,
-       book_cover,
-       chapter_index,
-       chapter_title,
-       original_text,
-       annotation_text,
-       auto_tags,
-       metadata_json,
-       created_at
-     FROM public_annotations
-     ORDER BY created_at DESC
+       a.id,
+       a.entry_id,
+       a.public_book_id,
+       a.source,
+       a.book_id,
+       a.book_title,
+       a.book_author,
+       a.book_cover,
+       a.chapter_index,
+       a.chapter_title,
+       a.original_text,
+       a.annotation_text,
+       a.auto_tags,
+       a.metadata_json,
+       COUNT(r.id) AS resonance_count,
+       a.created_at
+     FROM public_annotations a
+     LEFT JOIN resonances r ON r.annotation_id = a.id
+     GROUP BY a.id
+     ORDER BY a.created_at DESC
      LIMIT $1`,
     [limit],
   );
@@ -127,7 +321,48 @@ async function listFeed({ limit = 50 } = {}) {
   return result.rows.map(shapeAnnotation);
 }
 
+async function createResonance(userId, annotationId, content) {
+  const result = await query(
+    `INSERT INTO resonances (annotation_id, user_id, content)
+     SELECT id, $2, $3
+     FROM public_annotations
+     WHERE id = $1
+     RETURNING id, annotation_id, content, created_at`,
+    [annotationId, userId, content],
+  );
+
+  return result.rows[0] || null;
+}
+
+async function borrowBook(publicBookId) {
+  const result = await query(
+    `UPDATE public_books
+     SET borrow_count = borrow_count + 1,
+         updated_at = now()
+     WHERE id = $1
+     RETURNING
+       id,
+       source_book_id,
+       title,
+       author,
+       cover_url,
+       description,
+       copyright_status,
+       borrow_count,
+       0 AS annotation_count,
+       created_at`,
+    [publicBookId],
+  );
+
+  return result.rows.length > 0 ? shapeBook(result.rows[0]) : null;
+}
+
 module.exports = {
+  publishBook,
   publishEntries,
+  listBooks,
+  getBook,
   listFeed,
+  createResonance,
+  borrowBook,
 };

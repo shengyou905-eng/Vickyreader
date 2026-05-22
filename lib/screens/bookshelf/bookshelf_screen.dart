@@ -69,6 +69,15 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
   }
 
   void _openBook(Book book) {
+    if (book.format == 'public') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('这是明台借阅书，请在明台书籍详情页查看公开批注'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     final readerProvider = context.read<ReaderProvider>();
     unawaited(readerProvider.openBook(book));
     if (mounted) {

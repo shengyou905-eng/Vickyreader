@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/constants.dart';
@@ -242,18 +243,132 @@ class BmobApi {
     throw Exception('公开到明台失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
-  Future<List<Map<String, dynamic>>> listMingtaiFeed({int limit = 50}) async {
-    final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/feed')
+  Future<Map<String, dynamic>> publishMingtaiBook({
+    required String sourceBookId,
+    required String title,
+    required String copyrightStatus,
+    String? author,
+    String? coverUrl,
+    String? description,
+    List<String> entryIds = const [],
+  }) async {
+    final res = await http.post(
+      Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books'),
+      headers: _authHeaders(),
+      body: jsonEncode({
+        'source_book_id': sourceBookId,
+        'title': title,
+        'author': author ?? '',
+        'cover_url': coverUrl ?? '',
+        'description': description ?? '',
+        'copyright_status': copyrightStatus,
+        'entry_ids': entryIds,
+      }),
+    ).timeout(const Duration(seconds: 12));
+
+    if (res.statusCode == 201) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    throw Exception('发布书籍到明台失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<List<Map<String, dynamic>>> listMingtaiBooks({int limit = 50}) async {
+    final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books')
         .replace(queryParameters: {'limit': limit.toString()});
     final res = await http
         .get(uri, headers: _authHeaders())
-        .timeout(const Duration(seconds: 10));
+        .timeout(const Duration(seconds: 8));
 
     if (res.statusCode == 200) {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
-      return List<Map<String, dynamic>>.from(data['annotations'] ?? []);
+      return List<Map<String, dynamic>>.from(data['books'] ?? []);
     }
-    throw Exception('读取明台失败 (HTTP ${res.statusCode}): ${res.body}');
+    throw Exception('读取明台书库失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>> getMingtaiBook(String bookId) async {
+    final res = await http
+        .get(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId'),
+          headers: _authHeaders(),
+        )
+        .timeout(const Duration(seconds: 8));
+
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    throw Exception('读取明台书籍失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>> borrowMingtaiBook(String bookId) async {
+    final res = await http.post(
+      Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/borrow'),
+      headers: _authHeaders(),
+    ).timeout(const Duration(seconds: 8));
+
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    throw Exception('借阅明台书籍失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>> createMingtaiResonance({
+    required String annotationId,
+    required String content,
+  }) async {
+    final res = await http.post(
+      Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/annotations/$annotationId/resonances'),
+      headers: _authHeaders(),
+      body: jsonEncode({'content': content}),
+    ).timeout(const Duration(seconds: 8));
+
+    if (res.statusCode == 201) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    throw Exception('发送共鸣失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<List<Map<String, dynamic>>> listMingtaiFeed({int limit = 50}) async {
+    final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/feed')
+        .replace(queryParameters: {'limit': limit.toString()});
+
+    debugPrint('[MingtaiFeed] GET $uri');
+    try {
+      final res = await http
+          .get(uri, headers: _authHeaders())
+          .timeout(const Duration(seconds: 8));
+
+      debugPrint('[MingtaiFeed] statusCode=${res.statusCode}');
+      debugPrint('[MingtaiFeed] response.body=${res.body}');
+
+      Map<String, dynamic> data;
+      try {
+        data = jsonDecode(res.body) as Map<String, dynamic>;
+      } catch (e) {
+        debugPrint('[MingtaiFeed] parsed json error=$e');
+        throw Exception('明台返回不是 JSON (HTTP ${res.statusCode})');
+      }
+
+      debugPrint('[MingtaiFeed] parsed json=${jsonEncode(data)}');
+
+      if (res.statusCode == 200) {
+        final annotations = data['annotations'];
+        if (annotations is List) {
+          debugPrint('[MingtaiFeed] annotations.length=${annotations.length}');
+          return List<Map<String, dynamic>>.from(annotations);
+        }
+        debugPrint('[MingtaiFeed] annotations missing or not list, fallback=[]');
+        return [];
+      }
+
+      throw Exception(
+        data['error']?.toString() ??
+            '读取明台失败 (HTTP ${res.statusCode}): ${res.body}',
+      );
+    } on TimeoutException catch (e) {
+      debugPrint('[MingtaiFeed] timeout=$e');
+      return [];
+    }
   }
 
   Future<Map<String, dynamic>?> saveReadingProgress({
