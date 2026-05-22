@@ -33,6 +33,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   bool _reloadAfterCurrent = false;
   String? _answeringQuestionId;
   final Set<String> _deletingIds = {};
+  final Set<String> _publishingIds = {};
 
   @override
   void initState() {
@@ -133,6 +134,31 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
           behavior: SnackBarBehavior.floating,
         ),
       );
+    }
+  }
+
+  Future<void> _publishItem(String id) async {
+    if (id.isEmpty || _publishingIds.contains(id)) return;
+    setState(() => _publishingIds.add(id));
+    try {
+      await BookService.publishEntryToMingtai(id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('已公开到明台'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('公开失败：$e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _publishingIds.remove(id));
     }
   }
 
@@ -256,6 +282,9 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
                         aiUnderstanding: (item['ai_understanding'] as String?) ?? '',
                         bookTitle: (item['book_title'] as String?) ?? '',
                         onTagTap: _openTopic,
+                        onPublish: _publishingIds.contains((item['id'] as String?) ?? '')
+                            ? null
+                            : () => _publishItem((item['id'] as String?) ?? ''),
                         onDelete: _deletingIds.contains((item['id'] as String?) ?? '')
                             ? null
                             : () => _deleteItem((item['id'] as String?) ?? ''),

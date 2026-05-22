@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../models/ai_conversation.dart';
@@ -78,6 +80,7 @@ class AiProvider extends ChangeNotifier {
             aiExplanation: result,
             autoTags: const ['AI解释'],
             autoSummary: _summaryOf(result),
+            metadataJson: jsonEncode({'book_author': bookAuthor}),
             createdAt: DateTime.now(),
             updatedAt: DateTime.now().toUtc().toIso8601String(),
           ),

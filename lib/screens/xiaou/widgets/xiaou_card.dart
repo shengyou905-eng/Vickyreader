@@ -9,6 +9,7 @@ class XiaouCard extends StatelessWidget {
   final String? aiUnderstanding;
   final String? bookTitle;
   final VoidCallback? onDelete;
+  final VoidCallback? onPublish;
   final ValueChanged<String>? onTagTap;
 
   const XiaouCard({
@@ -19,6 +20,7 @@ class XiaouCard extends StatelessWidget {
     this.aiUnderstanding,
     this.bookTitle,
     this.onDelete,
+    this.onPublish,
     this.onTagTap,
   });
 
@@ -100,6 +102,21 @@ class XiaouCard extends StatelessWidget {
                 Text(bookTitle!,
                     style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
                 const Spacer(),
+                if (onPublish != null)
+                  Tooltip(
+                    message: '公开到明台',
+                    child: GestureDetector(
+                      onTap: onPublish,
+                      child: const Padding(
+                        padding: EdgeInsets.only(right: 12),
+                        child: Icon(
+                          Icons.public_outlined,
+                          size: 18,
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ),
                 if (onDelete != null)
                   GestureDetector(
                     onTap: onDelete,

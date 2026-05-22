@@ -70,6 +70,68 @@ class MingtaiQuestionAnswer {
   });
 }
 
+class MingtaiFeedItem {
+  final String id;
+  final String entryId;
+  final String source;
+  final String bookId;
+  final String bookTitle;
+  final String bookAuthor;
+  final String bookCover;
+  final String chapterIndex;
+  final String chapterTitle;
+  final String originalText;
+  final String annotationText;
+  final List<String> tags;
+  final Map<String, dynamic> metadata;
+  final DateTime? createdAt;
+
+  const MingtaiFeedItem({
+    required this.id,
+    required this.entryId,
+    required this.source,
+    required this.bookId,
+    required this.bookTitle,
+    required this.bookAuthor,
+    required this.bookCover,
+    required this.chapterIndex,
+    required this.chapterTitle,
+    required this.originalText,
+    required this.annotationText,
+    required this.tags,
+    required this.metadata,
+    required this.createdAt,
+  });
+
+  factory MingtaiFeedItem.fromRemote(Map<String, dynamic> row) {
+    final metadata = BookService._metadataToRemote(row['metadata_json']);
+    return MingtaiFeedItem(
+      id: row['id']?.toString() ?? '',
+      entryId: row['entry_id']?.toString() ?? '',
+      source: row['source']?.toString() ?? 'manual',
+      bookId: row['book_id']?.toString() ?? '',
+      bookTitle: row['book_title']?.toString() ?? '未知书名',
+      bookAuthor: row['book_author']?.toString() ??
+          metadata['book_author']?.toString() ??
+          metadata['author']?.toString() ??
+          '未知作者',
+      bookCover: row['book_cover']?.toString() ??
+          metadata['book_cover']?.toString() ??
+          metadata['cover_path']?.toString() ??
+          '',
+      chapterIndex: row['chapter_index']?.toString() ?? '',
+      chapterTitle: row['chapter_title']?.toString() ??
+          metadata['chapter_title']?.toString() ??
+          '',
+      originalText: row['original_text']?.toString() ?? '',
+      annotationText: row['annotation_text']?.toString() ?? '',
+      tags: BookService._remoteTags(row['auto_tags']),
+      metadata: metadata,
+      createdAt: BookService._tryParseDate(row['created_at']),
+    );
+  }
+}
+
 class BookService {
   static const Map<String, String> _sourceLabels = {
     'highlight': '划线',
@@ -436,6 +498,46 @@ class BookService {
       answer: data['answer']?.toString() ?? '',
       generatedAt: _tryParseDate(data['generated_at']),
     );
+  }
+
+  static Future<List<MingtaiFeedItem>> getMingtaiFeed({int limit = 50}) async {
+    final rows = await BmobApi.instance.listMingtaiFeed(limit: limit);
+    return rows.map(MingtaiFeedItem.fromRemote).toList();
+  }
+
+  static Future<void> publishEntryToMingtai(String itemId) async {
+    final entryId = itemId.startsWith('entry:') ? itemId.substring(6) : itemId;
+    if (entryId.isEmpty) {
+      throw Exception('找不到远端 entry id，无法公开到明台');
+    }
+    await BmobApi.instance.publishMingtaiAnnotations([entryId]);
+  }
+
+  static Future<void> quoteMingtaiItemToXiaou(MingtaiFeedItem item) async {
+    final api = BmobApi.instance;
+    if (!api.isLoggedIn) {
+      throw Exception('请先登录后再引用到小U');
+    }
+
+    final metadata = Map<String, dynamic>.from(item.metadata);
+    metadata['source'] = 'mingtai';
+    metadata['public_annotation_id'] = item.id;
+    metadata['public_entry_id'] = item.entryId;
+
+    await api.createUserEntry({
+      'source': 'manual',
+      'book_id': item.bookId,
+      'book_title': item.bookTitle,
+      'chapter_index': item.chapterIndex,
+      'chapter_title': item.chapterTitle,
+      'original_text': item.originalText,
+      'user_input': item.annotationText.isNotEmpty
+          ? '引用明台批注：${item.annotationText}'
+          : '引用明台页边笔记',
+      'auto_tags': ['明台引用', ...item.tags],
+      'auto_summary': item.annotationText,
+      'metadata_json': metadata,
+    });
   }
 
   static Future<List<Map<String, dynamic>>> getMingtaiItems({String? tag}) async {

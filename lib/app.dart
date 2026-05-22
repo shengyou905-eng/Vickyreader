@@ -10,6 +10,7 @@ import 'providers/settings_provider.dart';
 import 'providers/xiaou_chat_provider.dart';
 import 'screens/bookmarks/bookmarks_screen.dart';
 import 'screens/bookshelf/bookshelf_screen.dart';
+import 'screens/mingtai/mingtai_screen.dart';
 import 'screens/xiaou/xiaou_home_screen.dart';
 import 'screens/notes/notes_screen.dart';
 import 'screens/notes_free/notes_free_screen.dart';
@@ -62,6 +63,7 @@ class _MainScreenState extends State<MainScreen> {
           autoLoad: false,
         ),
         const NotesFreeScreen(),
+        const MingtaiScreen(),
       ];
 
   @override
@@ -93,6 +95,11 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icon(Icons.edit_note_outlined),
             selectedIcon: Icon(Icons.edit_note),
             label: '随心记',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.auto_stories_outlined),
+            selectedIcon: Icon(Icons.auto_stories),
+            label: '明台',
           ),
         ],
       ),

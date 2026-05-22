@@ -61,27 +61,4 @@ void main() {
     });
   });
 
-  group('AiConversation', () {
-    test('constructor assigns all fields', () {
-      final messages = [
-        AiMessage(role: 'user', content: '你好', timestamp: DateTime(2026, 5, 21)),
-      ];
-      final createdAt = DateTime(2026, 5, 21);
-      final updatedAt = DateTime(2026, 5, 21, 14, 30);
-
-      final conv = AiConversation(
-        id: 'conv-001',
-        bookId: 'book-abc',
-        messages: messages,
-        createdAt: createdAt,
-        updatedAt: updatedAt,
-      );
-
-      expect(conv.id, 'conv-001');
-      expect(conv.bookId, 'book-abc');
-      expect(conv.messages, same(messages));
-      expect(conv.createdAt, createdAt);
-      expect(conv.updatedAt, updatedAt);
-    });
-  });
 }

@@ -226,6 +226,36 @@ class BmobApi {
     throw Exception('生成小U回答失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
+  Future<List<Map<String, dynamic>>> publishMingtaiAnnotations(
+    List<String> entryIds,
+  ) async {
+    final res = await http.post(
+      Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/publish'),
+      headers: _authHeaders(),
+      body: jsonEncode({'entry_ids': entryIds}),
+    ).timeout(const Duration(seconds: 10));
+
+    if (res.statusCode == 201) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return List<Map<String, dynamic>>.from(data['annotations'] ?? []);
+    }
+    throw Exception('公开到明台失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<List<Map<String, dynamic>>> listMingtaiFeed({int limit = 50}) async {
+    final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/feed')
+        .replace(queryParameters: {'limit': limit.toString()});
+    final res = await http
+        .get(uri, headers: _authHeaders())
+        .timeout(const Duration(seconds: 10));
+
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return List<Map<String, dynamic>>.from(data['annotations'] ?? []);
+    }
+    throw Exception('读取明台失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
   Future<Map<String, dynamic>?> saveReadingProgress({
     required String bookId,
     required double progress,
