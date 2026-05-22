@@ -253,7 +253,7 @@ class BmobApi {
     List<String> entryIds = const [],
   }) async {
     final res = await http.post(
-      Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books'),
+      Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/publish-book'),
       headers: _authHeaders(),
       body: jsonEncode({
         'source_book_id': sourceBookId,

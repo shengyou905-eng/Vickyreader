@@ -86,6 +86,41 @@ CREATE INDEX IF NOT EXISTS idx_public_books_created
 CREATE INDEX IF NOT EXISTS idx_public_books_copyright
   ON public_books(copyright_status);
 
+CREATE TABLE IF NOT EXISTS books (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_book_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  author TEXT,
+  cover_url TEXT,
+  description TEXT,
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(source_book_id, title)
+);
+
+CREATE TABLE IF NOT EXISTS book_publications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  book_id UUID NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+  public_book_id UUID REFERENCES public_books(id) ON DELETE CASCADE,
+  publisher_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  source_book_id TEXT NOT NULL,
+  copyright_status TEXT NOT NULL CHECK (
+    copyright_status IN ('public_domain', 'original', 'authorized')
+  ),
+  reading_count INTEGER NOT NULL DEFAULT 0,
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(publisher_user_id, source_book_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_book_publications_public_book
+  ON book_publications(public_book_id);
+
+CREATE INDEX IF NOT EXISTS idx_book_publications_created
+  ON book_publications(created_at DESC);
+
 CREATE TABLE IF NOT EXISTS public_annotations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   entry_id UUID NOT NULL UNIQUE REFERENCES user_entries(id) ON DELETE CASCADE,
@@ -146,3 +181,38 @@ CREATE TABLE IF NOT EXISTS resonances (
 
 CREATE INDEX IF NOT EXISTS idx_resonances_annotation
   ON resonances(annotation_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS book_discussions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  public_book_id UUID NOT NULL REFERENCES public_books(id) ON DELETE CASCADE,
+  annotation_id UUID REFERENCES public_annotations(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  discussion_type TEXT NOT NULL DEFAULT 'resonance' CHECK (
+    discussion_type IN ('thought', 'ai_explanation', 'resonance')
+  ),
+  anchor_text TEXT,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_book_discussions_public_book
+  ON book_discussions(public_book_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS book_resonance (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  public_book_id UUID REFERENCES public_books(id) ON DELETE CASCADE,
+  annotation_id UUID REFERENCES public_annotations(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_book_resonance_annotation
+  ON book_resonance(annotation_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS reading_personality_profiles (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  personality_type TEXT,
+  signals_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

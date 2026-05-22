@@ -10,7 +10,9 @@ function shapeBook(row) {
     description: row.description || '',
     copyright_status: row.copyright_status || '',
     borrow_count: Number(row.borrow_count || 0),
+    reading_count: Number(row.reading_count || row.borrow_count || 0),
     annotation_count: Number(row.annotation_count || 0),
+    recent_discussion_count: Number(row.recent_discussion_count || 0),
     created_at: row.created_at,
   };
 }
@@ -97,7 +99,62 @@ async function upsertPublicBook(userId, payload) {
     ],
   );
 
-  return shapeBook(result.rows[0]);
+  const book = shapeBook(result.rows[0]);
+  await syncBookPublicationSideTables(userId, payload, book);
+  return book;
+}
+
+async function syncBookPublicationSideTables(userId, payload, publicBook) {
+  const metadata = normalizeMetadata(payload.metadata_json);
+  await query(
+    `WITH source_book AS (
+       INSERT INTO books (
+         source_book_id,
+         title,
+         author,
+         cover_url,
+         description,
+         metadata_json
+       )
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (source_book_id, title) DO UPDATE SET
+         author = EXCLUDED.author,
+         cover_url = EXCLUDED.cover_url,
+         description = EXCLUDED.description,
+         metadata_json = EXCLUDED.metadata_json,
+         updated_at = now()
+       RETURNING id
+     )
+     INSERT INTO book_publications (
+       book_id,
+       public_book_id,
+       publisher_user_id,
+       source_book_id,
+       copyright_status,
+       reading_count,
+       metadata_json
+     )
+     SELECT id, $7, $8, $1, $9, $10, $6
+     FROM source_book
+     ON CONFLICT (publisher_user_id, source_book_id) DO UPDATE SET
+       book_id = EXCLUDED.book_id,
+       public_book_id = EXCLUDED.public_book_id,
+       copyright_status = EXCLUDED.copyright_status,
+       metadata_json = EXCLUDED.metadata_json,
+       updated_at = now()`,
+    [
+      payload.source_book_id,
+      payload.title,
+      payload.author || null,
+      payload.cover_url || null,
+      payload.description || null,
+      metadata,
+      publicBook.id,
+      userId,
+      payload.copyright_status,
+      publicBook.borrow_count,
+    ],
+  );
 }
 
 async function publishBook(userId, payload) {
@@ -219,10 +276,14 @@ async function listBooks({ limit = 50 } = {}) {
        b.description,
        b.copyright_status,
        b.borrow_count,
-       COUNT(a.id) AS annotation_count,
+       b.borrow_count AS reading_count,
+       COUNT(DISTINCT a.id) AS annotation_count,
+       GREATEST(COUNT(DISTINCT r.id), COUNT(DISTINCT d.id)) AS recent_discussion_count,
        b.created_at
      FROM public_books b
      LEFT JOIN public_annotations a ON a.public_book_id = b.id
+     LEFT JOIN resonances r ON r.annotation_id = a.id
+     LEFT JOIN book_discussions d ON d.public_book_id = b.id
      GROUP BY b.id
      ORDER BY b.created_at DESC
      LIMIT $1`,
@@ -243,10 +304,14 @@ async function getBook(publicBookId) {
        b.description,
        b.copyright_status,
        b.borrow_count,
-       COUNT(a.id) AS annotation_count,
+       b.borrow_count AS reading_count,
+       COUNT(DISTINCT a.id) AS annotation_count,
+       GREATEST(COUNT(DISTINCT r.id), COUNT(DISTINCT d.id)) AS recent_discussion_count,
        b.created_at
      FROM public_books b
      LEFT JOIN public_annotations a ON a.public_book_id = b.id
+     LEFT JOIN resonances r ON r.annotation_id = a.id
+     LEFT JOIN book_discussions d ON d.public_book_id = b.id
      WHERE b.id = $1
      GROUP BY b.id`,
     [publicBookId],
@@ -323,11 +388,49 @@ async function listFeed({ limit = 50 } = {}) {
 
 async function createResonance(userId, annotationId, content) {
   const result = await query(
-    `INSERT INTO resonances (annotation_id, user_id, content)
-     SELECT id, $2, $3
-     FROM public_annotations
-     WHERE id = $1
-     RETURNING id, annotation_id, content, created_at`,
+    `WITH target AS (
+       SELECT id, public_book_id, original_text
+       FROM public_annotations
+       WHERE id = $1
+     ),
+     created AS (
+       INSERT INTO resonances (annotation_id, user_id, content)
+       SELECT id, $2, $3
+       FROM target
+       RETURNING id, annotation_id, content, created_at
+     ),
+     public_resonance AS (
+       INSERT INTO book_resonance (
+         public_book_id,
+         annotation_id,
+         user_id,
+         content
+       )
+       SELECT target.public_book_id, target.id, $2, $3
+       FROM target
+       RETURNING id
+     ),
+     discussion AS (
+       INSERT INTO book_discussions (
+         public_book_id,
+         annotation_id,
+         user_id,
+         discussion_type,
+         anchor_text,
+         content
+       )
+       SELECT
+         target.public_book_id,
+         target.id,
+         $2,
+         'resonance',
+         target.original_text,
+         $3
+       FROM target
+       RETURNING id
+     )
+     SELECT id, annotation_id, content, created_at
+     FROM created`,
     [annotationId, userId, content],
   );
 
@@ -349,12 +452,24 @@ async function borrowBook(publicBookId) {
        description,
        copyright_status,
        borrow_count,
+       borrow_count AS reading_count,
        0 AS annotation_count,
+       0 AS recent_discussion_count,
        created_at`,
     [publicBookId],
   );
 
-  return result.rows.length > 0 ? shapeBook(result.rows[0]) : null;
+  if (result.rows.length === 0) return null;
+
+  await query(
+    `UPDATE book_publications
+     SET reading_count = reading_count + 1,
+         updated_at = now()
+     WHERE public_book_id = $1`,
+    [publicBookId],
+  );
+
+  return shapeBook(result.rows[0]);
 }
 
 module.exports = {

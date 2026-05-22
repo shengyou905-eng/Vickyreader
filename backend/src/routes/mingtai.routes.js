@@ -6,6 +6,7 @@ const router = express.Router();
 
 router.get('/books', mingtaiController.listBooks);
 router.post('/books', auth, mingtaiController.publishBook);
+router.post('/publish-book', auth, mingtaiController.publishBook);
 router.get('/books/:id', mingtaiController.getBook);
 router.post('/books/:id/borrow', auth, mingtaiController.borrowBook);
 router.post('/annotations/:id/resonances', auth, mingtaiController.createResonance);

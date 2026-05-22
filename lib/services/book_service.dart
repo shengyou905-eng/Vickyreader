@@ -79,7 +79,9 @@ class MingtaiPublicBook {
   final String description;
   final String copyrightStatus;
   final int borrowCount;
+  final int readingCount;
   final int annotationCount;
+  final int recentDiscussionCount;
   final DateTime? createdAt;
 
   const MingtaiPublicBook({
@@ -91,7 +93,9 @@ class MingtaiPublicBook {
     required this.description,
     required this.copyrightStatus,
     required this.borrowCount,
+    required this.readingCount,
     required this.annotationCount,
+    required this.recentDiscussionCount,
     required this.createdAt,
   });
 
@@ -105,8 +109,13 @@ class MingtaiPublicBook {
       description: row['description']?.toString() ?? '',
       copyrightStatus: row['copyright_status']?.toString() ?? '',
       borrowCount: int.tryParse(row['borrow_count']?.toString() ?? '') ?? 0,
+      readingCount: int.tryParse(row['reading_count']?.toString() ?? '') ??
+          int.tryParse(row['borrow_count']?.toString() ?? '') ??
+          0,
       annotationCount:
           int.tryParse(row['annotation_count']?.toString() ?? '') ?? 0,
+      recentDiscussionCount:
+          int.tryParse(row['recent_discussion_count']?.toString() ?? '') ?? 0,
       createdAt: BookService._tryParseDate(row['created_at']),
     );
   }
