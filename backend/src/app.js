@@ -4,6 +4,7 @@ const { corsOrigin, nodeEnv } = require('./config/env');
 const authRoutes = require('./routes/auth.routes');
 const entriesRoutes = require('./routes/entries.routes');
 const insightsRoutes = require('./routes/insights.routes');
+const mingtaiRoutes = require('./routes/mingtai.routes');
 const readingProgressRoutes = require('./routes/readingProgress.routes');
 const aiRoutes = require('./routes/ai.routes');
 const errorHandler = require('./middleware/errorHandler');
@@ -20,6 +21,7 @@ app.get('/api/health', (_req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/entries', entriesRoutes);
 app.use('/api/insights', insightsRoutes);
+app.use('/api/mingtai', mingtaiRoutes);
 app.use('/api/reading-progress', readingProgressRoutes);
 app.use('/api/ai', aiRoutes);
 

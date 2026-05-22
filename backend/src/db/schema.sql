@@ -61,3 +61,46 @@ CREATE TABLE IF NOT EXISTS reading_progresses (
 
 CREATE INDEX IF NOT EXISTS idx_reading_progresses_user_book
   ON reading_progresses(user_id, book_id);
+
+CREATE TABLE IF NOT EXISTS public_annotations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  entry_id UUID NOT NULL UNIQUE REFERENCES user_entries(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+  source TEXT NOT NULL CHECK (
+    source IN ('highlight', 'thought', 'ai_explanation', 'manual')
+  ),
+
+  book_id TEXT,
+  book_title TEXT,
+  book_author TEXT,
+  book_cover TEXT,
+  chapter_index TEXT,
+  chapter_title TEXT,
+
+  original_text TEXT,
+  annotation_text TEXT,
+  auto_tags TEXT[] NOT NULL DEFAULT '{}',
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public_annotations
+  ADD COLUMN IF NOT EXISTS book_author TEXT;
+
+ALTER TABLE public_annotations
+  ADD COLUMN IF NOT EXISTS book_cover TEXT;
+
+ALTER TABLE public_annotations
+  ADD COLUMN IF NOT EXISTS chapter_title TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_public_annotations_created
+  ON public_annotations(created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_public_annotations_book
+  ON public_annotations(book_id);
+
+CREATE INDEX IF NOT EXISTS idx_public_annotations_entry
+  ON public_annotations(entry_id);
