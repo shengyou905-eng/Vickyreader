@@ -38,6 +38,7 @@ migrate_working_dir/
 **/.npm-cache/
 **/.env
 !**/.env.example
+backend/uploads/
 
 # Symbolication related
 app.*.symbols

@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../config/theme.dart';
 import '../../models/book.dart';
 import '../../providers/bookshelf_provider.dart';
+import '../../providers/reader_provider.dart';
+import '../../services/auth_service.dart';
 import '../../services/book_service.dart';
+import '../reader/reader_screen.dart';
 
 class MingtaiScreen extends StatefulWidget {
   const MingtaiScreen({super.key});
@@ -26,6 +31,7 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
 
   Future<void> _load() async {
     final firstLoad = _books.isEmpty;
+    if (!mounted) return;
     setState(() {
       _loading = firstLoad;
       _refreshing = !firstLoad;
@@ -159,6 +165,7 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
   final Set<String> _resonatingIds = {};
   int _selectedCommunityTab = 0;
   bool _loading = true;
+  bool _startingReading = false;
   bool _borrowing = false;
   String? _error;
 
@@ -213,6 +220,33 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
       );
     } finally {
       if (mounted) setState(() => _borrowing = false);
+    }
+  }
+
+  Future<void> _startReading() async {
+    final book = _detail?.book;
+    if (book == null || _startingReading) return;
+    if (book.fileUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('这本明台书缺少文件，请从书架重新发布覆盖'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _startingReading = true);
+    try {
+      final readerBook = BookService.readableBookFromMingtai(book);
+      final readerProvider = context.read<ReaderProvider>();
+      unawaited(readerProvider.openBook(readerBook));
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ReaderScreen()),
+      );
+    } finally {
+      if (mounted) setState(() => _startingReading = false);
     }
   }
 
@@ -317,7 +351,9 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
                   children: [
                     _BookDetailHeader(
                       book: detail!.book,
+                      startingReading: _startingReading,
                       borrowing: _borrowing,
+                      onStartReading: _startReading,
                       onBorrow: _borrow,
                     ),
                     const SizedBox(height: 22),
@@ -375,7 +411,9 @@ class _PublishBookSheetState extends State<_PublishBookSheet> {
       final books = await BookService.getBooks();
       if (!mounted) return;
       setState(() {
-        _books = books.where((book) => book.format != 'public').toList();
+        _books = books
+            .where((book) => !BookService.isMingtaiShelfBook(book))
+            .toList();
         _selectedBook = _books.isEmpty ? null : _books.first;
         _loading = false;
       });
@@ -416,6 +454,15 @@ class _PublishBookSheetState extends State<_PublishBookSheet> {
   Future<void> _submit() async {
     final book = _selectedBook;
     if (book == null || _submitting) return;
+    await AuthService.init();
+    if (!mounted) return;
+    if (!AuthService.isLoggedIn) {
+      setState(() {
+        _error = '请先登录后再发布到明台';
+      });
+      return;
+    }
+
     setState(() {
       _submitting = true;
       _error = null;
@@ -713,7 +760,7 @@ class _PublicBookCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 5),
                   Text(
-                    book.author.isEmpty ? '未知作者' : book.author,
+                    book.author.isEmpty ? '佚名' : book.author,
                     style: const TextStyle(
                       color: AppTheme.textSecondary,
                       fontSize: 12,
@@ -825,12 +872,16 @@ class _CommunityTabs extends StatelessWidget {
 
 class _BookDetailHeader extends StatelessWidget {
   final MingtaiPublicBook book;
+  final bool startingReading;
   final bool borrowing;
+  final VoidCallback onStartReading;
   final VoidCallback onBorrow;
 
   const _BookDetailHeader({
     required this.book,
+    required this.startingReading,
     required this.borrowing,
+    required this.onStartReading,
     required this.onBorrow,
   });
 
@@ -863,7 +914,7 @@ class _BookDetailHeader extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  book.author.isEmpty ? '未知作者' : book.author,
+                  book.author.isEmpty ? '佚名' : book.author,
                   style: const TextStyle(
                     color: AppTheme.textSecondary,
                     fontSize: 13,
@@ -882,9 +933,32 @@ class _BookDetailHeader extends StatelessWidget {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
-                    onPressed: borrowing ? null : onBorrow,
+                    onPressed: startingReading || book.fileUrl.isEmpty
+                        ? null
+                        : onStartReading,
+                    icon: const Icon(Icons.menu_book_rounded),
+                    label: Text(
+                      book.fileUrl.isEmpty
+                          ? '缺少书籍文件'
+                          : startingReading
+                              ? '打开中...'
+                              : '开始阅读',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: borrowing || book.fileUrl.isEmpty ? null : onBorrow,
                     icon: const Icon(Icons.library_add_outlined),
-                    label: Text(borrowing ? '借阅中...' : '借阅到书架'),
+                    label: Text(
+                      book.fileUrl.isEmpty
+                          ? '缺少书籍文件'
+                          : borrowing
+                              ? '借阅中...'
+                              : '借阅到书架',
+                    ),
                   ),
                 ),
               ],

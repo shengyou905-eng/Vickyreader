@@ -73,14 +73,18 @@ class ReaderProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    final chaptersFuture = book.format == 'pdf'
-        ? Future.value([EpubChapter(title: 'PDF 文档', content: '', index: 0)])
-        : EpubService.getChapters(book.id);
-    final highlightsFuture = BookService.getHighlights(book.id);
-    final bookmarksFuture = BookService.getBookmarks(book.id);
-    final progressFuture = BookService.getReadingProgress(book.id);
-
     try {
+      final readableBook = await BookService.prepareBookForReading(book);
+      if (token != _openBookToken || _disposed) return;
+      _book = readableBook;
+
+      final chaptersFuture = readableBook.format == 'pdf'
+          ? Future.value([EpubChapter(title: 'PDF 文档', content: '', index: 0)])
+          : EpubService.getChapters(readableBook.id);
+      final highlightsFuture = BookService.getHighlights(readableBook.id);
+      final bookmarksFuture = BookService.getBookmarks(readableBook.id);
+      final progressFuture = BookService.getReadingProgress(readableBook.id);
+
       final results = await Future.wait<Object?>([
         chaptersFuture,
         highlightsFuture,
@@ -101,7 +105,7 @@ class ReaderProvider extends ChangeNotifier {
       notifyListeners();
 
       unawaited(_refreshRemoteReadingProgress(
-        book.id,
+        readableBook.id,
         token,
         baseChapterIndex: restored.chapterIndex,
         baseScrollOffset: restored.scrollOffset,
@@ -157,10 +161,11 @@ class ReaderProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void goToChapter(int index) {
+  void goToChapter(int index, {double scrollOffset = 0.0}) {
     if (index >= 0 && index < _chapters.length) {
       _currentChapterIndex = index;
-      _scrollOffset = 0.0;
+      _scrollOffset = scrollOffset;
+      _readingPositionRevision++;
       _checkBookmarkStatus();
       _scheduleProgressSave();
       notifyListeners();

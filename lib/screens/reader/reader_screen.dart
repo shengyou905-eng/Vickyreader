@@ -31,6 +31,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
   bool _hasWebSelection = false;
   String? _loadedChapterKey;
   int _appliedReadingPositionRevision = -1;
+  DateTime _lastChapterBoundaryAt =
+      DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -64,7 +66,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final reader = context.read<ReaderProvider>();
     final settings = context.read<SettingsProvider>();
     _applyReaderStyles(settings);
-    if (reader.scrollOffset > 0) {
+    if (reader.scrollOffset != 0) {
       _restoreScrollOffset(reader.scrollOffset, settings);
     }
     final target = reader.scrollToTextTarget;
@@ -77,13 +79,22 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _restoreScrollOffset(double offset, SettingsProvider settings) {
-    if (offset <= 0) return;
+    if (offset == 0) return;
     final horizontal =
         settings.readerPagingMode == ReaderPagingMode.horizontal;
+    final axis = horizontal ? 'Left' : 'Top';
+    final size = horizontal ? 'Width' : 'Height';
+    final target = offset < 0
+        ? "Math.max(0, s.scroll$size - s.client$size)"
+        : offset.toString();
     _webViewController.runJavaScript(
-      horizontal
-          ? "(function(){var s=document.getElementById('readSurface');if(s)s.scrollLeft=$offset;})();"
-          : "(function(){var s=document.getElementById('readSurface');if(s)s.scrollTop=$offset;})();",
+      "(function(){var s=document.getElementById('readSurface');"
+      "if(!s)return;"
+      "requestAnimationFrame(function(){"
+      "s.scroll$axis=$target;"
+      "setTimeout(function(){s.scroll$axis=$target;},80);"
+      "});"
+      "})();",
     );
   }
 
@@ -133,6 +144,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     } else if (text.startsWith('SCROLL|')) {
       final offset = double.tryParse(text.substring(7)) ?? 0;
       context.read<ReaderProvider>().updateScrollOffset(offset);
+    } else if (text.startsWith('BOUNDARY|')) {
+      _handleChapterBoundary(text.substring(9));
     } else if (text.startsWith('TAP|')) {
       _toggleControls();
     } else if (text.startsWith('NAV|')) {
@@ -172,22 +185,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
         .where((h) => h.chapterIndex == chapterIdx)
         .toList();
 
-    final List<Map<String, String>> nextChapters = [];
-    for (int i = 1; i <= 2; i++) {
-      final idx = reader.currentChapterIndex + i;
-      if (idx < reader.chapters.length) {
-        nextChapters.add({
-          'title': reader.chapters[idx].title,
-          'content': reader.chapters[idx].content,
-        });
-      }
-    }
     final html = _buildChapterHtml(
       chapter.title,
       chapter.content,
       settings,
       highlights: chapterHighlights,
-      nextChapters: nextChapters,
     );
     final filePath = await EpubService.getChapterFilePath(
         reader.book!.id, reader.currentChapterIndex);
@@ -260,6 +262,30 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final reader = context.read<ReaderProvider>();
     if (reader.currentChapterIndex > 0) {
       reader.goToChapter(reader.currentChapterIndex - 1);
+      _loadChapter();
+    }
+  }
+
+  void _handleChapterBoundary(String direction) {
+    final now = DateTime.now();
+    if (now.difference(_lastChapterBoundaryAt).inMilliseconds < 450) {
+      return;
+    }
+
+    final reader = context.read<ReaderProvider>();
+    if (reader.selectedText != null || _hasWebSelection) return;
+
+    if (direction == 'next' &&
+        reader.currentChapterIndex < reader.chapters.length - 1) {
+      _lastChapterBoundaryAt = now;
+      reader.goToChapter(reader.currentChapterIndex + 1);
+      _loadChapter();
+    } else if (direction == 'prev' && reader.currentChapterIndex > 0) {
+      _lastChapterBoundaryAt = now;
+      reader.goToChapter(
+        reader.currentChapterIndex - 1,
+        scrollOffset: -1,
+      );
       _loadChapter();
     }
   }

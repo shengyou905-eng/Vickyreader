@@ -15,4 +15,5 @@ module.exports = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '30d',
   databaseUrl: process.env.DATABASE_URL,
   corsOrigin: process.env.CORS_ORIGIN || '*',
+  publicBaseUrl: process.env.PUBLIC_BASE_URL || '',
 };

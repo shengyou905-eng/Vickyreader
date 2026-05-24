@@ -2,7 +2,11 @@ function errorHandler(error, _req, res, _next) {
   console.error(error);
 
   if (error.statusCode) {
-    return res.status(error.statusCode).json({ error: error.message });
+    return res.status(error.statusCode).json({
+      error: error.message,
+      ...(error.missing_fields ? { missing_fields: error.missing_fields } : {}),
+      ...(error.details ? { details: error.details } : {}),
+    });
   }
 
   if (error.code === '23505') {

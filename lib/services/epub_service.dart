@@ -37,7 +37,12 @@ class EpubMetadata {
 }
 
 class EpubService {
-  static Future<Book> importEpub(String filePath) async {
+  static Future<Book> importEpub(
+    String filePath, {
+    String? bookId,
+    String? title,
+    String? author,
+  }) async {
     final bytes = await File(filePath).readAsBytes();
     final archive = ZipDecoder().decodeBytes(bytes);
 
@@ -63,6 +68,19 @@ class EpubService {
     );
 
     final metadata = _parseMetadata(opfXml);
+    final fileTitle = p.basenameWithoutExtension(filePath).trim();
+    final titleOverride = _cleanMetadataValue(title ?? '');
+    final authorOverride = _cleanMetadataValue(author ?? '');
+    final bookTitle = titleOverride.isNotEmpty
+        ? titleOverride
+        : _cleanMetadataValue(metadata.title).isNotEmpty
+            ? _cleanMetadataValue(metadata.title)
+            : (fileTitle.isNotEmpty ? fileTitle : '未命名文档');
+    final bookAuthor = authorOverride.isNotEmpty
+        ? authorOverride
+        : _cleanMetadataValue(metadata.author).isNotEmpty
+            ? _cleanMetadataValue(metadata.author)
+        : '佚名';
     final manifest = _parseManifest(opfXml);
     final spine = _parseSpine(opfXml);
     final guide = _parseGuide(opfXml);
@@ -71,9 +89,9 @@ class EpubService {
     final appDir = (await getApplicationDocumentsDirectory()).path;
     final bookDir = p.join(appDir, AppConstants.booksDir);
     await Directory(bookDir).create(recursive: true);
-    final bookId = const Uuid().v4();
-    final bookChapterDir = p.join(bookDir, bookId);
-    await Directory(bookChapterDir).create();
+    final resolvedBookId = bookId ?? const Uuid().v4();
+    final bookChapterDir = p.join(bookDir, resolvedBookId);
+    await Directory(bookChapterDir).create(recursive: true);
     final imageDir = p.join(bookChapterDir, 'images');
     await Directory(imageDir).create();
 
@@ -130,9 +148,9 @@ class EpubService {
     await spineFile.writeAsString(jsonEncode(spine));
 
     return Book(
-      id: bookId,
-      title: metadata.title,
-      author: metadata.author,
+      id: resolvedBookId,
+      title: bookTitle,
+      author: bookAuthor,
       coverPath: coverPath,
       filePath: filePath,
       description: metadata.description,
@@ -213,11 +231,11 @@ class EpubService {
 
     final titleNode = metadataNode.findElements('${dc}title').firstOrNull ??
         metadataNode.findElements('title').firstOrNull;
-    title = titleNode?.innerText ?? 'Unknown Title';
+    title = titleNode?.innerText.trim() ?? '';
 
     final creatorNode = metadataNode.findElements('${dc}creator').firstOrNull ??
         metadataNode.findElements('creator').firstOrNull;
-    author = creatorNode?.innerText ?? 'Unknown Author';
+    author = creatorNode?.innerText.trim() ?? '';
 
     final descNode = metadataNode.findElements('${dc}description').firstOrNull ??
         metadataNode.findElements('${dcterms}description').firstOrNull ??
@@ -258,6 +276,15 @@ class EpubService {
       description: description,
       coverHref: coverHref,
     );
+  }
+
+  static String _cleanMetadataValue(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return '';
+    final lower = trimmed.toLowerCase();
+    if (lower == 'unknown title' || lower == 'unknown author') return '';
+    if (trimmed == '未知书名' || trimmed == '未知作者') return '';
+    return trimmed;
   }
 
   static Map<String, String> _parseManifest(XmlDocument opf) {

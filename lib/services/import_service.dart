@@ -6,16 +6,36 @@ import 'pdf_service.dart';
 
 class ImportService {
   /// Detect format from extension and route to correct parser
-  static Future<Book> importFile(String filePath) async {
+  static Future<Book> importFile(
+    String filePath, {
+    String? bookId,
+    String? title,
+    String? author,
+  }) async {
     final ext = p.extension(filePath).toLowerCase().replaceAll('.', '');
 
     switch (ext) {
       case 'epub':
-        return EpubService.importEpub(filePath);
+        return EpubService.importEpub(
+          filePath,
+          bookId: bookId,
+          title: title,
+          author: author,
+        );
       case 'txt':
-        return TxtService.importTxt(filePath);
+        return TxtService.importTxt(
+          filePath,
+          bookId: bookId,
+          title: title,
+          author: author,
+        );
       case 'pdf':
-        return PdfService.importPdf(filePath);
+        return PdfService.importPdf(
+          filePath,
+          bookId: bookId,
+          title: title,
+          author: author,
+        );
       default:
         throw Exception('不支持的格式：.$ext。支持 EPUB、TXT、PDF');
     }

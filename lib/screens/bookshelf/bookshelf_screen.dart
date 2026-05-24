@@ -10,6 +10,7 @@ import '../../providers/reader_provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/book_service.dart';
 import '../../services/sync_service.dart';
+import '../mingtai/mingtai_screen.dart';
 import '../reader/reader_screen.dart';
 import 'widgets/book_grid_tile.dart';
 import 'widgets/empty_bookshelf.dart';
@@ -71,10 +72,14 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
 
   void _openBook(Book book) {
     if (book.format == 'public') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('这是明台借阅书，请在明台书籍详情页查看公开批注'),
-          behavior: SnackBarBehavior.floating,
+      final publicBookId = _publicBookIdFromShelfBook(book);
+      if (publicBookId.isEmpty) {
+        _showError('找不到明台书籍 id');
+        return;
+      }
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => MingtaiBookDetailScreen(bookId: publicBookId),
         ),
       );
       return;
@@ -88,6 +93,18 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
         ),
       );
     }
+  }
+
+  String _publicBookIdFromShelfBook(Book book) {
+    const legacyPrefix = 'mingtai:';
+    const prefix = 'mingtai_';
+    if (book.id.startsWith(legacyPrefix)) {
+      return book.id.substring(legacyPrefix.length);
+    }
+    if (book.id.startsWith(prefix)) {
+      return book.id.substring(prefix.length);
+    }
+    return '';
   }
 
   void _showError(String error) {
@@ -137,8 +154,8 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
             ListTile(
               leading: const Icon(Icons.public_outlined),
               title: const Text('发布到明台'),
-              subtitle: const Text('只公开书籍信息，不默认公开私密笔记'),
-              enabled: book.format != 'public',
+              subtitle: const Text('上传书籍文件，不默认公开私密笔记'),
+              enabled: !BookService.isMingtaiShelfBook(book),
               onTap: () => Navigator.pop(ctx, 'publish'),
             ),
             ListTile(
@@ -173,7 +190,7 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
               Text('是否公开《${book.title}》？'),
               const SizedBox(height: 10),
               const Text(
-                '公开后：\n- 其他用户可浏览此书\n- 可查看公共划线与讨论\n- 不会公开你的私密笔记',
+                '公开后：\n- 书籍文件会保存到明台公共书库\n- 其他用户可打开阅读并查看公共讨论\n- 不会公开你的私密笔记',
                 style: TextStyle(fontSize: 13, height: 1.5),
               ),
               const SizedBox(height: 14),
@@ -217,6 +234,18 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
     );
 
     if (confirmed != true) return;
+    await AuthService.init();
+    if (!AuthService.isLoggedIn) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('请先登录后再发布到明台'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     try {
       await BookService.publishBookToMingtai(
         book: book,

@@ -66,6 +66,7 @@ class ReaderDocumentHtml {
     width: 100%; height: 100%;
     padding: var(--reader-top-inset) var(--page-pad-x) var(--reader-bottom-inset);
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
   #readSurface[data-paging="vertical"] {
     overflow-x: hidden;
@@ -73,13 +74,15 @@ class ReaderDocumentHtml {
     touch-action: pan-y;
   }
   #readSurface[data-paging="horizontal"] {
-    overflow-x: hidden;
+    overflow-x: auto;
     overflow-y: hidden;
-    touch-action: manipulation;
+    touch-action: pan-x;
     column-width: calc(100vw - 2 * var(--page-pad-x));
     column-gap: 28px;
     scroll-snap-type: x proximity;
+    scrollbar-width: none;
   }
+  #readSurface[data-paging="horizontal"]::-webkit-scrollbar { display: none; }
   .chapter-title {
     font-size: calc(var(--font-size) + 4px);
     font-weight: bold;
@@ -155,13 +158,51 @@ class ReaderDocumentHtml {
       function pageStep() {
         return window.innerWidth - 8;
       }
+      function maxScroll() {
+        if (!s) return 0;
+        return isHorizontal()
+          ? Math.max(0, s.scrollWidth - s.clientWidth)
+          : Math.max(0, s.scrollHeight - s.clientHeight);
+      }
+      function currentScroll() {
+        if (!s) return 0;
+        return isHorizontal() ? s.scrollLeft : s.scrollTop;
+      }
+      function atStart(edge) {
+        return currentScroll() <= (edge || 10);
+      }
+      function atEnd(edge) {
+        return currentScroll() >= maxScroll() - (edge || 10);
+      }
+      var _boundaryUntil = 0;
+      function requestBoundary(direction) {
+        if (!s || hasSelection() || _selectionActive) return;
+        var now = Date.now();
+        if (now < _boundaryUntil) return;
+        _boundaryUntil = now + 520;
+        _suppressClickUntil = now + 260;
+        FlutterBridge.postMessage('BOUNDARY|' + direction);
+      }
       function scrollPage(direction) {
         if (!s || !isHorizontal() || hasSelection() || _selectionActive) return;
+        scrollOnePageFrom(s.scrollLeft, direction);
+      }
+      function scrollOnePageFrom(startScroll, direction) {
+        if (!s || !isHorizontal()) return;
         var step = pageStep();
+        var base = Math.round(startScroll / step) * step;
         if (direction < 0) {
-          s.scrollLeft = Math.max(0, s.scrollLeft - step);
+          if (base <= 12) {
+            requestBoundary('prev');
+            return;
+          }
+          s.scrollTo({ left: Math.max(0, base - step), behavior: 'auto' });
         } else {
-          s.scrollLeft = Math.min(s.scrollWidth - s.clientWidth, s.scrollLeft + step);
+          if (base >= maxScroll() - 12) {
+            requestBoundary('next');
+            return;
+          }
+          s.scrollTo({ left: Math.min(maxScroll(), base + step), behavior: 'auto' });
         }
       }
       function postScroll() {
@@ -234,27 +275,66 @@ class ReaderDocumentHtml {
 
       var _touchStartX = 0;
       var _touchStartY = 0;
+      var _touchStartScroll = 0;
       var _touchStartAt = 0;
+      var _horizontalTouch = false;
       if (s) {
         s.addEventListener('touchstart', function(e) {
-          if (!isHorizontal() || !e.touches || !e.touches.length) return;
+          if (!e.touches || !e.touches.length) return;
           _touchStartX = e.touches[0].clientX;
           _touchStartY = e.touches[0].clientY;
+          _touchStartScroll = currentScroll();
           _touchStartAt = Date.now();
+          _horizontalTouch = false;
         }, { passive: true });
 
+        s.addEventListener('touchmove', function(e) {
+          if (!isHorizontal() || !e.touches || !e.touches.length) return;
+          if (hasSelection() || _selectionActive) return;
+          var dx = e.touches[0].clientX - _touchStartX;
+          var dy = e.touches[0].clientY - _touchStartY;
+          if (Math.abs(dx) > 18 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+            _horizontalTouch = true;
+            e.preventDefault();
+          }
+        }, { passive: false });
+
         s.addEventListener('touchend', function(e) {
-          if (!isHorizontal() || !e.changedTouches || !e.changedTouches.length) return;
+          if (!e.changedTouches || !e.changedTouches.length) return;
           if (hasSelection() || _selectionActive) return;
           var dx = e.changedTouches[0].clientX - _touchStartX;
           var dy = e.changedTouches[0].clientY - _touchStartY;
           var elapsed = Date.now() - _touchStartAt;
-          if (elapsed > 520) return;
-          if (Math.abs(dx) < 96 || Math.abs(dx) < Math.abs(dy) * 1.7) return;
-          scrollPage(dx > 0 ? -1 : 1);
-          _suppressClickUntil = Date.now() + 260;
-          e.preventDefault();
+          if (isHorizontal()) {
+            if (elapsed > 900) return;
+            if (Math.abs(dx) < 72 || Math.abs(dx) < Math.abs(dy) * 1.35) return;
+            scrollOnePageFrom(_touchStartScroll, dx > 0 ? -1 : 1);
+            _suppressClickUntil = Date.now() + 180;
+            return;
+          }
+          if (elapsed > 1200) return;
+          if (Math.abs(dy) < 118 || Math.abs(dy) < Math.abs(dx) * 1.5) return;
+          var startedNearTop = _touchStartScroll <= 18;
+          var endedNearTop = atStart(18);
+          var startedNearBottom = _touchStartScroll >= maxScroll() - 18;
+          var endedNearBottom = atEnd(18);
+          if (dy > 0 && (startedNearTop || endedNearTop)) {
+            requestBoundary('prev');
+          } else if (dy < 0 && (startedNearBottom || endedNearBottom)) {
+            requestBoundary('next');
+          }
         }, { passive: false });
+
+        s.addEventListener('wheel', function(e) {
+          if (hasSelection() || _selectionActive) return;
+          if (isHorizontal()) return;
+          if (Math.abs(e.deltaY) < 72) return;
+          if (e.deltaY < 0 && atStart(8)) {
+            requestBoundary('prev');
+          } else if (e.deltaY > 0 && atEnd(8)) {
+            requestBoundary('next');
+          }
+        }, { passive: true });
       }
 
       var t;

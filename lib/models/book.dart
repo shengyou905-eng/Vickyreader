@@ -5,7 +5,7 @@ class Book {
   final String author;
   final String? coverPath;
   final String filePath;
-  final String format; // 'epub', 'txt', 'pdf'
+  final String format; // 'epub', 'txt', 'pdf', 'public'
   final String? description;
   final DateTime addedAt;
   final DateTime lastOpenedAt;
@@ -49,13 +49,14 @@ class Book {
 
   factory Book.fromMap(Map<String, dynamic> map) {
     final rawTitles = (map['chapterTitles'] as String?) ?? '';
+    final filePath = map['filePath'] as String;
     return Book(
       id: map['id'] as String,
       userId: (map['user_id'] as String?) ?? '',
-      title: map['title'] as String,
-      author: map['author'] as String,
+      title: _safeTitle((map['title'] as String?) ?? '', filePath),
+      author: _safeAuthor((map['author'] as String?) ?? ''),
       coverPath: map['coverPath'] as String?,
-      filePath: map['filePath'] as String,
+      filePath: filePath,
       format: (map['format'] as String?) ?? 'epub',
       description: map['description'] as String?,
       addedAt: DateTime.parse(map['addedAt'] as String),
@@ -64,6 +65,35 @@ class Book {
       chapterTitles: rawTitles.isEmpty ? [] : rawTitles.split('\t'),
       updatedAt: (map['updated_at'] as String?) ?? '',
     );
+  }
+
+  static String _safeTitle(String value, String filePath) {
+    final trimmed = value.trim();
+    final lower = trimmed.toLowerCase();
+    if (trimmed.isNotEmpty &&
+        lower != 'unknown title' &&
+        trimmed != '未知书名') {
+      return trimmed;
+    }
+    final pathParts = filePath
+        .split(RegExp(r'[\\/]'))
+        .where((part) => part.isNotEmpty)
+        .toList();
+    final fileName = pathParts.isNotEmpty ? pathParts.last : '';
+    final dot = fileName.lastIndexOf('.');
+    final name = dot > 0 ? fileName.substring(0, dot) : fileName;
+    return name.trim().isNotEmpty ? name.trim() : '未命名文档';
+  }
+
+  static String _safeAuthor(String value) {
+    final trimmed = value.trim();
+    final lower = trimmed.toLowerCase();
+    if (trimmed.isEmpty ||
+        lower == 'unknown author' ||
+        trimmed == '未知作者') {
+      return '佚名';
+    }
+    return trimmed;
   }
 
   Book copyWith({

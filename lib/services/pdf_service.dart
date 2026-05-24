@@ -9,16 +9,24 @@ import '../models/book.dart';
 class PdfService {
   /// Import a PDF file: copy to app storage, save metadata.
   /// Rendering is handled by pdfx in PdfReaderWidget.
-  static Future<Book> importPdf(String filePath) async {
+  static Future<Book> importPdf(
+    String filePath, {
+    String? bookId,
+    String? title,
+    String? author,
+  }) async {
     final fileName = p.basenameWithoutExtension(filePath);
-    final title = fileName.isNotEmpty ? fileName : '未命名文档';
+    final bookTitle = (title ?? '').trim().isNotEmpty
+        ? title!.trim()
+        : (fileName.isNotEmpty ? fileName : '未命名文档');
+    final bookAuthor = (author ?? '').trim().isNotEmpty ? author!.trim() : '佚名';
 
     final appDir = await getApplicationDocumentsDirectory();
     final bookDir = p.join(appDir.path, AppConstants.booksDir);
     await Directory(bookDir).create(recursive: true);
-    final bookId = const Uuid().v4();
-    final chapterDir = p.join(bookDir, bookId);
-    await Directory(chapterDir).create();
+    final resolvedBookId = bookId ?? const Uuid().v4();
+    final chapterDir = p.join(bookDir, resolvedBookId);
+    await Directory(chapterDir).create(recursive: true);
 
     // Copy original PDF to book directory for rendering
     final pdfCopyPath = p.join(chapterDir, 'original.pdf');
@@ -30,9 +38,9 @@ class PdfService {
     }));
 
     return Book(
-      id: bookId,
-      title: title,
-      author: '未知作者',
+      id: resolvedBookId,
+      title: bookTitle,
+      author: bookAuthor,
       filePath: pdfCopyPath,
       format: 'pdf',
       addedAt: DateTime.now(),

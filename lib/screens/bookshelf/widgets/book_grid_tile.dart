@@ -121,7 +121,7 @@ class BookGridTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(3),
               ),
               child: Text(
-                book.format.toUpperCase(),
+                _formatLabel(),
                 style: TextStyle(
                   fontSize: 9,
                   fontWeight: FontWeight.w700,
@@ -135,7 +135,23 @@ class BookGridTile extends StatelessWidget {
     );
   }
 
+  String _formatLabel() {
+    if (book.format == 'public' ||
+        book.id.startsWith('mingtai_') ||
+        book.id.startsWith('mingtai:')) {
+      return '明台';
+    }
+    return book.format.toUpperCase();
+  }
+
   (IconData, Color, Color) _formatStyle() {
+    if (book.id.startsWith('mingtai_') || book.id.startsWith('mingtai:')) {
+      return (
+        Icons.auto_stories_rounded,
+        AppTheme.primaryLight.withAlpha(70),
+        AppTheme.primaryDark.withAlpha(70),
+      );
+    }
     switch (book.format) {
       case 'txt':
         return (
@@ -148,6 +164,12 @@ class BookGridTile extends StatelessWidget {
           Icons.picture_as_pdf_rounded,
           Colors.red.shade100,
           Colors.red.shade700,
+        );
+      case 'public':
+        return (
+          Icons.auto_stories_rounded,
+          AppTheme.primaryLight.withAlpha(70),
+          AppTheme.primaryDark.withAlpha(70),
         );
       default: // epub
         return (

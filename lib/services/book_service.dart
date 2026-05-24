@@ -1,5 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:crypto/crypto.dart';
+import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import '../models/book.dart';
 import '../models/bookmark.dart';
@@ -8,6 +13,9 @@ import '../models/ai_conversation.dart';
 import '../models/user_entry.dart';
 import 'bmob_api.dart';
 import 'database_service.dart';
+import 'epub_service.dart';
+import 'import_service.dart';
+import 'pdf_service.dart';
 
 class MingtaiOverview {
   final List<Map<String, dynamic>> items;
@@ -76,6 +84,10 @@ class MingtaiPublicBook {
   final String title;
   final String author;
   final String coverUrl;
+  final String fileUrl;
+  final String storagePath;
+  final String fileType;
+  final int fileSize;
   final String description;
   final String copyrightStatus;
   final int borrowCount;
@@ -90,6 +102,10 @@ class MingtaiPublicBook {
     required this.title,
     required this.author,
     required this.coverUrl,
+    required this.fileUrl,
+    required this.storagePath,
+    required this.fileType,
+    required this.fileSize,
     required this.description,
     required this.copyrightStatus,
     required this.borrowCount,
@@ -100,12 +116,21 @@ class MingtaiPublicBook {
   });
 
   factory MingtaiPublicBook.fromRemote(Map<String, dynamic> row) {
+    final title = _safePublicTitle(row['title']?.toString() ?? '');
+    final author = _safePublicAuthor(row['author']?.toString() ?? '');
     return MingtaiPublicBook(
       id: row['id']?.toString() ?? '',
       sourceBookId: row['source_book_id']?.toString() ?? '',
-      title: row['title']?.toString() ?? '未知书名',
-      author: row['author']?.toString() ?? '未知作者',
+      title: title,
+      author: author,
       coverUrl: row['cover_url']?.toString() ?? '',
+      fileUrl: row['file_url']?.toString() ?? '',
+      storagePath: row['storage_path']?.toString() ?? '',
+      fileType: _safeFileType(
+        row['file_type']?.toString() ?? '',
+        row['file_url']?.toString() ?? '',
+      ),
+      fileSize: int.tryParse(row['file_size']?.toString() ?? '') ?? 0,
       description: row['description']?.toString() ?? '',
       copyrightStatus: row['copyright_status']?.toString() ?? '',
       borrowCount: int.tryParse(row['borrow_count']?.toString() ?? '') ?? 0,
@@ -118,6 +143,35 @@ class MingtaiPublicBook {
           int.tryParse(row['recent_discussion_count']?.toString() ?? '') ?? 0,
       createdAt: BookService._tryParseDate(row['created_at']),
     );
+  }
+
+  static String _safePublicTitle(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty ||
+        trimmed.toLowerCase() == 'unknown title' ||
+        trimmed == '未知书名') {
+      return '未命名文档';
+    }
+    return trimmed;
+  }
+
+  static String _safePublicAuthor(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty ||
+        trimmed.toLowerCase() == 'unknown author' ||
+        trimmed == '未知作者') {
+      return '佚名';
+    }
+    return trimmed;
+  }
+
+  static String _safeFileType(String value, String fileUrl) {
+    final type = value.trim().toLowerCase().replaceAll('.', '');
+    if (type == 'epub' || type == 'txt' || type == 'pdf') return type;
+    final uriPath = Uri.tryParse(fileUrl)?.path ?? fileUrl;
+    final ext = p.extension(uriPath).toLowerCase().replaceAll('.', '');
+    if (ext == 'epub' || ext == 'txt' || ext == 'pdf') return ext;
+    return 'epub';
   }
 }
 
@@ -173,11 +227,11 @@ class MingtaiFeedItem {
       entryId: row['entry_id']?.toString() ?? '',
       source: row['source']?.toString() ?? 'manual',
       bookId: row['book_id']?.toString() ?? '',
-      bookTitle: row['book_title']?.toString() ?? '未知书名',
+      bookTitle: row['book_title']?.toString() ?? '未命名文档',
       bookAuthor: row['book_author']?.toString() ??
           metadata['book_author']?.toString() ??
           metadata['author']?.toString() ??
-          '未知作者',
+          '佚名',
       bookCover: row['book_cover']?.toString() ??
           metadata['book_cover']?.toString() ??
           metadata['cover_path']?.toString() ??
@@ -591,15 +645,78 @@ class BookService {
     required String copyrightStatus,
     required List<String> entryIds,
   }) async {
-    await BmobApi.instance.publishMingtaiBook(
-      sourceBookId: book.id,
-      title: book.title,
-      author: book.author,
+    final api = BmobApi.instance;
+    await api.init();
+    if (!api.isLoggedIn || (api.token?.trim().isEmpty ?? true)) {
+      throw Exception('请先登录后再发布到明台');
+    }
+
+    final title = _safeBookTitleForPublish(book);
+    final author = _safeBookAuthorForPublish(book.author);
+    final sourceBookId = _sourceBookIdForPublish(book);
+    final fileType = _fileTypeForPublish(book);
+    await api.publishMingtaiBook(
+      sourceBookId: sourceBookId,
+      title: title,
+      author: author,
       coverUrl: book.coverPath,
       description: book.description,
       copyrightStatus: copyrightStatus,
+      filePath: book.filePath,
+      fileType: fileType,
       entryIds: entryIds,
     );
+  }
+
+  static String _sourceBookIdForPublish(Book book) {
+    final id = book.id.trim();
+    if (id.isNotEmpty) return id;
+
+    final path = book.filePath.trim();
+    if (path.isNotEmpty) {
+      final digest = md5.convert(utf8.encode(path)).toString();
+      return 'local_path_$digest';
+    }
+
+    final fileName = p.basename(book.filePath).trim();
+    final importedAt = book.addedAt.millisecondsSinceEpoch;
+    final seed = '$importedAt:$fileName:${book.title}';
+    return 'local_import_${md5.convert(utf8.encode(seed))}';
+  }
+
+  static String _fileTypeForPublish(Book book) {
+    final format = book.format.trim().toLowerCase().replaceAll('.', '');
+    if (_supportedFormat(format)) return format;
+    final ext = p.extension(book.filePath).toLowerCase().replaceAll('.', '');
+    if (_supportedFormat(ext)) return ext;
+    return 'epub';
+  }
+
+  static String _safeBookTitleForPublish(Book book) {
+    final title = book.title.trim();
+    if (title.isNotEmpty &&
+        title.toLowerCase() != 'unknown title' &&
+        title != '未知书名') {
+      return title;
+    }
+    final pathParts = book.filePath
+        .split(RegExp(r'[\\/]'))
+        .where((part) => part.isNotEmpty)
+        .toList();
+    final fileName = pathParts.isNotEmpty ? pathParts.last : '';
+    final dot = fileName.lastIndexOf('.');
+    final name = dot > 0 ? fileName.substring(0, dot) : fileName;
+    return name.trim().isNotEmpty ? name.trim() : '未命名文档';
+  }
+
+  static String _safeBookAuthorForPublish(String author) {
+    final trimmed = author.trim();
+    if (trimmed.isEmpty ||
+        trimmed.toLowerCase() == 'unknown author' ||
+        trimmed == '未知作者') {
+      return '佚名';
+    }
+    return trimmed;
   }
 
   static Future<Book> borrowMingtaiBook(MingtaiPublicBook publicBook) async {
@@ -607,14 +724,17 @@ class BookService {
     final remoteBook = MingtaiPublicBook.fromRemote(
       Map<String, dynamic>.from(data['book'] ?? {}),
     );
+    if (remoteBook.fileUrl.isEmpty) {
+      throw Exception('这本明台书还没有可阅读文件');
+    }
     final now = DateTime.now();
     final book = Book(
-      id: 'mingtai:${remoteBook.id}',
+      id: publicShelfBookId(remoteBook.id),
       title: remoteBook.title,
       author: remoteBook.author,
       coverPath: null,
-      filePath: '',
-      format: 'public',
+      filePath: remoteBook.fileUrl,
+      format: remoteBook.fileType,
       description: remoteBook.description,
       addedAt: now,
       lastOpenedAt: now,
@@ -622,6 +742,142 @@ class BookService {
     );
     await insertBook(book);
     return book;
+  }
+
+  static Book readableBookFromMingtai(MingtaiPublicBook publicBook) {
+    return Book(
+      id: publicShelfBookId(publicBook.id),
+      title: publicBook.title,
+      author: publicBook.author,
+      coverPath: null,
+      filePath: publicBook.fileUrl,
+      format: publicBook.fileType,
+      description: publicBook.description,
+      addedAt: DateTime.now(),
+      lastOpenedAt: DateTime.now(),
+      chapterTitles: const [],
+      updatedAt: DateTime.now().toUtc().toIso8601String(),
+    );
+  }
+
+  static String publicShelfBookId(String publicBookId) => 'mingtai_$publicBookId';
+
+  static bool isMingtaiShelfBook(Book book) {
+    return book.id.startsWith('mingtai_') || book.id.startsWith('mingtai:');
+  }
+
+  static Future<Book> prepareBookForReading(Book book) async {
+    if (!isMingtaiShelfBook(book)) {
+      return book;
+    }
+    if (book.filePath.isEmpty) {
+      throw Exception('这本明台书还没有可阅读文件');
+    }
+    if (!_isRemoteUrl(book.filePath)) {
+      return book;
+    }
+
+    final format = _supportedFormat(book.format)
+        ? book.format
+        : _formatFromUrl(book.filePath);
+
+    if (format == 'pdf') {
+      final pdfPath = await PdfService.getPdfPath(book.id);
+      if (await File(pdfPath).exists()) {
+        await _refreshCachedPublicBookMetadata(
+          book,
+          format: 'pdf',
+          chapterTitles: const ['PDF 文档'],
+        );
+        return book.copyWith(filePath: pdfPath, format: 'pdf');
+      }
+    } else {
+      final chapters = await EpubService.getChapters(book.id);
+      if (chapters.isNotEmpty) {
+        await _refreshCachedPublicBookMetadata(
+          book,
+          format: format,
+          chapterTitles: chapters.map((chapter) => chapter.title).toList(),
+        );
+        return book.copyWith(format: format);
+      }
+    }
+
+    final localPath = await _downloadPublicBookFile(book, format);
+    final imported = await ImportService.importFile(
+      localPath,
+      bookId: book.id,
+      title: book.title,
+      author: book.author,
+    );
+    await _refreshCachedPublicBookMetadata(
+      book,
+      format: imported.format,
+      chapterTitles: imported.chapterTitles,
+    );
+    return imported.copyWith(
+      id: book.id,
+      title: book.title,
+      author: book.author,
+      description: book.description,
+      format: imported.format,
+    );
+  }
+
+  static Future<void> _refreshCachedPublicBookMetadata(
+    Book book, {
+    required String format,
+    required List<String> chapterTitles,
+  }) async {
+    final existing = await getBook(book.id);
+    if (existing == null) return;
+    await updateBook(
+      existing.copyWith(
+        title: book.title,
+        author: book.author,
+        format: format,
+        chapterTitles: chapterTitles,
+      ),
+    );
+  }
+
+  static Future<String> _downloadPublicBookFile(Book book, String format) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final cacheDir = Directory(p.join(dir.path, 'public_books'));
+    await cacheDir.create(recursive: true);
+    final localPath = p.join(cacheDir.path, '${_safeFileName(book.id)}.$format');
+    final localFile = File(localPath);
+    if (await localFile.exists() && await localFile.length() > 0) {
+      return localPath;
+    }
+
+    final response = await http
+        .get(Uri.parse(book.filePath))
+        .timeout(const Duration(seconds: 45));
+    if (response.statusCode != 200) {
+      throw Exception('下载明台书籍失败：HTTP ${response.statusCode}');
+    }
+    await localFile.writeAsBytes(response.bodyBytes);
+    return localPath;
+  }
+
+  static bool _isRemoteUrl(String value) {
+    return value.startsWith('http://') || value.startsWith('https://');
+  }
+
+  static bool _supportedFormat(String value) {
+    final format = value.toLowerCase();
+    return format == 'epub' || format == 'txt' || format == 'pdf';
+  }
+
+  static String _formatFromUrl(String url) {
+    final path = Uri.tryParse(url)?.path ?? url;
+    final ext = p.extension(path).toLowerCase().replaceAll('.', '');
+    return _supportedFormat(ext) ? ext : 'epub';
+  }
+
+  static String _safeFileName(String value) {
+    return value.replaceAll(RegExp(r'[^a-zA-Z0-9_.-]'), '_');
   }
 
   static Future<List<Map<String, dynamic>>> getPublishableEntriesForBook(

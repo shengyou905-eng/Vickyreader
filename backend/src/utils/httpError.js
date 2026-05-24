@@ -1,6 +1,7 @@
-function httpError(statusCode, message) {
+function httpError(statusCode, message, details = {}) {
   const error = new Error(message);
   error.statusCode = statusCode;
+  Object.assign(error, details);
   return error;
 }
 
