@@ -274,7 +274,7 @@ class BmobApi {
         ? sourceBookId.trim()
         : _fallbackSourceBookId(filePath: filePath, title: title);
     final fileBytes = await file.readAsBytes();
-    final requestBody = <String, dynamic>{
+    final fields = <String, String>{
       'source_book_id': resolvedSourceBookId,
       'title': title,
       'author': author ?? '',
@@ -283,25 +283,36 @@ class BmobApi {
       'copyright_status': copyrightStatus,
       'file_type': fileType,
       'file_name': p.basename(filePath),
-      'file_size': fileBytes.length,
-      'file_base64': base64Encode(fileBytes),
-      if (entryIds.isNotEmpty) 'entry_ids': entryIds,
+      'file_size': fileBytes.length.toString(),
+      if (entryIds.isNotEmpty) 'entry_ids': entryIds.join(','),
     };
-    final debugBody = Map<String, dynamic>.from(requestBody)
-      ..['file_base64'] = '<${requestBody['file_base64'].toString().length} chars>';
-    final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books');
+    final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books')
+        .replace(queryParameters: fields);
 
     debugPrint('[MingtaiPublishBook] POST $uri');
-    debugPrint('[MingtaiPublishBook] request.body=${jsonEncode(debugBody)}');
+    debugPrint(
+      '[MingtaiPublishBook] request.body=${jsonEncode({
+        ...fields,
+        'binary_file_bytes': fileBytes.length,
+      })}',
+    );
     debugPrint('[MingtaiPublishBook] source_book_id=$resolvedSourceBookId');
 
+    final headers = _authHeaders(contentType: _fileContentType(fileType))
+      ..addAll({
+        'x-source-book-id': resolvedSourceBookId,
+        'x-title': title,
+        'x-file-type': fileType,
+        'x-file-name': p.basename(filePath),
+        'x-copyright-status': copyrightStatus,
+      });
     final res = await http
         .post(
           uri,
-          headers: _authHeaders(),
-          body: jsonEncode(requestBody),
+          headers: headers,
+          body: fileBytes,
         )
-        .timeout(const Duration(seconds: 60));
+        .timeout(const Duration(minutes: 3));
 
     debugPrint('[MingtaiPublishBook] statusCode=${res.statusCode}');
     debugPrint('[MingtaiPublishBook] response.body=${res.body}');
@@ -539,6 +550,19 @@ class BmobApi {
         ? filePath.trim()
         : '${title.trim()}:${DateTime.now().millisecondsSinceEpoch}';
     return 'local_${md5.convert(utf8.encode(seed))}';
+  }
+
+  String _fileContentType(String fileType) {
+    switch (fileType.toLowerCase().replaceAll('.', '')) {
+      case 'epub':
+        return 'application/epub+zip';
+      case 'pdf':
+        return 'application/pdf';
+      case 'txt':
+        return 'text/plain; charset=utf-8';
+      default:
+        return 'application/octet-stream';
+    }
   }
 
   String _tryDecodeError(String body, int statusCode) {

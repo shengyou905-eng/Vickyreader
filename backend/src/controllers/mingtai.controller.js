@@ -124,7 +124,7 @@ function safeAuthor(value) {
 }
 
 function publicUrlFor(req, publicPath) {
-  const origin = publicBaseUrl.trim().replace(/\/+$/, '') ||
+  const origin = String(publicBaseUrl || '').trim().replace(/\/+$/, '') ||
     `${req.protocol}://${req.get('host')}`;
   return `${origin}${publicPath}`;
 }
