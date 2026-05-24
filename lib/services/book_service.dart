@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -851,13 +852,49 @@ class BookService {
       return localPath;
     }
 
-    final response = await http
-        .get(Uri.parse(book.filePath))
-        .timeout(const Duration(seconds: 45));
-    if (response.statusCode != 200) {
-      throw Exception('下载明台书籍失败：HTTP ${response.statusCode}');
+    final tempFile = File('$localPath.download');
+    if (await tempFile.exists()) {
+      await tempFile.delete();
     }
-    await localFile.writeAsBytes(response.bodyBytes);
+
+    final client = http.Client();
+    IOSink? sink;
+    try {
+      final request = http.Request('GET', Uri.parse(book.filePath))
+        ..headers['Accept'] = '*/*'
+        ..headers['Connection'] = 'close';
+      final response = await client
+          .send(request)
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode != 200) {
+        throw Exception('下载明台书籍失败：HTTP ${response.statusCode}');
+      }
+
+      var received = 0;
+      sink = tempFile.openWrite();
+      await for (final chunk
+          in response.stream.timeout(const Duration(minutes: 3))) {
+        received += chunk.length;
+        sink.add(chunk);
+      }
+      await sink.close();
+      sink = null;
+
+      if (received == 0) {
+        throw Exception('下载明台书籍失败：文件为空');
+      }
+      if (await localFile.exists()) {
+        await localFile.delete();
+      }
+      await tempFile.rename(localPath);
+    } on TimeoutException {
+      throw Exception('下载明台书籍超时，请稍后重试');
+    } on SocketException catch (e) {
+      throw Exception('下载明台书籍连接中断，请稍后重试：${e.message}');
+    } finally {
+      await sink?.close();
+      client.close();
+    }
     return localPath;
   }
 

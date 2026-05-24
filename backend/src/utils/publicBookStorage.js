@@ -12,9 +12,10 @@ const mimeByType = {
 
 function sanitizeFileName(value) {
   return String(value || '')
+    .normalize('NFKD')
     .trim()
-    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
-    .replace(/\s+/g, '_')
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
     .slice(0, 80);
 }
 
@@ -55,7 +56,12 @@ async function savePublicBookFile(buffer, { fileName, fileType, mimeType }) {
   await fs.mkdir(uploadDir, { recursive: true });
 
   const baseName = sanitizeFileName(path.basename(String(fileName || ''), path.extname(String(fileName || ''))));
-  const safeBaseName = baseName || `public-book-${Date.now()}`;
+  const fallbackName = crypto
+    .createHash('sha1')
+    .update(String(fileName || Date.now()))
+    .digest('hex')
+    .slice(0, 12);
+  const safeBaseName = baseName || `public-book-${fallbackName}`;
   const storedName = `${Date.now()}-${crypto.randomUUID()}-${safeBaseName}.${type}`;
   const absolutePath = path.join(uploadDir, storedName);
   await fs.writeFile(absolutePath, buffer);
