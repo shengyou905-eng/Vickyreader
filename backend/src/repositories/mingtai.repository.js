@@ -4,9 +4,13 @@ function shapeBook(row) {
   return {
     id: row.id,
     source_book_id: row.source_book_id || '',
-    title: row.title || '',
-    author: row.author || '',
+    title: safeTitle(row.title),
+    author: safeAuthor(row.author),
     cover_url: row.cover_url || '',
+    file_url: row.file_url || '',
+    storage_path: row.storage_path || '',
+    file_type: row.file_type || '',
+    file_size: Number(row.file_size || 0),
     description: row.description || '',
     copyright_status: row.copyright_status || '',
     borrow_count: Number(row.borrow_count || 0),
@@ -15,6 +19,22 @@ function shapeBook(row) {
     recent_discussion_count: Number(row.recent_discussion_count || 0),
     created_at: row.created_at,
   };
+}
+
+function safeTitle(value) {
+  const title = String(value || '').trim();
+  if (!title || title.toLowerCase() === 'unknown title' || title === '未知书名') {
+    return '未命名文档';
+  }
+  return title;
+}
+
+function safeAuthor(value) {
+  const author = String(value || '').trim();
+  if (!author || author.toLowerCase() === 'unknown author' || author === '未知作者') {
+    return '佚名';
+  }
+  return author;
 }
 
 function shapeAnnotation(row) {
@@ -56,6 +76,8 @@ function normalizeMetadata(metadata) {
 
 async function upsertPublicBook(userId, payload) {
   const metadata = normalizeMetadata(payload.metadata_json);
+  const title = safeTitle(payload.title);
+  const author = safeAuthor(payload.author);
   const result = await query(
     `INSERT INTO public_books (
        publisher_user_id,
@@ -63,15 +85,23 @@ async function upsertPublicBook(userId, payload) {
        title,
        author,
        cover_url,
+       file_url,
+       storage_path,
+       file_type,
+       file_size,
        description,
        copyright_status,
        metadata_json
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      ON CONFLICT (publisher_user_id, source_book_id) DO UPDATE SET
        title = EXCLUDED.title,
        author = EXCLUDED.author,
        cover_url = EXCLUDED.cover_url,
+       file_url = EXCLUDED.file_url,
+       storage_path = EXCLUDED.storage_path,
+       file_type = EXCLUDED.file_type,
+       file_size = EXCLUDED.file_size,
        description = EXCLUDED.description,
        copyright_status = EXCLUDED.copyright_status,
        metadata_json = EXCLUDED.metadata_json,
@@ -82,6 +112,10 @@ async function upsertPublicBook(userId, payload) {
        title,
        author,
        cover_url,
+       file_url,
+       storage_path,
+       file_type,
+       file_size,
        description,
        copyright_status,
        borrow_count,
@@ -90,9 +124,13 @@ async function upsertPublicBook(userId, payload) {
     [
       userId,
       payload.source_book_id,
-      payload.title,
-      payload.author || null,
+      title,
+      author,
       payload.cover_url || null,
+      payload.file_url || null,
+      payload.storage_path || null,
+      payload.file_type || null,
+      Number(payload.file_size || 0),
       payload.description || null,
       payload.copyright_status,
       metadata,
@@ -106,6 +144,8 @@ async function upsertPublicBook(userId, payload) {
 
 async function syncBookPublicationSideTables(userId, payload, publicBook) {
   const metadata = normalizeMetadata(payload.metadata_json);
+  const title = safeTitle(payload.title);
+  const author = safeAuthor(payload.author);
   await query(
     `WITH source_book AS (
        INSERT INTO books (
@@ -144,8 +184,8 @@ async function syncBookPublicationSideTables(userId, payload, publicBook) {
        updated_at = now()`,
     [
       payload.source_book_id,
-      payload.title,
-      payload.author || null,
+      title,
+      author,
       payload.cover_url || null,
       payload.description || null,
       metadata,
@@ -202,7 +242,7 @@ async function publishEntries(userId, entryIds, publicBookId = null) {
          NULLIF(e.metadata_json->>'book_author', ''),
          NULLIF(e.metadata_json->>'author', ''),
          pb.author,
-         '未知作者'
+         '佚名'
        ) AS book_author,
        COALESCE(
          NULLIF(e.metadata_json->>'book_cover', ''),
@@ -273,6 +313,10 @@ async function listBooks({ limit = 50 } = {}) {
        b.title,
        b.author,
        b.cover_url,
+       b.file_url,
+       b.storage_path,
+       b.file_type,
+       b.file_size,
        b.description,
        b.copyright_status,
        b.borrow_count,
@@ -301,6 +345,10 @@ async function getBook(publicBookId) {
        b.title,
        b.author,
        b.cover_url,
+       b.file_url,
+       b.storage_path,
+       b.file_type,
+       b.file_size,
        b.description,
        b.copyright_status,
        b.borrow_count,
@@ -449,6 +497,10 @@ async function borrowBook(publicBookId) {
        title,
        author,
        cover_url,
+       file_url,
+       storage_path,
+       file_type,
+       file_size,
        description,
        copyright_status,
        borrow_count,

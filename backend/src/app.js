@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const { corsOrigin, nodeEnv } = require('./config/env');
 const authRoutes = require('./routes/auth.routes');
 const entriesRoutes = require('./routes/entries.routes');
@@ -11,8 +12,16 @@ const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
 
+app.set('trust proxy', true);
 app.use(cors({ origin: corsOrigin === '*' ? true : corsOrigin }));
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '160mb' }));
+app.use(
+  '/uploads',
+  express.static(path.resolve(__dirname, '..', 'uploads'), {
+    immutable: true,
+    maxAge: '30d',
+  }),
+);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', env: nodeEnv });

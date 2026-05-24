@@ -69,6 +69,10 @@ CREATE TABLE IF NOT EXISTS public_books (
   title TEXT NOT NULL,
   author TEXT,
   cover_url TEXT,
+  file_url TEXT,
+  storage_path TEXT,
+  file_type TEXT,
+  file_size BIGINT NOT NULL DEFAULT 0,
   description TEXT,
   copyright_status TEXT NOT NULL CHECK (
     copyright_status IN ('public_domain', 'original', 'authorized')
@@ -79,6 +83,18 @@ CREATE TABLE IF NOT EXISTS public_books (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(publisher_user_id, source_book_id)
 );
+
+ALTER TABLE public_books
+  ADD COLUMN IF NOT EXISTS file_url TEXT;
+
+ALTER TABLE public_books
+  ADD COLUMN IF NOT EXISTS storage_path TEXT;
+
+ALTER TABLE public_books
+  ADD COLUMN IF NOT EXISTS file_type TEXT;
+
+ALTER TABLE public_books
+  ADD COLUMN IF NOT EXISTS file_size BIGINT NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_public_books_created
   ON public_books(created_at DESC);

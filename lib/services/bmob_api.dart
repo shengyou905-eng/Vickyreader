@@ -1,8 +1,11 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/constants.dart';
 
@@ -26,7 +29,7 @@ class BmobApi {
     _email = prefs.getString(_emailKey);
   }
 
-  bool get isLoggedIn => _token != null;
+  bool get isLoggedIn => _token?.trim().isNotEmpty ?? false;
   String? get userId => _userId;
   String? get email => _email;
   String? get token => _token;
@@ -247,43 +250,126 @@ class BmobApi {
     required String sourceBookId,
     required String title,
     required String copyrightStatus,
+    required String filePath,
+    required String fileType,
     String? author,
     String? coverUrl,
     String? description,
     List<String> entryIds = const [],
   }) async {
-    final res = await http.post(
-      Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/publish-book'),
-      headers: _authHeaders(),
-      body: jsonEncode({
-        'source_book_id': sourceBookId,
-        'title': title,
-        'author': author ?? '',
-        'cover_url': coverUrl ?? '',
-        'description': description ?? '',
-        'copyright_status': copyrightStatus,
-        'entry_ids': entryIds,
-      }),
-    ).timeout(const Duration(seconds: 12));
+    await init();
+    final token = _token?.trim() ?? '';
+    debugPrint('[MingtaiPublishBook] hasToken=${token.isNotEmpty}');
+    if (token.isEmpty) {
+      throw Exception('请先登录后再发布到明台');
+    }
+    _token = token;
+
+    final file = File(filePath);
+    if (!await file.exists()) {
+      throw Exception('发布失败：找不到本地书籍文件');
+    }
+
+    final resolvedSourceBookId = sourceBookId.trim().isNotEmpty
+        ? sourceBookId.trim()
+        : _fallbackSourceBookId(filePath: filePath, title: title);
+    final fileBytes = await file.readAsBytes();
+    final requestBody = <String, dynamic>{
+      'source_book_id': resolvedSourceBookId,
+      'title': title,
+      'author': author ?? '',
+      'cover_url': _publicUrlOrEmpty(coverUrl),
+      'description': description ?? '',
+      'copyright_status': copyrightStatus,
+      'file_type': fileType,
+      'file_name': p.basename(filePath),
+      'file_size': fileBytes.length,
+      'file_base64': base64Encode(fileBytes),
+      if (entryIds.isNotEmpty) 'entry_ids': entryIds,
+    };
+    final debugBody = Map<String, dynamic>.from(requestBody)
+      ..['file_base64'] = '<${requestBody['file_base64'].toString().length} chars>';
+    final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books');
+
+    debugPrint('[MingtaiPublishBook] POST $uri');
+    debugPrint('[MingtaiPublishBook] request.body=${jsonEncode(debugBody)}');
+    debugPrint('[MingtaiPublishBook] source_book_id=$resolvedSourceBookId');
+
+    final res = await http
+        .post(
+          uri,
+          headers: _authHeaders(),
+          body: jsonEncode(requestBody),
+        )
+        .timeout(const Duration(seconds: 60));
+
+    debugPrint('[MingtaiPublishBook] statusCode=${res.statusCode}');
+    debugPrint('[MingtaiPublishBook] response.body=${res.body}');
 
     if (res.statusCode == 201) {
-      return jsonDecode(res.body) as Map<String, dynamic>;
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      _assertPublishedBookReadable(data);
+      return data;
+    }
+    if (res.statusCode == 401) {
+      await signOut();
+      throw Exception('登录已过期，请重新登录后再发布到明台');
     }
     throw Exception('发布书籍到明台失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  void _assertPublishedBookReadable(Map<String, dynamic> data) {
+    final rawBook = data['book'];
+    final book = rawBook is Map ? Map<String, dynamic>.from(rawBook) : data;
+    final fileUrl = book['file_url']?.toString().trim() ?? '';
+    if (fileUrl.isEmpty) {
+      throw Exception(
+        '服务器没有保存书籍文件：public_books.file_url 为空。请先部署最新后端后重新发布。',
+      );
+    }
   }
 
   Future<List<Map<String, dynamic>>> listMingtaiBooks({int limit = 50}) async {
     final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books')
         .replace(queryParameters: {'limit': limit.toString()});
-    final res = await http
-        .get(uri, headers: _authHeaders())
-        .timeout(const Duration(seconds: 8));
 
-    if (res.statusCode == 200) {
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      return List<Map<String, dynamic>>.from(data['books'] ?? []);
+    debugPrint('[MingtaiBooks] GET $uri');
+    try {
+      final res = await http
+          .get(uri, headers: _authHeaders())
+          .timeout(const Duration(seconds: 8));
+
+      debugPrint('[MingtaiBooks] statusCode=${res.statusCode}');
+      debugPrint('[MingtaiBooks] response.body=${res.body}');
+
+      Map<String, dynamic> data;
+      try {
+        data = jsonDecode(res.body) as Map<String, dynamic>;
+      } catch (e) {
+        debugPrint('[MingtaiBooks] parsed json error=$e');
+        throw Exception('明台书库返回不是 JSON (HTTP ${res.statusCode})');
+      }
+
+      debugPrint('[MingtaiBooks] parsed json=${jsonEncode(data)}');
+
+      if (res.statusCode == 200) {
+        final books = data['books'];
+        if (books is List) {
+          debugPrint('[MingtaiBooks] books.length=${books.length}');
+          return List<Map<String, dynamic>>.from(books);
+        }
+        debugPrint('[MingtaiBooks] books missing or not list, fallback=[]');
+        return [];
+      }
+
+      throw Exception(
+        data['error']?.toString() ??
+            '读取明台书库失败 (HTTP ${res.statusCode}): ${res.body}',
+      );
+    } on TimeoutException catch (e) {
+      debugPrint('[MingtaiBooks] timeout=$e');
+      return [];
     }
-    throw Exception('读取明台书库失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
   Future<Map<String, dynamic>> getMingtaiBook(String bookId) async {
@@ -427,10 +513,33 @@ class BmobApi {
     await prefs.setString(_emailKey, email);
   }
 
-  Map<String, String> _authHeaders() => {
-    if (_token != null) 'Authorization': 'Bearer $_token',
-    'Content-Type': 'application/json',
-  };
+  Map<String, String> _authHeaders({
+    String contentType = 'application/json',
+  }) {
+    final token = _token?.trim() ?? '';
+    return {
+      if (token.isNotEmpty) 'Authorization': 'Bearer $token',
+      if (contentType.isNotEmpty) 'Content-Type': contentType,
+    };
+  }
+
+  String _publicUrlOrEmpty(String? value) {
+    final url = value?.trim() ?? '';
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+    return '';
+  }
+
+  String _fallbackSourceBookId({
+    required String filePath,
+    required String title,
+  }) {
+    final seed = filePath.trim().isNotEmpty
+        ? filePath.trim()
+        : '${title.trim()}:${DateTime.now().millisecondsSinceEpoch}';
+    return 'local_${md5.convert(utf8.encode(seed))}';
+  }
 
   String _tryDecodeError(String body, int statusCode) {
     try {

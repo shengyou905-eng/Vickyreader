@@ -1,18 +1,97 @@
 const mingtaiRepository = require('../repositories/mingtai.repository');
+const crypto = require('crypto');
+const { publicBaseUrl } = require('../config/env');
 const httpError = require('../utils/httpError');
+const { savePublicBookFile } = require('../utils/publicBookStorage');
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const allowedCopyrightStatuses = new Set(['public_domain', 'original', 'authorized']);
 
 function normalizeEntryIds(body) {
-  const raw = Array.isArray(body.entry_ids)
+  const entryIds = body.entry_ids;
+  const raw = Array.isArray(entryIds)
     ? body.entry_ids
+    : typeof entryIds === 'string'
+      ? entryIds.split(',')
     : body.entry_id
       ? [body.entry_id]
       : [];
 
   return [...new Set(raw.map((id) => String(id).trim()).filter(Boolean))];
+}
+
+function requestField(req, key, fallback = '') {
+  const headerKey = `x-${key.replace(/_/g, '-')}`;
+  const values = [
+    req.mingtaiFields?.[key],
+    Buffer.isBuffer(req.body) ? undefined : req.body?.[key],
+    req.query?.[key],
+    req.headers[headerKey],
+  ];
+
+  for (const value of values) {
+    if (value === undefined || value === null) continue;
+    const text = String(value).trim();
+    if (text.length > 0) return value;
+  }
+
+  return fallback;
+}
+
+function parseMultipartBody(req) {
+  const contentType = String(req.headers['content-type'] || '');
+  if (!contentType.toLowerCase().startsWith('multipart/form-data')) {
+    return { fields: {}, file: null };
+  }
+
+  const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
+  const boundary = boundaryMatch?.[1] || boundaryMatch?.[2];
+  if (!boundary || !Buffer.isBuffer(req.body)) {
+    return { fields: {}, file: null };
+  }
+
+  const fields = {};
+  let file = null;
+  const body = req.body.toString('latin1');
+  const parts = body.split(`--${boundary}`);
+
+  for (const rawPart of parts) {
+    let part = rawPart;
+    if (!part || part === '--\r\n' || part === '--') continue;
+    if (part.startsWith('\r\n')) part = part.slice(2);
+    if (part.endsWith('\r\n')) part = part.slice(0, -2);
+    if (part.endsWith('--')) part = part.slice(0, -2);
+
+    const splitIndex = part.indexOf('\r\n\r\n');
+    if (splitIndex < 0) continue;
+
+    const rawHeaders = part.slice(0, splitIndex);
+    let rawValue = part.slice(splitIndex + 4);
+    if (rawValue.endsWith('\r\n')) rawValue = rawValue.slice(0, -2);
+
+    const disposition = rawHeaders
+      .split('\r\n')
+      .find((line) => line.toLowerCase().startsWith('content-disposition'));
+    if (!disposition) continue;
+
+    const name = disposition.match(/name="([^"]+)"/)?.[1];
+    const filename = disposition.match(/filename="([^"]*)"/)?.[1];
+    if (!name) continue;
+
+    const valueBuffer = Buffer.from(rawValue, 'latin1');
+    if (filename !== undefined) {
+      file = {
+        fieldName: name,
+        filename,
+        buffer: valueBuffer,
+      };
+    } else {
+      fields[name] = valueBuffer.toString('utf8');
+    }
+  }
+
+  return { fields, file };
 }
 
 function assertUuid(id, label) {
@@ -26,6 +105,73 @@ function validateEntryIds(entryIds) {
   if (invalidId) {
     throw httpError(400, `Invalid entry id: ${invalidId}`);
   }
+}
+
+function safeTitle(value) {
+  const title = String(value || '').trim();
+  if (!title || title.toLowerCase() === 'unknown title' || title === '未知书名') {
+    return '未命名文档';
+  }
+  return title;
+}
+
+function safeAuthor(value) {
+  const author = String(value || '').trim();
+  if (!author || author.toLowerCase() === 'unknown author' || author === '未知作者') {
+    return '佚名';
+  }
+  return author;
+}
+
+function publicUrlFor(req, publicPath) {
+  const origin = publicBaseUrl.trim().replace(/\/+$/, '') ||
+    `${req.protocol}://${req.get('host')}`;
+  return `${origin}${publicPath}`;
+}
+
+function requireFields(fields) {
+  const missing = Object.entries(fields)
+    .filter(([, value]) => String(value || '').trim().length === 0)
+    .map(([key]) => key);
+  if (missing.length > 0) {
+    throw httpError(400, `Missing required fields: ${missing.join(', ')}`, {
+      missing_fields: missing,
+    });
+  }
+}
+
+function fallbackSourceBookId(req, { rawTitle, fileType }) {
+  const fileName = String(
+    requestField(req, 'file_name') ||
+      requestField(req, 'filename') ||
+      req.headers['x-file-name'] ||
+      '',
+  ).trim();
+
+  if (Buffer.isBuffer(req.body) && req.body.length > 0) {
+    return `upload_${crypto.createHash('sha256').update(req.body).digest('hex').slice(0, 32)}`;
+  }
+
+  const seed = [req.user?.id || '', rawTitle, fileName, fileType]
+    .map((value) => String(value || '').trim())
+    .join(':');
+  return `upload_${crypto.createHash('sha256').update(seed).digest('hex').slice(0, 32)}`;
+}
+
+function sanitizedPublishBookBody(req) {
+  if (Buffer.isBuffer(req.body)) {
+    return {
+      type: 'Buffer',
+      bytes: req.body.length,
+      content_type: req.headers['content-type'],
+    };
+  }
+
+  const body = { ...(req.body || {}) };
+  if (typeof body.file_base64 === 'string') {
+    body.file_base64 = `<${body.file_base64.length} chars>`;
+  }
+  return body;
 }
 
 async function publish(req, res, next) {
@@ -52,30 +198,95 @@ async function publish(req, res, next) {
 
 async function publishBook(req, res, next) {
   try {
-    const sourceBookId = String(req.body.source_book_id || req.body.book_id || '').trim();
-    const title = String(req.body.title || '').trim();
-    const copyrightStatus = String(req.body.copyright_status || '').trim();
-    const entryIds = normalizeEntryIds(req.body);
+    const multipart = parseMultipartBody(req);
+    req.mingtaiFields = multipart.fields;
 
-    if (!sourceBookId) throw httpError(400, 'source_book_id is required');
-    if (!title) throw httpError(400, 'title is required');
+    console.log('[MingtaiPublishBook] req.body=', sanitizedPublishBookBody(req));
+    console.log('[MingtaiPublishBook] parsed fields=', multipart.fields);
+
+    let sourceBookId = String(
+      requestField(req, 'source_book_id') || '',
+    ).trim();
+    const title = safeTitle(requestField(req, 'title'));
+    const rawTitle = String(requestField(req, 'title')).trim();
+    const fileType = String(requestField(req, 'file_type')).trim();
+    const copyrightStatus = String(requestField(req, 'copyright_status')).trim();
+    const entryIds = normalizeEntryIds(Buffer.isBuffer(req.body) ? req.query : req.body);
+
+    if (!sourceBookId) {
+      sourceBookId = fallbackSourceBookId(req, { rawTitle, fileType });
+      console.log('[MingtaiPublishBook] source_book_id missing, fallback=', sourceBookId);
+    }
+
+    requireFields({
+      title: rawTitle,
+      file_type: fileType,
+      copyright_status: copyrightStatus,
+    });
     if (!allowedCopyrightStatuses.has(copyrightStatus)) {
       throw httpError(400, 'Invalid copyright_status');
     }
     validateEntryIds(entryIds);
 
+    let storedFile = null;
+    if (multipart.file?.buffer?.length > 0) {
+      storedFile = await savePublicBookFile(multipart.file.buffer, {
+        fileName: requestField(req, 'file_name') ||
+          multipart.file.filename ||
+          requestField(req, 'filename'),
+        fileType,
+        mimeType: req.headers['content-type'],
+      });
+    } else if (!Buffer.isBuffer(req.body) && typeof req.body?.file_base64 === 'string') {
+      const normalizedBase64 = req.body.file_base64.includes(',')
+        ? req.body.file_base64.split(',').pop()
+        : req.body.file_base64;
+      const fileBuffer = Buffer.from(normalizedBase64, 'base64');
+      if (fileBuffer.length > 0) {
+        storedFile = await savePublicBookFile(fileBuffer, {
+          fileName: requestField(req, 'file_name') || requestField(req, 'filename'),
+          fileType,
+          mimeType: req.headers['content-type'],
+        });
+      }
+    } else if (
+      Buffer.isBuffer(req.body) &&
+      req.body.length > 0 &&
+      !String(req.headers['content-type'] || '')
+        .toLowerCase()
+        .startsWith('multipart/form-data')
+    ) {
+      storedFile = await savePublicBookFile(req.body, {
+        fileName: requestField(req, 'file_name') || requestField(req, 'filename'),
+        fileType,
+        mimeType: req.headers['content-type'],
+      });
+    }
+
+    const providedFileUrl = String(requestField(req, 'file_url')).trim();
+    if (!storedFile && !providedFileUrl) {
+      throw httpError(400, 'book file is required');
+    }
+
     const result = await mingtaiRepository.publishBook(req.user.id, {
       source_book_id: sourceBookId,
       title,
-      author: req.body.author,
-      cover_url: req.body.cover_url,
-      description: req.body.description,
+      author: safeAuthor(requestField(req, 'author')),
+      cover_url: requestField(req, 'cover_url'),
+      description: requestField(req, 'description'),
       copyright_status: copyrightStatus,
-      metadata_json: req.body.metadata_json,
+      metadata_json: Buffer.isBuffer(req.body) ? {} : req.body.metadata_json,
+      file_url: storedFile ? publicUrlFor(req, storedFile.public_path) : providedFileUrl,
+      storage_path: storedFile?.storage_path || requestField(req, 'storage_path'),
+      file_type: storedFile?.file_type || fileType,
+      file_size: storedFile?.file_size || Number(requestField(req, 'file_size')) || 0,
       entry_ids: entryIds,
     });
 
-    return res.status(201).json(result);
+    return res.status(201).json({
+      ...result,
+      public_book_id: result.book.id,
+    });
   } catch (error) {
     return next(error);
   }
