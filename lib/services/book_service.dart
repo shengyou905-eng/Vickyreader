@@ -853,49 +853,106 @@ class BookService {
     }
 
     final tempFile = File('$localPath.download');
-    if (await tempFile.exists()) {
-      await tempFile.delete();
+    Object? lastError;
+    for (var attempt = 1; attempt <= 4; attempt += 1) {
+      try {
+        final completed = await _downloadPublicBookAttempt(
+          url: book.filePath,
+          tempFile: tempFile,
+          localFile: localFile,
+        );
+        if (completed) return localPath;
+      } catch (e) {
+        lastError = e;
+        if (attempt == 4) break;
+        await Future<void>.delayed(Duration(milliseconds: 500 * attempt));
+      }
     }
+    throw Exception('下载明台书籍失败，请检查网络后重试：$lastError');
+  }
 
+  static Future<bool> _downloadPublicBookAttempt({
+    required String url,
+    required File tempFile,
+    required File localFile,
+  }) async {
+    final existingBytes = await tempFile.exists() ? await tempFile.length() : 0;
     final client = http.Client();
     IOSink? sink;
     try {
-      final request = http.Request('GET', Uri.parse(book.filePath))
+      final request = http.Request('GET', Uri.parse(url))
         ..headers['Accept'] = '*/*'
-        ..headers['Connection'] = 'close';
+        ..headers['Accept-Encoding'] = 'identity';
+      if (existingBytes > 0) {
+        request.headers['Range'] = 'bytes=$existingBytes-';
+      }
+
       final response = await client
           .send(request)
           .timeout(const Duration(seconds: 30));
-      if (response.statusCode != 200) {
-        throw Exception('下载明台书籍失败：HTTP ${response.statusCode}');
+      if (response.statusCode == 416 && existingBytes > 0) {
+        await _promoteDownloadedFile(tempFile, localFile);
+        return true;
+      }
+      if (response.statusCode != 200 && response.statusCode != 206) {
+        throw Exception('HTTP ${response.statusCode}');
       }
 
-      var received = 0;
-      sink = tempFile.openWrite();
+      final shouldAppend = response.statusCode == 206 && existingBytes > 0;
+      if (!shouldAppend && await tempFile.exists()) {
+        await tempFile.delete();
+      }
+      final expectedTotal = _expectedDownloadSize(response);
+      sink = tempFile.openWrite(
+        mode: shouldAppend ? FileMode.append : FileMode.write,
+      );
+
       await for (final chunk
           in response.stream.timeout(const Duration(minutes: 3))) {
-        received += chunk.length;
         sink.add(chunk);
       }
       await sink.close();
       sink = null;
 
-      if (received == 0) {
-        throw Exception('下载明台书籍失败：文件为空');
+      final finalSize = await tempFile.length();
+      if (finalSize == 0) {
+        throw Exception('文件为空');
       }
-      if (await localFile.exists()) {
-        await localFile.delete();
+      if (expectedTotal != null && finalSize < expectedTotal) {
+        return false;
       }
-      await tempFile.rename(localPath);
+
+      await _promoteDownloadedFile(tempFile, localFile);
+      return true;
     } on TimeoutException {
-      throw Exception('下载明台书籍超时，请稍后重试');
+      throw Exception('连接超时');
     } on SocketException catch (e) {
-      throw Exception('下载明台书籍连接中断，请稍后重试：${e.message}');
+      throw Exception('连接中断：${e.message}');
+    } on http.ClientException catch (e) {
+      throw Exception('连接中断：${e.message}');
     } finally {
       await sink?.close();
       client.close();
     }
-    return localPath;
+  }
+
+  static int? _expectedDownloadSize(http.StreamedResponse response) {
+    final contentRange = response.headers['content-range'];
+    if (contentRange != null) {
+      final match = RegExp(r'/(\d+)$').firstMatch(contentRange);
+      if (match != null) return int.tryParse(match.group(1)!);
+    }
+    return response.contentLength;
+  }
+
+  static Future<void> _promoteDownloadedFile(
+    File tempFile,
+    File localFile,
+  ) async {
+    if (await localFile.exists()) {
+      await localFile.delete();
+    }
+    await tempFile.rename(localFile.path);
   }
 
   static bool _isRemoteUrl(String value) {
