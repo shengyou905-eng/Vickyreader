@@ -25,7 +25,7 @@ class AiProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<String?> explain({
+  Future<void> explain({
     required String selectedText,
     required String bookTitle,
     required String bookAuthor,
@@ -38,35 +38,66 @@ class AiProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final context = EpubService.getContext(
-          chapterContent, selectedText, 200);
+      final context = EpubService.getContext(chapterContent, selectedText, 200);
 
-      final result = await AiService.explain(
+      // 先加用户消息
+      final userMsg = AiMessage(
+        role: 'user',
+        content: '「$selectedText」',
+        timestamp: DateTime.now(),
+      );
+      _messages.add(userMsg);
+
+      // 加占位 AI 消息，逐字更新
+      final aiMsg = AiMessage(
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.now().add(const Duration(seconds: 1)),
+      );
+      _messages.add(aiMsg);
+      notifyListeners();
+
+      final history = _messages.length > 6
+          ? _messages.sublist(_messages.length - 6)
+          : _messages;
+      // 去掉刚加的占位消息
+      final historyWithoutLast =
+          history.where((m) => m.content.isNotEmpty).toList();
+
+      final buffer = StringBuffer();
+      final stream = AiService.explainStream(
         selectedText: selectedText,
         contextBefore: context.before,
         contextAfter: context.after,
         bookTitle: bookTitle,
         bookAuthor: bookAuthor,
-        conversationHistory: _messages.length > 6
-            ? _messages.sublist(_messages.length - 6)
-            : _messages,
+        conversationHistory: historyWithoutLast,
       );
 
-      // Save to history
-      final userMsg = AiMessage(
-        role: 'user',
-        content: '解释：「$selectedText」',
-        timestamp: DateTime.now(),
-      );
-      final aiMsg = AiMessage(
-        role: 'assistant',
-        content: result,
-        timestamp: DateTime.now().add(const Duration(seconds: 1)),
-      );
+      await for (final chunk in stream) {
+        buffer.write(chunk);
+        // 替换最后一条消息的内容
+        _messages[_messages.length - 1] = AiMessage(
+          role: 'assistant',
+          content: buffer.toString(),
+          timestamp: aiMsg.timestamp,
+        );
+        notifyListeners();
+      }
 
+      final result = buffer.toString();
+
+      // 保存到本地
       if (_bookId != null) {
         await BookService.insertAiMessage(_bookId!, userMsg);
-        await BookService.insertAiMessage(_bookId!, aiMsg);
+        await BookService.insertAiMessage(
+          _bookId!,
+          AiMessage(
+            role: 'assistant',
+            content: result,
+            timestamp: aiMsg.timestamp,
+          ),
+        );
         await BookService.insertUserEntry(
           UserEntry(
             id: const Uuid().v4(),
@@ -87,65 +118,93 @@ class AiProvider extends ChangeNotifier {
         );
       }
 
-      _messages.add(userMsg);
-      _messages.add(aiMsg);
-      // Keep only last 20 messages
+      // 修剪历史长度
       if (_messages.length > 20) {
         _messages = _messages.sublist(_messages.length - 20);
       }
 
       _isLoading = false;
       notifyListeners();
-      return result;
     } catch (e) {
       _error = e.toString();
       _isLoading = false;
+      // 删掉空的 AI 消息
+      if (_messages.isNotEmpty && _messages.last.content.isEmpty) {
+        _messages.removeLast();
+      }
       notifyListeners();
-      return null;
     }
   }
 
-  Future<String?> sendFollowUp(String question) async {
+  Future<void> sendFollowUp(String question) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      final result = await AiService.chat(
-        message: question,
-        conversationHistory: _messages,
-      );
-
       final userMsg = AiMessage(
         role: 'user',
         content: question,
         timestamp: DateTime.now(),
       );
+      _messages.add(userMsg);
+
       final aiMsg = AiMessage(
         role: 'assistant',
-        content: result,
+        content: '',
         timestamp: DateTime.now().add(const Duration(seconds: 1)),
       );
+      _messages.add(aiMsg);
+      notifyListeners();
+
+      final history = _messages
+          .where((m) => m.content.isNotEmpty)
+          .toList();
+      history.removeLast(); // 去掉刚加的占位
+
+      final buffer = StringBuffer();
+      final stream = AiService.chatStream(
+        message: question,
+        conversationHistory: history,
+      );
+
+      await for (final chunk in stream) {
+        buffer.write(chunk);
+        _messages[_messages.length - 1] = AiMessage(
+          role: 'assistant',
+          content: buffer.toString(),
+          timestamp: aiMsg.timestamp,
+        );
+        notifyListeners();
+      }
+
+      final result = buffer.toString();
 
       if (_bookId != null) {
         await BookService.insertAiMessage(_bookId!, userMsg);
-        await BookService.insertAiMessage(_bookId!, aiMsg);
+        await BookService.insertAiMessage(
+          _bookId!,
+          AiMessage(
+            role: 'assistant',
+            content: result,
+            timestamp: aiMsg.timestamp,
+          ),
+        );
       }
 
-      _messages.add(userMsg);
-      _messages.add(aiMsg);
       if (_messages.length > 20) {
         _messages = _messages.sublist(_messages.length - 20);
       }
 
       _isLoading = false;
       notifyListeners();
-      return result;
     } catch (e) {
       _error = e.toString();
       _isLoading = false;
+      if (_messages.isNotEmpty && _messages.last.content.isEmpty) {
+        _messages.removeLast();
+      }
       notifyListeners();
-      return null;
     }
   }
 

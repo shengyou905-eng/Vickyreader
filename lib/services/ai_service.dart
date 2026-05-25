@@ -6,20 +6,20 @@ import '../models/ai_conversation.dart';
 import 'auth_service.dart';
 
 class AiService {
-  /// 小U解释：选中文字 → 后端 /api/ai/explain（SSE 流式）
-  static Future<String> explain({
+  /// 小U解释：逐字流式返回
+  static Stream<String> explainStream({
     required String selectedText,
     required String contextBefore,
     required String contextAfter,
     required String bookTitle,
     required String bookAuthor,
     List<AiMessage>? conversationHistory,
-  }) async {
+  }) {
     final history = (conversationHistory ?? [])
         .map((m) => {'role': m.role, 'content': m.content})
         .toList();
 
-    return _streamFromBackend('/api/ai/explain', {
+    return _sseStream('/api/ai/explain', {
       'selectedText': selectedText,
       'contextBefore': contextBefore,
       'contextAfter': contextAfter,
@@ -29,26 +29,26 @@ class AiService {
     });
   }
 
-  /// 追问：延续解释对话 → 后端 /api/ai/explain（message 模式）
-  static Future<String> chat({
+  /// 追问：逐字流式返回
+  static Stream<String> chatStream({
     required String message,
     required List<AiMessage> conversationHistory,
-  }) async {
+  }) {
     final history = conversationHistory
         .map((m) => {'role': m.role, 'content': m.content})
         .toList();
 
-    return _streamFromBackend('/api/ai/explain', {
+    return _sseStream('/api/ai/explain', {
       'message': message,
       'history': history,
     });
   }
 
-  /// 发送 POST 到后端，收集 SSE 流式响应为完整字符串
-  static Future<String> _streamFromBackend(
+  /// 连接后端 SSE，逐 chunk yield
+  static Stream<String> _sseStream(
     String path,
     Map<String, dynamic> body,
-  ) async {
+  ) async* {
     final token = AuthService.token;
     if (token == null || token.isEmpty) {
       throw Exception('请先登录');
@@ -74,40 +74,23 @@ class AiService {
       throw Exception(errorMsg);
     }
 
-    final buffer = StringBuffer();
-    final completer = Completer<String>();
-
-    streamed.stream
+    await for (final line in streamed.stream
         .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen(
-      (line) {
-        if (!line.startsWith('data: ')) return;
-        final data = line.substring(6).trim();
-        if (data == '[DONE]') {
-          completer.complete(buffer.toString());
-          return;
+        .transform(const LineSplitter())) {
+      if (!line.startsWith('data: ')) continue;
+      final data = line.substring(6).trim();
+      if (data == '[DONE]') return;
+      try {
+        final parsed = jsonDecode(data);
+        if (parsed['error'] != null) {
+          throw Exception(parsed['error'].toString());
         }
-        try {
-          final parsed = jsonDecode(data);
-          if (parsed['error'] != null) {
-            completer.completeError(Exception(parsed['error'].toString()));
-            return;
-          }
-          final content = parsed['content'] as String?;
-          if (content != null) buffer.write(content);
-        } catch (_) {
-          // skip malformed SSE chunks
-        }
-      },
-      onError: (e) {
-        if (!completer.isCompleted) completer.completeError(e);
-      },
-      onDone: () {
-        if (!completer.isCompleted) completer.complete(buffer.toString());
-      },
-    );
-
-    return completer.future.timeout(const Duration(seconds: 60));
+        final content = parsed['content'] as String?;
+        if (content != null && content.isNotEmpty) yield content;
+      } catch (e) {
+        if (e is Exception && e.toString().contains('error')) rethrow;
+        // skip malformed SSE chunks
+      }
+    }
   }
 }
