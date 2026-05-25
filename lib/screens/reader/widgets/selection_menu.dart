@@ -107,7 +107,7 @@ class SelectionMenu extends StatelessWidget {
                     children: [
                       _ActionChip(
                         icon: Icons.auto_awesome,
-                        label: 'AI 解释',
+                        label: '小U解释',
                         color: AppTheme.primaryDark,
                         onTap: onExplain,
                       ),

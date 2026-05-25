@@ -5,5 +5,6 @@ const auth = require('../middleware/auth');
 const router = express.Router();
 
 router.post('/chat', auth, aiController.chat);
+router.post('/explain', auth, aiController.explain);
 
 module.exports = router;

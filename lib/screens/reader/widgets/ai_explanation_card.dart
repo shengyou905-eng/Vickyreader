@@ -79,7 +79,7 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
                 const Icon(Icons.auto_awesome, color: AppTheme.primary, size: 20),
                 const SizedBox(width: 8),
                 const Text(
-                  'AI 解释',
+                  '小U解释',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,

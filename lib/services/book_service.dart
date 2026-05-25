@@ -6,7 +6,9 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:uuid/uuid.dart';
 import '../models/book.dart';
 import '../models/bookmark.dart';
 import '../models/highlight.dart';
@@ -253,10 +255,19 @@ class MingtaiFeedItem {
 }
 
 class BookService {
+  static final Uuid _uuid = Uuid();
+  static const String _freeNotesBackupKey = 'free_notes_local_backup_v1';
+  static List<MingtaiPublicBook>? _mingtaiBooksCache;
+  static DateTime? _mingtaiBooksCacheAt;
+  static MingtaiOverview? _mingtaiOverviewCache;
+  static DateTime? _mingtaiOverviewCacheAt;
+  static const Duration _mingtaiBooksCacheTtl = Duration(seconds: 45);
+  static const Duration _mingtaiOverviewCacheTtl = Duration(seconds: 30);
+
   static const Map<String, String> _sourceLabels = {
     'highlight': '划线',
     'thought': '想法',
-    'ai_explanation': 'AI解释',
+    'ai_explanation': '小U解释',
     'manual': '手动',
   };
 
@@ -456,6 +467,124 @@ class BookService {
     await db.delete('notes', where: 'id = ?', whereArgs: [id]);
   }
 
+  // ---- Free Notes ----
+
+  static Future<List<Map<String, dynamic>>> getFreeNotes({
+    String? query,
+  }) async {
+    final db = await DatabaseService.database;
+    await _ensureFreeNotesTable(db);
+    await _restoreFreeNotesBackup(db);
+    final q = query?.trim() ?? '';
+    if (q.isEmpty) {
+      return db.query(
+        'free_notes',
+        orderBy: 'updated_at DESC, created_at DESC',
+      );
+    }
+    return db.query(
+      'free_notes',
+      where: 'content LIKE ?',
+      whereArgs: ['%$q%'],
+      orderBy: 'updated_at DESC, created_at DESC',
+    );
+  }
+
+  static Future<void> saveFreeNote({
+    String? id,
+    String userId = '',
+    required String content,
+  }) async {
+    final db = await DatabaseService.database;
+    await _ensureFreeNotesTable(db);
+    final now = DateTime.now().toUtc().toIso8601String();
+    final noteId = id?.trim().isNotEmpty == true ? id!.trim() : _uuid.v4();
+
+    final existing = await db.query(
+      'free_notes',
+      columns: ['created_at'],
+      where: 'id = ?',
+      whereArgs: [noteId],
+      limit: 1,
+    );
+
+    await db.insert(
+      'free_notes',
+      {
+        'id': noteId,
+        'user_id': userId,
+        'content': content,
+        'created_at': existing.isEmpty
+            ? now
+            : existing.first['created_at']?.toString() ?? now,
+        'updated_at': now,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    await _backupFreeNotes(db);
+  }
+
+  static Future<void> deleteFreeNote(String id) async {
+    final db = await DatabaseService.database;
+    await _ensureFreeNotesTable(db);
+    await db.delete('free_notes', where: 'id = ?', whereArgs: [id]);
+    await _backupFreeNotes(db);
+  }
+
+  static Future<void> _ensureFreeNotesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS free_notes (
+        id TEXT PRIMARY KEY,
+        user_id TEXT DEFAULT '',
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+  }
+
+  static Future<void> _backupFreeNotes(Database db) async {
+    final prefs = await SharedPreferences.getInstance();
+    final notes = await db.query(
+      'free_notes',
+      orderBy: 'updated_at DESC, created_at DESC',
+    );
+    await prefs.setString(_freeNotesBackupKey, jsonEncode(notes));
+  }
+
+  static Future<void> _restoreFreeNotesBackup(Database db) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_freeNotesBackupKey);
+    if (raw == null || raw.isEmpty) return;
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return;
+      for (final item in decoded) {
+        if (item is! Map) continue;
+        final note = Map<String, dynamic>.from(item);
+        final id = note['id']?.toString() ?? '';
+        final content = note['content']?.toString() ?? '';
+        if (id.isEmpty || content.isEmpty) continue;
+        await db.insert(
+          'free_notes',
+          {
+            'id': id,
+            'user_id': note['user_id']?.toString() ?? '',
+            'content': content,
+            'created_at': note['created_at']?.toString() ??
+                DateTime.now().toUtc().toIso8601String(),
+            'updated_at': note['updated_at']?.toString() ??
+                DateTime.now().toUtc().toIso8601String(),
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
+    } catch (_) {
+      // Keep SQLite as source of truth if the backup is unreadable.
+    }
+  }
+
   // ---- Bookmarks ----
 
   static Future<List<Bookmark>> getAllBookmarks() async {
@@ -497,6 +626,7 @@ class BookService {
     await db.insert('user_entries', entry.toMap(),
         conflictAlgorithm: ConflictAlgorithm.replace);
     await _createRemoteUserEntryIfPossible(db, entry);
+    _invalidateMingtaiOverviewCache();
   }
 
   static Future<List<UserEntry>> getUserEntries({
@@ -625,9 +755,37 @@ class BookService {
     return rows.map(MingtaiFeedItem.fromRemote).toList();
   }
 
-  static Future<List<MingtaiPublicBook>> getMingtaiBooks({int limit = 50}) async {
-    final rows = await BmobApi.instance.listMingtaiBooks(limit: limit);
-    return rows.map(MingtaiPublicBook.fromRemote).toList();
+  static List<MingtaiPublicBook> cachedMingtaiBooks({int limit = 50}) {
+    final cached = _mingtaiBooksCache ?? const <MingtaiPublicBook>[];
+    return cached.take(limit).toList();
+  }
+
+  static Future<List<MingtaiPublicBook>> getMingtaiBooks({
+    int limit = 50,
+    bool forceRefresh = false,
+  }) async {
+    final cached = _mingtaiBooksCache;
+    final cacheAt = _mingtaiBooksCacheAt;
+    final cacheFresh = cached != null &&
+        cacheAt != null &&
+        DateTime.now().difference(cacheAt) < _mingtaiBooksCacheTtl;
+    if (!forceRefresh && cacheFresh) {
+      return cached.take(limit).toList();
+    }
+
+    List<Map<String, dynamic>> rows;
+    try {
+      rows = await BmobApi.instance.listMingtaiBooks(limit: limit);
+    } catch (_) {
+      if (cached != null && cached.isNotEmpty) {
+        return cached.take(limit).toList();
+      }
+      rethrow;
+    }
+    final books = rows.map(MingtaiPublicBook.fromRemote).toList();
+    _mingtaiBooksCache = books;
+    _mingtaiBooksCacheAt = DateTime.now();
+    return books;
   }
 
   static Future<MingtaiBookDetail> getMingtaiBookDetail(String bookId) async {
@@ -667,6 +825,7 @@ class BookService {
       fileType: fileType,
       entryIds: entryIds,
     );
+    _invalidateMingtaiBooksCache();
   }
 
   static String _sourceBookIdForPublish(Book book) {
@@ -1039,7 +1198,16 @@ class BookService {
     return overview.tags;
   }
 
-  static Future<MingtaiOverview> getMingtaiOverview({String? tag}) async {
+  static MingtaiOverview? cachedMingtaiOverview({String? tag}) {
+    final cached = _mingtaiOverviewCache;
+    if (cached == null) return null;
+    return _filterMingtaiOverview(cached, tag);
+  }
+
+  static Future<MingtaiOverview> getMingtaiOverview({
+    String? tag,
+    bool forceRefresh = false,
+  }) async {
     final api = BmobApi.instance;
     if (!api.isLoggedIn) {
       return MingtaiOverview(
@@ -1053,9 +1221,25 @@ class BookService {
       );
     }
 
-    final rows = await api.listUserEntries(limit: 500);
+    final cached = _mingtaiOverviewCache;
+    final cacheAt = _mingtaiOverviewCacheAt;
+    final cacheFresh = cached != null &&
+        cacheAt != null &&
+        DateTime.now().difference(cacheAt) < _mingtaiOverviewCacheTtl;
+    if (!forceRefresh && cacheFresh) {
+      return _filterMingtaiOverview(cached, tag);
+    }
+
+    List<Map<String, dynamic>> rows;
+    try {
+      rows = await api.listUserEntries(limit: 300);
+    } catch (_) {
+      if (cached != null) {
+        return _filterMingtaiOverview(cached, tag);
+      }
+      rethrow;
+    }
     final tags = <String>{};
-    final items = <Map<String, dynamic>>[];
     final allItems = <Map<String, dynamic>>[];
 
     for (final row in rows) {
@@ -1067,22 +1251,36 @@ class BookService {
       }
 
       allItems.add(item);
-
-      if (tag != null && tag.isNotEmpty && !rowTags.contains(tag)) {
-        continue;
-      }
-
-      items.add(item);
     }
 
-    return MingtaiOverview(
-      items: items,
+    final overview = MingtaiOverview(
+      items: allItems,
       allItems: allItems,
       tags: tags.where(_isInsightTag).toList()..sort(),
       insights: {
         7: _buildMingtaiInsight(allItems, 7),
         30: _buildMingtaiInsight(allItems, 30),
       },
+    );
+    _mingtaiOverviewCache = overview;
+    _mingtaiOverviewCacheAt = DateTime.now();
+    return _filterMingtaiOverview(overview, tag);
+  }
+
+  static MingtaiOverview _filterMingtaiOverview(
+    MingtaiOverview overview,
+    String? tag,
+  ) {
+    final normalizedTag = tag?.trim() ?? '';
+    if (normalizedTag.isEmpty) return overview;
+    return MingtaiOverview(
+      items: overview.allItems.where((item) {
+        return _parseTags((item['ai_tags'] as String?) ?? '')
+            .contains(normalizedTag);
+      }).toList(),
+      allItems: overview.allItems,
+      tags: overview.tags,
+      insights: overview.insights,
     );
   }
 
@@ -1109,9 +1307,21 @@ class BookService {
         where: 'id = ? OR bmob_id = ?',
         whereArgs: [remoteId, remoteId],
       );
+      _invalidateMingtaiOverviewCache();
       return;
     }
     await db.delete('mingtai_items', where: 'id = ?', whereArgs: [id]);
+    _invalidateMingtaiOverviewCache();
+  }
+
+  static void _invalidateMingtaiBooksCache() {
+    _mingtaiBooksCache = null;
+    _mingtaiBooksCacheAt = null;
+  }
+
+  static void _invalidateMingtaiOverviewCache() {
+    _mingtaiOverviewCache = null;
+    _mingtaiOverviewCacheAt = null;
   }
 
   static Map<String, dynamic> _userEntryToMingtaiItem(UserEntry entry) {
@@ -1259,9 +1469,9 @@ class BookService {
     const actionTags = {
       '划线',
       '想法',
-      'AI解释',
-      'AI 解释',
+      '小U解释',
       '手动',
+      'ai_explanation',
       'highlight',
       'thought',
       'ai_explanation',

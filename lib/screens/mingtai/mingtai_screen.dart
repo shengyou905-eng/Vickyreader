@@ -29,17 +29,23 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool forceRefresh = false}) async {
     final firstLoad = _books.isEmpty;
+    final cached = BookService.cachedMingtaiBooks(limit: 30);
+    final canShowCache = firstLoad && cached.isNotEmpty;
     if (!mounted) return;
     setState(() {
-      _loading = firstLoad;
-      _refreshing = !firstLoad;
+      if (canShowCache) _books = cached;
+      _loading = firstLoad && !canShowCache;
+      _refreshing = !firstLoad || canShowCache;
       _error = null;
     });
 
     try {
-      final books = await BookService.getMingtaiBooks(limit: 50);
+      final books = await BookService.getMingtaiBooks(
+        limit: 30,
+        forceRefresh: forceRefresh,
+      );
       if (!mounted) return;
       setState(() {
         _books = books;
@@ -49,8 +55,7 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
-        _books = const [];
+        if (_books.isEmpty) _error = e.toString();
         _loading = false;
         _refreshing = false;
       });
@@ -64,14 +69,17 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
       builder: (_) => const _PublishBookSheet(),
     );
     if (published == true && mounted) {
-      _load();
+      _load(forceRefresh: true);
     }
   }
 
   void _openBook(MingtaiPublicBook book) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => MingtaiBookDetailScreen(bookId: book.id),
+        builder: (_) => MingtaiBookDetailScreen(
+          bookId: book.id,
+          initialBook: book,
+        ),
       ),
     );
   }
@@ -107,14 +115,17 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
                 if (_refreshing) const LinearProgressIndicator(minHeight: 2),
                 Expanded(
                   child: RefreshIndicator(
-                    onRefresh: _load,
+                    onRefresh: () => _load(forceRefresh: true),
                     child: ListView(
                       padding: const EdgeInsets.fromLTRB(18, 16, 18, 32),
                       children: [
                         const _MingtaiIntroCard(),
                         const SizedBox(height: 20),
                         if (_error != null)
-                          _QuietError(message: _error!, onRetry: _load)
+                          _QuietError(
+                            message: _error!,
+                            onRetry: () => _load(forceRefresh: true),
+                          )
                         else if (_books.isEmpty)
                           const _QuietEmpty()
                         else ...[
@@ -148,10 +159,12 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
 
 class MingtaiBookDetailScreen extends StatefulWidget {
   final String bookId;
+  final MingtaiPublicBook? initialBook;
 
   const MingtaiBookDetailScreen({
     super.key,
     required this.bookId,
+    this.initialBook,
   });
 
   @override
@@ -172,6 +185,11 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
   @override
   void initState() {
     super.initState();
+    final initialBook = widget.initialBook;
+    if (initialBook != null) {
+      _detail = MingtaiBookDetail(book: initialBook, annotations: const []);
+      _loading = false;
+    }
     _load();
   }
 
@@ -1078,7 +1096,7 @@ class _AnnotationCard extends StatelessWidget {
 
   String _fallbackAnnotation(String source) {
     if (source == 'highlight') return '有人在这里划下了这句话。';
-    if (source == 'ai_explanation') return '有人把这段交给 AI 解释过。';
+    if (source == 'ai_explanation') return '有人把这段交给小U解释过。';
     if (source == 'thought') return '有人在这里留下了一句想法。';
     return '有人在这里留下了一条页边笔记。';
   }

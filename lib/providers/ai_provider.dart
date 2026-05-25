@@ -78,7 +78,7 @@ class AiProvider extends ChangeNotifier {
             chapterTitle: chapterTitle,
             originalText: selectedText,
             aiExplanation: result,
-            autoTags: const ['AI解释'],
+            autoTags: const ['小U解释'],
             autoSummary: _summaryOf(result),
             metadataJson: jsonEncode({'book_author': bookAuthor}),
             createdAt: DateTime.now(),

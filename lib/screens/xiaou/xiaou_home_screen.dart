@@ -51,7 +51,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     }
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool forceRefresh = false}) async {
     if (_loadInFlight) {
       _reloadAfterCurrent = true;
       return;
@@ -59,12 +59,23 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     _loadInFlight = true;
     final requestTag = _selectedTag;
     final firstLoad = !_hasLoadedOnce;
+    final cached = BookService.cachedMingtaiOverview(tag: requestTag);
     setState(() {
-      _loading = firstLoad;
-      _refreshing = !firstLoad;
+      if (firstLoad && cached != null) {
+        _items = cached.items;
+        _allItems = cached.allItems;
+        _allTags = cached.tags;
+        _insights = cached.insights;
+        _hasLoadedOnce = true;
+      }
+      _loading = firstLoad && cached == null;
+      _refreshing = !firstLoad || cached != null;
     });
     try {
-      final overview = await BookService.getMingtaiOverview(tag: requestTag);
+      final overview = await BookService.getMingtaiOverview(
+        tag: requestTag,
+        forceRefresh: forceRefresh,
+      );
       if (requestTag != _selectedTag) return;
       if (mounted) setState(() {
         _items = overview.items;
@@ -124,7 +135,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         _allItems.removeWhere((item) => item['id'] == id);
         _deletingIds.remove(id);
       });
-      await _load();
+      await _load(forceRefresh: true);
     } catch (e) {
       if (!mounted) return;
       setState(() => _deletingIds.remove(id));
@@ -233,7 +244,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
           const Text('小U知识中枢',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
           const SizedBox(height: 8),
-          const Text('划线、想法和 AI 解释会自动进入这里', style: TextStyle(color: AppTheme.textSecondary)),
+          const Text('划线、想法和小U解释会自动进入这里', style: TextStyle(color: AppTheme.textSecondary)),
         ],
       ),
     );
@@ -366,7 +377,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
 
   String _buildInsightMeta(MingtaiInsight insight) {
     if (insight.entryCount == 0) {
-      return '等待新的划线、想法和 AI 解释';
+      return '等待新的划线、想法和小U解释';
     }
 
     final parts = <String>['${insight.entryCount} 条记录'];

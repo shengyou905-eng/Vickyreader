@@ -1,23 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import '../config/constants.dart';
 import '../models/ai_conversation.dart';
+import 'auth_service.dart';
 
 class AiService {
-  static const String _apiKeyKey = 'deepseek_api_key';
-
-  static Future<String?> getApiKey() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_apiKeyKey);
-  }
-
-  static Future<void> saveApiKey(String key) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_apiKeyKey, key);
-  }
-
-  /// Send an explanation request with context
+  /// 小U解释：选中文字 → 后端 /api/ai/explain（SSE 流式）
   static Future<String> explain({
     required String selectedText,
     required String contextBefore,
@@ -26,113 +15,99 @@ class AiService {
     required String bookAuthor,
     List<AiMessage>? conversationHistory,
   }) async {
-    final apiKey = await getApiKey();
-    if (apiKey == null || apiKey.isEmpty) {
-      throw Exception('请先在设置中配置 DeepSeek API Key');
-    }
+    final history = (conversationHistory ?? [])
+        .map((m) => {'role': m.role, 'content': m.content})
+        .toList();
 
-    final messages = <Map<String, String>>[];
-
-    // System prompt
-    messages.add({
-      'role': 'system',
-      'content': '你是一个博学的阅读助手。用户正在阅读《$bookTitle》（作者：$bookAuthor）。'
-          '请根据上下文解释用户选中的文字。回答要简洁、准确、有深度。'
-          '如果涉及专有名词、典故、历史事件等，请提供背景知识。'
-          '用中文回答，控制在 200-400 字以内。',
+    return _streamFromBackend('/api/ai/explain', {
+      'selectedText': selectedText,
+      'contextBefore': contextBefore,
+      'contextAfter': contextAfter,
+      'bookTitle': bookTitle,
+      'bookAuthor': bookAuthor,
+      'history': history,
     });
-
-    // Conversation history (last 3 rounds)
-    if (conversationHistory != null && conversationHistory.isNotEmpty) {
-      for (final msg in conversationHistory) {
-        messages.add(msg.toApiFormat());
-      }
-    }
-
-    // Current query
-    final query = '上下文上文：...$contextBefore...\n'
-        '【选中文字】$selectedText\n'
-        '上下文下文：...$contextAfter...\n\n'
-        '请结合上下文解释这段文字的含义。';
-    messages.add({'role': 'user', 'content': query});
-
-    final response = await http.post(
-      Uri.parse('${AppConstants.deepseekBaseUrl}/v1/chat/completions'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $apiKey',
-      },
-      body: jsonEncode({
-        'model': AppConstants.deepseekModel,
-        'messages': messages,
-        'temperature': 0.7,
-        'max_tokens': 800,
-        'stream': false,
-      }),
-    ).timeout(const Duration(seconds: 30));
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      final choices = data['choices'] as List?;
-      if (choices == null || choices.isEmpty) {
-        throw Exception('AI 服务未返回有效回复');
-      }
-      return choices[0]['message']['content'] as String;
-    } else {
-      final error = jsonDecode(response.body);
-      final msg = error['error']?['message'] ?? '请求失败';
-      throw Exception('AI 服务错误：$msg');
-    }
   }
 
-  /// Continue a conversation (follow-up question)
+  /// 追问：延续解释对话 → 后端 /api/ai/explain（message 模式）
   static Future<String> chat({
     required String message,
     required List<AiMessage> conversationHistory,
   }) async {
-    final apiKey = await getApiKey();
-    if (apiKey == null || apiKey.isEmpty) {
-      throw Exception('请先在设置中配置 DeepSeek API Key');
-    }
+    final history = conversationHistory
+        .map((m) => {'role': m.role, 'content': m.content})
+        .toList();
 
-    final messages = <Map<String, String>>[];
-    messages.add({
-      'role': 'system',
-      'content': '你是一个博学的阅读助手。用户正在就书中的内容向你提问。请保持回答简洁、准确。用中文回答。',
+    return _streamFromBackend('/api/ai/explain', {
+      'message': message,
+      'history': history,
     });
-
-    for (final msg in conversationHistory) {
-      messages.add(msg.toApiFormat());
-    }
-    messages.add({'role': 'user', 'content': message});
-
-    final response = await http.post(
-      Uri.parse('${AppConstants.deepseekBaseUrl}/v1/chat/completions'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $apiKey',
-      },
-      body: jsonEncode({
-        'model': AppConstants.deepseekModel,
-        'messages': messages,
-        'temperature': 0.7,
-        'max_tokens': 800,
-        'stream': false,
-      }),
-    ).timeout(const Duration(seconds: 30));
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      final choices = data['choices'] as List?;
-      if (choices == null || choices.isEmpty) {
-        throw Exception('AI 服务未返回有效回复');
-      }
-      return choices[0]['message']['content'] as String;
-    } else {
-      final error = jsonDecode(response.body);
-      final msg = error['error']?['message'] ?? '请求失败';
-      throw Exception('AI 服务错误：$msg');
-    }
   }
 
+  /// 发送 POST 到后端，收集 SSE 流式响应为完整字符串
+  static Future<String> _streamFromBackend(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    final token = AuthService.token;
+    if (token == null || token.isEmpty) {
+      throw Exception('请先登录');
+    }
+
+    final request = http.Request(
+      'POST',
+      Uri.parse('${AppConstants.apiBaseUrl}$path'),
+    );
+    request.headers['Content-Type'] = 'application/json';
+    request.headers['Authorization'] = 'Bearer $token';
+    request.body = jsonEncode(body);
+
+    final streamed = await request.send().timeout(const Duration(seconds: 10));
+
+    if (streamed.statusCode != 200) {
+      final errorBody = await streamed.stream.bytesToString();
+      String errorMsg = '请求失败 (${streamed.statusCode})';
+      try {
+        final parsed = jsonDecode(errorBody);
+        if (parsed['error'] != null) errorMsg = parsed['error'].toString();
+      } catch (_) {}
+      throw Exception(errorMsg);
+    }
+
+    final buffer = StringBuffer();
+    final completer = Completer<String>();
+
+    streamed.stream
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen(
+      (line) {
+        if (!line.startsWith('data: ')) return;
+        final data = line.substring(6).trim();
+        if (data == '[DONE]') {
+          completer.complete(buffer.toString());
+          return;
+        }
+        try {
+          final parsed = jsonDecode(data);
+          if (parsed['error'] != null) {
+            completer.completeError(Exception(parsed['error'].toString()));
+            return;
+          }
+          final content = parsed['content'] as String?;
+          if (content != null) buffer.write(content);
+        } catch (_) {
+          // skip malformed SSE chunks
+        }
+      },
+      onError: (e) {
+        if (!completer.isCompleted) completer.completeError(e);
+      },
+      onDone: () {
+        if (!completer.isCompleted) completer.complete(buffer.toString());
+      },
+    );
+
+    return completer.future.timeout(const Duration(seconds: 60));
+  }
 }
