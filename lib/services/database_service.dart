@@ -148,6 +148,16 @@ class DatabaseService {
         bmob_id TEXT DEFAULT ''
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE free_notes (
+        id TEXT PRIMARY KEY,
+        user_id TEXT DEFAULT '',
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
   }
 
   static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -210,6 +220,17 @@ class DatabaseService {
           created_at TEXT NOT NULL,
           updated_at TEXT DEFAULT '',
           bmob_id TEXT DEFAULT ''
+        )
+      ''');
+    }
+    if (oldVersion < 10) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS free_notes (
+          id TEXT PRIMARY KEY,
+          user_id TEXT DEFAULT '',
+          content TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
         )
       ''');
     }

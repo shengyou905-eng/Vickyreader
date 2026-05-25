@@ -301,9 +301,7 @@ class BmobApi {
     final headers = _authHeaders(contentType: _fileContentType(fileType))
       ..addAll({
         'x-source-book-id': resolvedSourceBookId,
-        'x-title': title,
         'x-file-type': fileType,
-        'x-file-name': p.basename(filePath),
         'x-copyright-status': copyrightStatus,
       });
     final res = await http
@@ -351,7 +349,6 @@ class BmobApi {
           .timeout(const Duration(seconds: 8));
 
       debugPrint('[MingtaiBooks] statusCode=${res.statusCode}');
-      debugPrint('[MingtaiBooks] response.body=${res.body}');
 
       Map<String, dynamic> data;
       try {
@@ -360,8 +357,6 @@ class BmobApi {
         debugPrint('[MingtaiBooks] parsed json error=$e');
         throw Exception('明台书库返回不是 JSON (HTTP ${res.statusCode})');
       }
-
-      debugPrint('[MingtaiBooks] parsed json=${jsonEncode(data)}');
 
       if (res.statusCode == 200) {
         final books = data['books'];
@@ -379,7 +374,7 @@ class BmobApi {
       );
     } on TimeoutException catch (e) {
       debugPrint('[MingtaiBooks] timeout=$e');
-      return [];
+      throw Exception('明台书库连接超时');
     }
   }
 
@@ -436,7 +431,6 @@ class BmobApi {
           .timeout(const Duration(seconds: 8));
 
       debugPrint('[MingtaiFeed] statusCode=${res.statusCode}');
-      debugPrint('[MingtaiFeed] response.body=${res.body}');
 
       Map<String, dynamic> data;
       try {
@@ -445,8 +439,6 @@ class BmobApi {
         debugPrint('[MingtaiFeed] parsed json error=$e');
         throw Exception('明台返回不是 JSON (HTTP ${res.statusCode})');
       }
-
-      debugPrint('[MingtaiFeed] parsed json=${jsonEncode(data)}');
 
       if (res.statusCode == 200) {
         final annotations = data['annotations'];
