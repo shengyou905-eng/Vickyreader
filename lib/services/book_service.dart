@@ -1471,7 +1471,6 @@ class BookService {
       '想法',
       '小U解释',
       '手动',
-      'ai_explanation',
       'highlight',
       'thought',
       'ai_explanation',
