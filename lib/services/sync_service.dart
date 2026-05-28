@@ -169,6 +169,18 @@ class SyncService {
     await db.update('user_entries',
         {'user_id': newUserId, 'updated_at': now},
         where: "user_id = '' OR user_id IS NULL");
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS free_notes (
+        id TEXT PRIMARY KEY,
+        user_id TEXT DEFAULT '',
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    await db.update('free_notes',
+        {'user_id': newUserId, 'updated_at': now},
+        where: "user_id = '' OR user_id IS NULL");
 
     _userId = newUserId;
     await _setLastSyncTime('');

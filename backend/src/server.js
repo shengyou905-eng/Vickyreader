@@ -5,9 +5,12 @@ const { initSchema } = require('./db/init');
 async function start() {
   await initSchema();
 
-  app.listen(port, () => {
+  const server = app.listen(port, () => {
     console.log(`[${nodeEnv}] Reader backend listening on http://localhost:${port}`);
   });
+  server.requestTimeout = 180000;
+  server.headersTimeout = 65000;
+  server.keepAliveTimeout = 65000;
 }
 
 start().catch((error) => {

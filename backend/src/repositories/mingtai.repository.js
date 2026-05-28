@@ -11,6 +11,7 @@ function shapeBook(row) {
     storage_path: row.storage_path || '',
     file_type: row.file_type || '',
     file_size: Number(row.file_size || 0),
+    chapter_count: Number(row.chapter_count || 0),
     description: row.description || '',
     copyright_status: row.copyright_status || '',
     borrow_count: Number(row.borrow_count || 0),
@@ -58,6 +59,21 @@ function shapeAnnotation(row) {
   };
 }
 
+function shapeChapter(row, { includeContent = false } = {}) {
+  return {
+    id: row.id,
+    public_book_id: row.public_book_id,
+    chapter_index: Number(row.chapter_index || 0),
+    title: row.title || `第${Number(row.chapter_index || 0) + 1}章`,
+    href: row.href || '',
+    plain_text: row.plain_text || '',
+    preview: String(row.plain_text || '').slice(0, 180),
+    ...(includeContent ? { content: row.content || '' } : {}),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
 function normalizeMetadata(metadata) {
   if (!metadata) return {};
   if (typeof metadata === 'object' && !Array.isArray(metadata)) return metadata;
@@ -89,11 +105,12 @@ async function upsertPublicBook(userId, payload) {
        storage_path,
        file_type,
        file_size,
+       chapter_count,
        description,
        copyright_status,
        metadata_json
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      ON CONFLICT (publisher_user_id, source_book_id) DO UPDATE SET
        title = EXCLUDED.title,
        author = EXCLUDED.author,
@@ -102,6 +119,7 @@ async function upsertPublicBook(userId, payload) {
        storage_path = EXCLUDED.storage_path,
        file_type = EXCLUDED.file_type,
        file_size = EXCLUDED.file_size,
+       chapter_count = EXCLUDED.chapter_count,
        description = EXCLUDED.description,
        copyright_status = EXCLUDED.copyright_status,
        metadata_json = EXCLUDED.metadata_json,
@@ -116,6 +134,7 @@ async function upsertPublicBook(userId, payload) {
        storage_path,
        file_type,
        file_size,
+       chapter_count,
        description,
        copyright_status,
        borrow_count,
@@ -131,6 +150,7 @@ async function upsertPublicBook(userId, payload) {
       payload.storage_path || null,
       payload.file_type || null,
       Number(payload.file_size || 0),
+      Number(payload.chapter_count || 0),
       payload.description || null,
       payload.copyright_status,
       metadata,
@@ -211,6 +231,131 @@ async function publishBook(userId, payload) {
     },
     annotations,
   };
+}
+
+async function replaceBookChapters(publicBookId, chapters) {
+  const normalizedChapters = Array.isArray(chapters) ? chapters : [];
+
+  await query('DELETE FROM book_chapters WHERE public_book_id = $1', [publicBookId]);
+
+  for (const chapter of normalizedChapters) {
+    const index = Number(chapter.chapter_index || 0);
+    await query(
+      `INSERT INTO book_chapters (
+         public_book_id,
+         chapter_index,
+         title,
+         content,
+         plain_text,
+         href
+       )
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (public_book_id, chapter_index) DO UPDATE SET
+         title = EXCLUDED.title,
+         content = EXCLUDED.content,
+         plain_text = EXCLUDED.plain_text,
+         href = EXCLUDED.href,
+         updated_at = now()`,
+      [
+        publicBookId,
+        index,
+        String(chapter.title || '').trim() || `第${index + 1}章`,
+        String(chapter.content || ''),
+        String(chapter.plain_text || ''),
+        String(chapter.href || ''),
+      ],
+    );
+  }
+
+  const result = await query(
+    `UPDATE public_books
+     SET chapter_count = $2,
+         updated_at = now()
+     WHERE id = $1
+     RETURNING
+       id,
+       source_book_id,
+       title,
+       author,
+       cover_url,
+       file_url,
+       storage_path,
+       file_type,
+       file_size,
+       chapter_count,
+       description,
+       copyright_status,
+       borrow_count,
+       borrow_count AS reading_count,
+       0 AS annotation_count,
+       0 AS recent_discussion_count,
+       created_at`,
+    [publicBookId, normalizedChapters.length],
+  );
+
+  return result.rows[0] ? shapeBook(result.rows[0]) : null;
+}
+
+async function listBookChapters(publicBookId, { includeContent = false } = {}) {
+  const result = await query(
+    `SELECT
+       id,
+       public_book_id,
+       chapter_index,
+       title,
+       ${includeContent ? 'content,' : "'' AS content,"}
+       plain_text,
+       href,
+       created_at,
+       updated_at
+     FROM book_chapters
+     WHERE public_book_id = $1
+     ORDER BY chapter_index ASC`,
+    [publicBookId],
+  );
+
+  return result.rows.map((row) => shapeChapter(row, { includeContent }));
+}
+
+async function getBookChapter(publicBookId, chapterIndex) {
+  const result = await query(
+    `SELECT
+       id,
+       public_book_id,
+       chapter_index,
+       title,
+       content,
+       plain_text,
+       href,
+       created_at,
+       updated_at
+     FROM book_chapters
+     WHERE public_book_id = $1
+       AND chapter_index = $2
+     LIMIT 1`,
+    [publicBookId, chapterIndex],
+  );
+
+  return result.rows[0]
+    ? shapeChapter(result.rows[0], { includeContent: true })
+    : null;
+}
+
+async function getBookStorageInfo(publicBookId) {
+  const result = await query(
+    `SELECT
+       id,
+       storage_path,
+       file_type,
+       title,
+       chapter_count
+     FROM public_books
+     WHERE id = $1
+     LIMIT 1`,
+    [publicBookId],
+  );
+
+  return result.rows[0] || null;
 }
 
 async function publishEntries(userId, entryIds, publicBookId = null) {
@@ -317,6 +462,7 @@ async function listBooks({ limit = 50 } = {}) {
        b.storage_path,
        b.file_type,
        b.file_size,
+       b.chapter_count,
        b.description,
        b.copyright_status,
        b.borrow_count,
@@ -349,6 +495,7 @@ async function getBook(publicBookId) {
        b.storage_path,
        b.file_type,
        b.file_size,
+       b.chapter_count,
        b.description,
        b.copyright_status,
        b.borrow_count,
@@ -501,6 +648,7 @@ async function borrowBook(publicBookId) {
        storage_path,
        file_type,
        file_size,
+       chapter_count,
        description,
        copyright_status,
        borrow_count,
@@ -527,6 +675,10 @@ async function borrowBook(publicBookId) {
 module.exports = {
   publishBook,
   publishEntries,
+  replaceBookChapters,
+  listBookChapters,
+  getBookChapter,
+  getBookStorageInfo,
   listBooks,
   getBook,
   listFeed,

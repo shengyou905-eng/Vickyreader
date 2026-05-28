@@ -82,7 +82,7 @@ async function explain(req, res, next) {
       ];
     }
 
-    await streamDeepSeek(res, messages);
+    await streamDeepSeek(req, res, messages);
   } catch (error) {
     if (!res.headersSent) return next(error);
     res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
@@ -113,7 +113,7 @@ async function chat(req, res, next) {
       { role: 'user', content: message },
     ];
 
-    await streamDeepSeek(res, messages);
+    await streamDeepSeek(req, res, messages);
   } catch (error) {
     if (!res.headersSent) return next(error);
     res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
@@ -121,68 +121,104 @@ async function chat(req, res, next) {
   }
 }
 
-async function streamDeepSeek(res, messages) {
+async function streamDeepSeek(req, res, messages) {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
     'X-Accel-Buffering': 'no',
   });
+  res.flushHeaders?.();
+  res.write(`data: ${JSON.stringify({ status: '小U正在阅读这一段…' })}\n\n`);
 
-  const response = await fetch(DEEPSEEK_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: 'deepseek-chat',
-      messages,
-      temperature: 0.7,
-      max_tokens: 1200,
-      stream: true,
-    }),
+  const heartbeat = setInterval(() => {
+    if (canWrite(res)) {
+      res.write(': keep-alive\n\n');
+    }
+  }, 15000);
+
+  const abortController = new AbortController();
+  const upstreamTimeout = setTimeout(() => {
+    abortController.abort();
+  }, 120000);
+  res.on('close', () => {
+    if (!res.writableEnded) abortController.abort();
   });
 
-  if (!response.ok) {
-    const errText = await response.text().catch(() => '');
-    res.write(`data: ${JSON.stringify({ error: `AI 服务异常 (${response.status})` })}\n\n`);
-    res.end();
-    return;
-  }
+  try {
+    const response = await fetch(DEEPSEEK_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages,
+        temperature: 0.7,
+        max_tokens: 1200,
+        stream: true,
+      }),
+      signal: abortController.signal,
+    });
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      const data = line.slice(6).trim();
-      if (data === '[DONE]') {
-        res.write('data: [DONE]\n\n');
-        continue;
+    if (!response.ok) {
+      await response.text().catch(() => '');
+      if (canWrite(res)) {
+        res.write(`data: ${JSON.stringify({ error: `AI 服务异常 (${response.status})` })}\n\n`);
+        res.end();
       }
-      try {
-        const parsed = JSON.parse(data);
-        const content = parsed.choices?.[0]?.delta?.content;
-        if (content) {
-          res.write(`data: ${JSON.stringify({ content })}\n\n`);
+      return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') {
+          if (canWrite(res)) res.write('data: [DONE]\n\n');
+          continue;
         }
-      } catch (_) {
-        // skip malformed chunks
+        try {
+          const parsed = JSON.parse(data);
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content && canWrite(res)) {
+            res.write(`data: ${JSON.stringify({ content })}\n\n`);
+          }
+        } catch (_) {
+          // skip malformed chunks
+        }
       }
     }
-  }
 
-  res.end();
+    if (canWrite(res)) res.end();
+  } catch (error) {
+    if (canWrite(res)) {
+      const message = error.name === 'AbortError'
+        ? '这段内容有些复杂，小U思考得久了一点。请稍后重试。'
+        : '网络似乎有些慢，请稍后重试。';
+      res.write(`data: ${JSON.stringify({ error: message })}\n\n`);
+      res.end();
+    }
+  } finally {
+    clearInterval(heartbeat);
+    clearTimeout(upstreamTimeout);
+  }
+}
+
+function canWrite(res) {
+  return !res.writableEnded && !res.destroyed;
 }
 
 function buildContext(entries) {

@@ -31,12 +31,23 @@ class _NotesFreeScreenState extends State<NotesFreeScreen> {
 
   Future<void> _loadNotes() async {
     setState(() => _loading = true);
-    final notes = await BookService.getFreeNotes(query: _query);
-    if (!mounted) return;
-    setState(() {
-      _notes = notes;
-      _loading = false;
-    });
+    try {
+      final notes = await BookService.getFreeNotes(query: _query);
+      if (!mounted) return;
+      setState(() {
+        _notes = notes;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('随心记加载失败：$e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   void _onSearchChanged(String value) {
@@ -60,7 +71,7 @@ class _NotesFreeScreenState extends State<NotesFreeScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('删除记录'),
-        content: const Text('这条随心记只保存在本机，删除后不可恢复。'),
+        content: const Text('这条随心记会从你的私密记录中删除，删除后不可恢复。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -200,6 +211,7 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
     await BookService.saveFreeNote(
       id: _noteId,
       content: content,
+      waitForRemote: true,
     );
     if (mounted) Navigator.pop(context, true);
   }

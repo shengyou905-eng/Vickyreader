@@ -189,22 +189,27 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
     if (initialBook != null) {
       _detail = MingtaiBookDetail(book: initialBook, annotations: const []);
       _loading = false;
+      unawaited(BookService.prefetchMingtaiBookFile(initialBook));
     }
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool forceRefresh = false}) async {
     setState(() {
       _loading = _detail == null;
       _error = null;
     });
     try {
-      final detail = await BookService.getMingtaiBookDetail(widget.bookId);
+      final detail = await BookService.getMingtaiBookDetail(
+        widget.bookId,
+        forceRefresh: forceRefresh,
+      );
       if (!mounted) return;
       setState(() {
         _detail = detail;
         _loading = false;
       });
+      unawaited(BookService.prefetchMingtaiBookFile(detail.book));
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -244,10 +249,10 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
   Future<void> _startReading() async {
     final book = _detail?.book;
     if (book == null || _startingReading) return;
-    if (book.fileUrl.isEmpty) {
+    if (book.fileUrl.isEmpty && book.chapterCount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('这本明台书缺少文件，请从书架重新发布覆盖'),
+          content: Text('这本明台书缺少可阅读内容，请从书架重新发布覆盖'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -310,7 +315,7 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
           behavior: SnackBarBehavior.floating,
         ),
       );
-      _load();
+      _load(forceRefresh: true);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -948,36 +953,47 @@ class _BookDetailHeader extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: startingReading || book.fileUrl.isEmpty
-                        ? null
-                        : onStartReading,
-                    icon: const Icon(Icons.menu_book_rounded),
-                    label: Text(
-                      book.fileUrl.isEmpty
-                          ? '缺少书籍文件'
-                          : startingReading
-                              ? '打开中...'
-                              : '开始阅读',
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: borrowing || book.fileUrl.isEmpty ? null : onBorrow,
-                    icon: const Icon(Icons.library_add_outlined),
-                    label: Text(
-                      book.fileUrl.isEmpty
-                          ? '缺少书籍文件'
-                          : borrowing
-                              ? '借阅中...'
-                              : '借阅到书架',
-                    ),
-                  ),
+                Builder(
+                  builder: (context) {
+                    final hasReadableContent =
+                        book.fileUrl.isNotEmpty || book.chapterCount > 0;
+                    return Column(
+                      children: [
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: startingReading || !hasReadableContent
+                                ? null
+                                : onStartReading,
+                            icon: const Icon(Icons.menu_book_rounded),
+                            label: Text(
+                              !hasReadableContent
+                                  ? '暂无可读内容'
+                                  : startingReading
+                                      ? '打开中...'
+                                      : '开始阅读',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed:
+                                borrowing || !hasReadableContent ? null : onBorrow,
+                            icon: const Icon(Icons.library_add_outlined),
+                            label: Text(
+                              !hasReadableContent
+                                  ? '暂无可借阅内容'
+                                  : borrowing
+                                      ? '借阅中...'
+                                      : '借阅到书架',
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ],
             ),

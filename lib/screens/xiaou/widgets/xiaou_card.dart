@@ -43,16 +43,33 @@ class XiaouCard extends StatelessWidget {
                 color: AppTheme.primaryLight.withAlpha(18),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Text(originalText,
-                style: const TextStyle(fontSize: 14, fontStyle: FontStyle.italic, height: 1.5)),
+              child: Text(
+                originalText,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontStyle: FontStyle.italic,
+                  height: 1.5,
+                ),
+              ),
             ),
             // User note
             if (userNote != null && userNote!.isNotEmpty) ...[
               const SizedBox(height: 10),
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 const Text('💬 ', style: TextStyle(fontSize: 13)),
-                Expanded(child: Text(userNote!,
-                    style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary))),
+                Expanded(
+                  child: Text(
+                    userNote!,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
+                ),
               ]),
             ],
             // AI understanding
@@ -60,8 +77,17 @@ class XiaouCard extends StatelessWidget {
               const SizedBox(height: 8),
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 const Text('🤖 ', style: TextStyle(fontSize: 13)),
-                Expanded(child: Text(aiUnderstanding!,
-                    style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary))),
+                Expanded(
+                  child: Text(
+                    aiUnderstanding!,
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
+                ),
               ]),
             ],
             // Tags
@@ -99,9 +125,18 @@ class XiaouCard extends StatelessWidget {
               Row(children: [
                 const Icon(Icons.menu_book, size: 14, color: AppTheme.textSecondary),
                 const SizedBox(width: 4),
-                Text(bookTitle!,
-                    style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-                const Spacer(),
+                Expanded(
+                  child: Text(
+                    bookTitle!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 if (onPublish != null)
                   Tooltip(
                     message: '公开到明台',

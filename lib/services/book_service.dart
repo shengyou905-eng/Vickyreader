@@ -9,11 +9,13 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
+import '../config/constants.dart';
 import '../models/book.dart';
 import '../models/bookmark.dart';
 import '../models/highlight.dart';
 import '../models/ai_conversation.dart';
 import '../models/user_entry.dart';
+import 'auth_service.dart';
 import 'bmob_api.dart';
 import 'database_service.dart';
 import 'epub_service.dart';
@@ -91,6 +93,7 @@ class MingtaiPublicBook {
   final String storagePath;
   final String fileType;
   final int fileSize;
+  final int chapterCount;
   final String description;
   final String copyrightStatus;
   final int borrowCount;
@@ -109,6 +112,7 @@ class MingtaiPublicBook {
     required this.storagePath,
     required this.fileType,
     required this.fileSize,
+    required this.chapterCount,
     required this.description,
     required this.copyrightStatus,
     required this.borrowCount,
@@ -134,6 +138,7 @@ class MingtaiPublicBook {
         row['file_url']?.toString() ?? '',
       ),
       fileSize: int.tryParse(row['file_size']?.toString() ?? '') ?? 0,
+      chapterCount: int.tryParse(row['chapter_count']?.toString() ?? '') ?? 0,
       description: row['description']?.toString() ?? '',
       copyrightStatus: row['copyright_status']?.toString() ?? '',
       borrowCount: int.tryParse(row['borrow_count']?.toString() ?? '') ?? 0,
@@ -259,9 +264,13 @@ class BookService {
   static const String _freeNotesBackupKey = 'free_notes_local_backup_v1';
   static List<MingtaiPublicBook>? _mingtaiBooksCache;
   static DateTime? _mingtaiBooksCacheAt;
+  static final Map<String, MingtaiBookDetail> _mingtaiBookDetailCache = {};
+  static final Map<String, DateTime> _mingtaiBookDetailCacheAt = {};
+  static final Map<String, Future<String>> _publicBookDownloadTasks = {};
   static MingtaiOverview? _mingtaiOverviewCache;
   static DateTime? _mingtaiOverviewCacheAt;
   static const Duration _mingtaiBooksCacheTtl = Duration(seconds: 45);
+  static const Duration _mingtaiBookDetailCacheTtl = Duration(seconds: 60);
   static const Duration _mingtaiOverviewCacheTtl = Duration(seconds: 30);
 
   static const Map<String, String> _sourceLabels = {
@@ -474,31 +483,50 @@ class BookService {
   }) async {
     final db = await DatabaseService.database;
     await _ensureFreeNotesTable(db);
+    await BmobApi.instance.init();
     await _restoreFreeNotesBackup(db);
     final q = query?.trim() ?? '';
+
     if (q.isEmpty) {
-      return db.query(
-        'free_notes',
-        orderBy: 'updated_at DESC, created_at DESC',
-      );
+      var localNotes = await _queryFreeNotes(db);
+      if (localNotes.isEmpty) {
+        localNotes = await _recoverLocalFreeNotesIfHidden(db);
+      }
+      if (localNotes.isEmpty) {
+        await _syncFreeNotesIfPossible(db);
+        return _queryFreeNotes(db);
+      }
+      unawaited(_syncFreeNotesIfPossible(db));
+      return localNotes;
     }
-    return db.query(
-      'free_notes',
-      where: 'content LIKE ?',
-      whereArgs: ['%$q%'],
-      orderBy: 'updated_at DESC, created_at DESC',
-    );
+
+    var notes = await _queryFreeNotes(db, query: q);
+    if (notes.isEmpty) {
+      notes = await _recoverLocalFreeNotesIfHidden(db, query: q);
+    }
+    return notes;
+  }
+
+  static Future<void> syncFreeNotes() async {
+    final db = await DatabaseService.database;
+    await _ensureFreeNotesTable(db);
+    await _restoreFreeNotesBackup(db);
+    await _syncFreeNotesIfPossible(db);
   }
 
   static Future<void> saveFreeNote({
     String? id,
     String userId = '',
     required String content,
+    bool waitForRemote = false,
   }) async {
     final db = await DatabaseService.database;
     await _ensureFreeNotesTable(db);
     final now = DateTime.now().toUtc().toIso8601String();
     final noteId = id?.trim().isNotEmpty == true ? id!.trim() : _uuid.v4();
+    final resolvedUserId = userId.trim().isNotEmpty
+        ? userId.trim()
+        : _currentFreeNotesUserId();
 
     final existing = await db.query(
       'free_notes',
@@ -507,21 +535,33 @@ class BookService {
       whereArgs: [noteId],
       limit: 1,
     );
+    final createdAt = existing.isEmpty
+        ? now
+        : existing.first['created_at']?.toString() ?? now;
 
     await db.insert(
       'free_notes',
       {
         'id': noteId,
-        'user_id': userId,
+        'user_id': resolvedUserId,
         'content': content,
-        'created_at': existing.isEmpty
-            ? now
-            : existing.first['created_at']?.toString() ?? now,
+        'created_at': createdAt,
         'updated_at': now,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
     await _backupFreeNotes(db);
+    final remoteSync = _upsertRemoteFreeNoteIfPossible(
+      id: noteId,
+      content: content,
+      createdAt: createdAt,
+      updatedAt: now,
+    );
+    if (waitForRemote) {
+      await remoteSync;
+    } else {
+      unawaited(remoteSync);
+    }
   }
 
   static Future<void> deleteFreeNote(String id) async {
@@ -529,6 +569,7 @@ class BookService {
     await _ensureFreeNotesTable(db);
     await db.delete('free_notes', where: 'id = ?', whereArgs: [id]);
     await _backupFreeNotes(db);
+    unawaited(_deleteRemoteFreeNoteIfPossible(id));
   }
 
   static Future<void> _ensureFreeNotesTable(Database db) async {
@@ -582,6 +623,205 @@ class BookService {
       }
     } catch (_) {
       // Keep SQLite as source of truth if the backup is unreadable.
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> _queryFreeNotes(
+    Database db, {
+    String? query,
+  }) {
+    final q = query?.trim() ?? '';
+    final userId = _currentFreeNotesUserId();
+    final where = <String>[];
+    final args = <Object?>[];
+
+    if (userId.isEmpty) {
+      where.add("(user_id = '' OR user_id IS NULL)");
+    } else {
+      where.add("(user_id = ? OR user_id = '' OR user_id IS NULL)");
+      args.add(userId);
+    }
+
+    if (q.isNotEmpty) {
+      where.add('content LIKE ?');
+      args.add('%$q%');
+    }
+
+    return db.query(
+      'free_notes',
+      where: where.join(' AND '),
+      whereArgs: args,
+      orderBy: 'updated_at DESC, created_at DESC',
+    );
+  }
+
+  static Future<List<Map<String, dynamic>>> _recoverLocalFreeNotesIfHidden(
+    Database db, {
+    String? query,
+  }) async {
+    final q = query?.trim() ?? '';
+    final userId = _currentFreeNotesUserId();
+    final where = <String>[];
+    final args = <Object?>[];
+
+    if (q.isNotEmpty) {
+      where.add('content LIKE ?');
+      args.add('%$q%');
+    }
+
+    final notes = await db.query(
+      'free_notes',
+      where: where.isEmpty ? null : where.join(' AND '),
+      whereArgs: args.isEmpty ? null : args,
+      orderBy: 'updated_at DESC, created_at DESC',
+    );
+
+    if (notes.isNotEmpty && userId.isNotEmpty) {
+      await db.update(
+        'free_notes',
+        {'user_id': userId},
+        where: "user_id != ? OR user_id IS NULL",
+        whereArgs: [userId],
+      );
+      await _backupFreeNotes(db);
+    }
+
+    return notes;
+  }
+
+  static String _currentFreeNotesUserId() {
+    final apiUserId = BmobApi.instance.userId?.trim() ?? '';
+    if (apiUserId.isNotEmpty) return apiUserId;
+    return AuthService.userId?.trim() ?? '';
+  }
+
+  static Future<void> _syncFreeNotesIfPossible(Database db) async {
+    final api = BmobApi.instance;
+    await api.init();
+    final userId = api.userId?.trim() ?? AuthService.userId?.trim() ?? '';
+    if (!api.isLoggedIn || userId.isEmpty) return;
+
+    try {
+      await _pullRemoteFreeNotesIfPossible(db, api, userId);
+      await _pushLocalFreeNotesIfPossible(db, api, userId);
+      await _backupFreeNotes(db);
+    } catch (_) {
+      // 随心记以本地可用为先，云端同步失败不阻塞用户继续写。
+    }
+  }
+
+  static Future<void> _pullRemoteFreeNotesIfPossible(
+    Database db,
+    BmobApi api,
+    String userId,
+  ) async {
+    final rows = await api.listFreeNotes(limit: 1000);
+    for (final row in rows) {
+      final id = row['id']?.toString() ?? '';
+      final content = row['content']?.toString() ?? '';
+      if (id.isEmpty || content.isEmpty) continue;
+
+      final remoteUpdated = row['updated_at']?.toString() ??
+          DateTime.now().toUtc().toIso8601String();
+      final local = await db.query(
+        'free_notes',
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (local.isNotEmpty) {
+        final localUpdated = local.first['updated_at']?.toString() ?? '';
+        final localTime = DateTime.tryParse(localUpdated);
+        final remoteTime = DateTime.tryParse(remoteUpdated);
+        if (localTime != null &&
+            remoteTime != null &&
+            localTime.isAfter(remoteTime)) {
+          continue;
+        }
+      }
+
+      await db.insert(
+        'free_notes',
+        {
+          'id': id,
+          'user_id': userId,
+          'content': content,
+          'created_at': row['created_at']?.toString() ?? remoteUpdated,
+          'updated_at': remoteUpdated,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+  }
+
+  static Future<void> _pushLocalFreeNotesIfPossible(
+    Database db,
+    BmobApi api,
+    String userId,
+  ) async {
+    final rows = await db.query(
+      'free_notes',
+      where: "user_id = ? OR user_id = '' OR user_id IS NULL",
+      whereArgs: [userId],
+      orderBy: 'updated_at ASC',
+    );
+
+    for (final row in rows) {
+      final id = row['id']?.toString() ?? '';
+      final content = row['content']?.toString() ?? '';
+      if (id.isEmpty || content.isEmpty) continue;
+
+      final createdAt = row['created_at']?.toString() ??
+          DateTime.now().toUtc().toIso8601String();
+      final updatedAt = row['updated_at']?.toString() ?? createdAt;
+      await api.upsertFreeNote(
+        id: id,
+        content: content,
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+      );
+
+      final rowUserId = row['user_id']?.toString() ?? '';
+      if (rowUserId.isEmpty) {
+        await db.update(
+          'free_notes',
+          {'user_id': userId},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
+    }
+  }
+
+  static Future<void> _upsertRemoteFreeNoteIfPossible({
+    required String id,
+    required String content,
+    required String createdAt,
+    required String updatedAt,
+  }) async {
+    try {
+      final api = BmobApi.instance;
+      await api.init();
+      if (!api.isLoggedIn) return;
+      await api.upsertFreeNote(
+        id: id,
+        content: content,
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+      );
+    } catch (_) {
+      // 本地已保存，稍后进入随心记时会再次尝试同步。
+    }
+  }
+
+  static Future<void> _deleteRemoteFreeNoteIfPossible(String id) async {
+    try {
+      final api = BmobApi.instance;
+      await api.init();
+      if (!api.isLoggedIn) return;
+      await api.deleteFreeNote(id);
+    } catch (_) {
+      // 删除失败时保留本地删除结果，避免用户被网络问题卡住。
     }
   }
 
@@ -788,7 +1028,19 @@ class BookService {
     return books;
   }
 
-  static Future<MingtaiBookDetail> getMingtaiBookDetail(String bookId) async {
+  static Future<MingtaiBookDetail> getMingtaiBookDetail(
+    String bookId, {
+    bool forceRefresh = false,
+  }) async {
+    final cached = _mingtaiBookDetailCache[bookId];
+    final cacheAt = _mingtaiBookDetailCacheAt[bookId];
+    final cacheFresh = cached != null &&
+        cacheAt != null &&
+        DateTime.now().difference(cacheAt) < _mingtaiBookDetailCacheTtl;
+    if (!forceRefresh && cacheFresh) {
+      return cached;
+    }
+
     final data = await BmobApi.instance.getMingtaiBook(bookId);
     final book = MingtaiPublicBook.fromRemote(
       Map<String, dynamic>.from(data['book'] ?? {}),
@@ -796,7 +1048,10 @@ class BookService {
     final annotations = List<Map<String, dynamic>>.from(
       data['annotations'] ?? [],
     ).map(MingtaiFeedItem.fromRemote).toList();
-    return MingtaiBookDetail(book: book, annotations: annotations);
+    final detail = MingtaiBookDetail(book: book, annotations: annotations);
+    _mingtaiBookDetailCache[bookId] = detail;
+    _mingtaiBookDetailCacheAt[bookId] = DateTime.now();
+    return detail;
   }
 
   static Future<void> publishBookToMingtai({
@@ -884,8 +1139,8 @@ class BookService {
     final remoteBook = MingtaiPublicBook.fromRemote(
       Map<String, dynamic>.from(data['book'] ?? {}),
     );
-    if (remoteBook.fileUrl.isEmpty) {
-      throw Exception('这本明台书还没有可阅读文件');
+    if (remoteBook.fileUrl.isEmpty && remoteBook.chapterCount <= 0) {
+      throw Exception('这本明台书还没有可阅读内容');
     }
     final now = DateTime.now();
     final book = Book(
@@ -922,24 +1177,52 @@ class BookService {
 
   static String publicShelfBookId(String publicBookId) => 'mingtai_$publicBookId';
 
+  static String publicBookIdFromShelfId(String id) {
+    if (id.startsWith('mingtai_')) return id.substring('mingtai_'.length);
+    if (id.startsWith('mingtai:')) return id.substring('mingtai:'.length);
+    return id;
+  }
+
   static bool isMingtaiShelfBook(Book book) {
     return book.id.startsWith('mingtai_') || book.id.startsWith('mingtai:');
+  }
+
+  static Future<void> prefetchMingtaiBookFile(MingtaiPublicBook publicBook) async {
+    await getMingtaiChapterShells(publicShelfBookId(publicBook.id))
+        .catchError((_) => const <EpubChapter>[]);
   }
 
   static Future<Book> prepareBookForReading(Book book) async {
     if (!isMingtaiShelfBook(book)) {
       return book;
     }
+    final format = _supportedFormat(book.format)
+        ? book.format
+        : _formatFromUrl(book.filePath);
+
+    if (format == 'epub' || format == 'txt') {
+      try {
+        final shells = await getMingtaiChapterShells(book.id);
+        if (shells.isNotEmpty) {
+          final titles = shells.map((chapter) => chapter.title).toList();
+          await _refreshCachedPublicBookMetadata(
+            book,
+            format: format,
+            chapterTitles: titles,
+          );
+          return book.copyWith(format: format, chapterTitles: titles);
+        }
+      } catch (_) {
+        // 章节缓存接口不可用时回退到原始文件，避免线上后端未部署新路由时打不开书。
+      }
+    }
+
     if (book.filePath.isEmpty) {
-      throw Exception('这本明台书还没有可阅读文件');
+      throw Exception('这本明台书还没有可阅读内容');
     }
     if (!_isRemoteUrl(book.filePath)) {
       return book;
     }
-
-    final format = _supportedFormat(book.format)
-        ? book.format
-        : _formatFromUrl(book.filePath);
 
     if (format == 'pdf') {
       final pdfPath = await PdfService.getPdfPath(book.id);
@@ -952,14 +1235,14 @@ class BookService {
         return book.copyWith(filePath: pdfPath, format: 'pdf');
       }
     } else {
-      final chapters = await EpubService.getChapters(book.id);
-      if (chapters.isNotEmpty) {
+      final chapterTitles = await EpubService.getChapterTitles(book.id);
+      if (chapterTitles.isNotEmpty) {
         await _refreshCachedPublicBookMetadata(
           book,
           format: format,
-          chapterTitles: chapters.map((chapter) => chapter.title).toList(),
+          chapterTitles: chapterTitles,
         );
-        return book.copyWith(format: format);
+        return book.copyWith(format: format, chapterTitles: chapterTitles);
       }
     }
 
@@ -984,6 +1267,64 @@ class BookService {
     );
   }
 
+  static Future<List<EpubChapter>> getMingtaiChapterShells(String bookId) async {
+    final titles = await EpubService.getChapterTitles(bookId);
+    if (titles.isNotEmpty) {
+      return [
+        for (var i = 0; i < titles.length; i++)
+          EpubChapter(title: titles[i], content: '', index: i),
+      ];
+    }
+
+    final publicBookId = publicBookIdFromShelfId(bookId);
+    final rows = await BmobApi.instance.listMingtaiBookChapters(publicBookId);
+    final shells = rows
+        .map((row) => EpubChapter(
+              title: row['title']?.toString() ??
+                  '第${(int.tryParse(row['chapter_index']?.toString() ?? '') ?? 0) + 1}章',
+              content: '',
+              index: int.tryParse(row['chapter_index']?.toString() ?? '') ?? 0,
+            ))
+        .toList()
+      ..sort((a, b) => a.index.compareTo(b.index));
+
+    if (shells.isNotEmpty) {
+      await _cacheMingtaiChapterTitles(
+        bookId,
+        shells.map((chapter) => chapter.title).toList(),
+      );
+    }
+    return shells;
+  }
+
+  static Future<String> getMingtaiChapterContent(String bookId, int index) async {
+    final filePath = await EpubService.getChapterFilePath(bookId, index);
+    final file = File(filePath);
+    if (await file.exists() && await file.length() > 0) {
+      return file.readAsString();
+    }
+
+    final publicBookId = publicBookIdFromShelfId(bookId);
+    final row = await BmobApi.instance.getMingtaiBookChapter(publicBookId, index);
+    final content = row['content']?.toString() ?? '';
+    if (content.isNotEmpty) {
+      await file.parent.create(recursive: true);
+      await file.writeAsString(content);
+    }
+    return content;
+  }
+
+  static Future<void> _cacheMingtaiChapterTitles(
+    String bookId,
+    List<String> titles,
+  ) async {
+    final appDir = await getApplicationDocumentsDirectory();
+    final chapterDir = Directory(p.join(appDir.path, AppConstants.booksDir, bookId));
+    await chapterDir.create(recursive: true);
+    final titlesFile = File(p.join(chapterDir.path, 'titles.json'));
+    await titlesFile.writeAsString(jsonEncode(titles));
+  }
+
   static Future<void> _refreshCachedPublicBookMetadata(
     Book book, {
     required String format,
@@ -1001,14 +1342,35 @@ class BookService {
     );
   }
 
-  static Future<String> _downloadPublicBookFile(Book book, String format) async {
+  static Future<String> _downloadPublicBookFile(Book book, String format) {
+    final taskKey = '${book.id}:$format';
+    final runningTask = _publicBookDownloadTasks[taskKey];
+    if (runningTask != null) return runningTask;
+
+    late final Future<String> task;
+    task = _downloadPublicBookFileInner(book, format).whenComplete(() {
+      if (identical(_publicBookDownloadTasks[taskKey], task)) {
+        _publicBookDownloadTasks.remove(taskKey);
+      }
+    });
+    _publicBookDownloadTasks[taskKey] = task;
+    return task;
+  }
+
+  static Future<String> _downloadPublicBookFileInner(
+    Book book,
+    String format,
+  ) async {
     final dir = await getApplicationDocumentsDirectory();
     final cacheDir = Directory(p.join(dir.path, 'public_books'));
     await cacheDir.create(recursive: true);
     final localPath = p.join(cacheDir.path, '${_safeFileName(book.id)}.$format');
     final localFile = File(localPath);
     if (await localFile.exists() && await localFile.length() > 0) {
-      return localPath;
+      if (await _isPublicBookFileReadable(localFile, format)) {
+        return localPath;
+      }
+      await localFile.delete();
     }
 
     final tempFile = File('$localPath.download');
@@ -1020,7 +1382,14 @@ class BookService {
           tempFile: tempFile,
           localFile: localFile,
         );
-        if (completed) return localPath;
+        if (completed) {
+          if (await _isPublicBookFileReadable(localFile, format)) {
+            return localPath;
+          }
+          lastError = _invalidPublicBookFileMessage(format);
+          if (await localFile.exists()) await localFile.delete();
+          if (await tempFile.exists()) await tempFile.delete();
+        }
       } catch (e) {
         lastError = e;
         if (attempt == 4) break;
@@ -1028,6 +1397,42 @@ class BookService {
       }
     }
     throw Exception('下载明台书籍失败，请检查网络后重试：$lastError');
+  }
+
+  static Future<bool> _isPublicBookFileReadable(
+    File file,
+    String format,
+  ) async {
+    if (!await file.exists() || await file.length() == 0) return false;
+    switch (format.toLowerCase()) {
+      case 'epub':
+        return EpubService.isReadableEpub(file.path);
+      case 'pdf':
+        final header = await _readFileHeader(file, 4);
+        final text = utf8.decode(header, allowMalformed: true);
+        return header.length >= 4 && text == '%PDF';
+      case 'txt':
+        return true;
+      default:
+        return true;
+    }
+  }
+
+  static Future<List<int>> _readFileHeader(File file, int length) async {
+    final stream = file.openRead(0, length);
+    final bytes = <int>[];
+    await for (final chunk in stream) {
+      bytes.addAll(chunk);
+      if (bytes.length >= length) break;
+    }
+    return bytes.take(length).toList();
+  }
+
+  static String _invalidPublicBookFileMessage(String format) {
+    if (format.toLowerCase() == 'epub') {
+      return '这本明台书的文件不是标准 EPUB，或缓存已损坏。请重新发布原始 EPUB 文件。';
+    }
+    return '这本明台书文件无法读取，请重新发布原始文件。';
   }
 
   static Future<bool> _downloadPublicBookAttempt({
@@ -1048,7 +1453,7 @@ class BookService {
 
       final response = await client
           .send(request)
-          .timeout(const Duration(seconds: 30));
+          .timeout(const Duration(seconds: 60));
       if (response.statusCode == 416 && existingBytes > 0) {
         await _promoteDownloadedFile(tempFile, localFile);
         return true;
@@ -1317,6 +1722,8 @@ class BookService {
   static void _invalidateMingtaiBooksCache() {
     _mingtaiBooksCache = null;
     _mingtaiBooksCacheAt = null;
+    _mingtaiBookDetailCache.clear();
+    _mingtaiBookDetailCacheAt.clear();
   }
 
   static void _invalidateMingtaiOverviewCache() {

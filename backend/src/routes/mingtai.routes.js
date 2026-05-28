@@ -20,6 +20,8 @@ const publicBookUpload = express.raw({
 
 router.get('/books', mingtaiController.listBooks);
 router.post('/books', auth, publicBookUpload, mingtaiController.publishBook);
+router.get('/books/:id/chapters', mingtaiController.listBookChapters);
+router.get('/books/:id/chapters/:chapterIndex', mingtaiController.getBookChapter);
 router.get('/books/:id', mingtaiController.getBook);
 router.post('/books/:id/borrow', auth, mingtaiController.borrowBook);
 router.post('/annotations/:id/resonances', auth, mingtaiController.createResonance);

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
@@ -173,14 +172,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   Future<void> _loadChapter() async {
     final reader = context.read<ReaderProvider>();
-    final chapter = reader.currentChapter;
+    final targetIndex = reader.currentChapterIndex;
+    final chapter = await reader.ensureChapterLoaded(targetIndex);
+    if (!mounted) return;
     if (chapter == null) return;
+    if (reader.currentChapterIndex != targetIndex) return;
     if (reader.book == null) return;
     _loadedChapterKey = _chapterLoadKey(reader);
     _appliedReadingPositionRevision = reader.readingPositionRevision;
 
     final settings = context.read<SettingsProvider>();
-    final chapterIdx = reader.currentChapterIndex.toString();
+    final chapterIdx = targetIndex.toString();
     final chapterHighlights = reader.highlights
         .where((h) => h.chapterIndex == chapterIdx)
         .toList();
@@ -192,8 +194,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
       highlights: chapterHighlights,
     );
     final filePath = await EpubService.getChapterFilePath(
-        reader.book!.id, reader.currentChapterIndex);
-    await File(filePath).writeAsString(html);
+        reader.book!.id, targetIndex);
+    if (!mounted ||
+        context.read<ReaderProvider>().currentChapterIndex != targetIndex) {
+      return;
+    }
     final baseDir = Uri.directory(p.dirname(filePath)).toString();
     _webViewController.loadHtmlString(html, baseUrl: baseDir);
   }
@@ -327,7 +332,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         body: Consumer2<ReaderProvider, SettingsProvider>(
           builder: (context, reader, settings, _) {
             if (reader.isLoading) {
-              return const Center(child: CircularProgressIndicator());
+              return _buildLoading(reader.loadingMessage);
             }
             if (reader.loadError != null) {
               return _buildLoadError(reader.loadError!);
@@ -636,6 +641,29 @@ class _ReaderScreenState extends State<ReaderScreen> {
             const Spacer(flex: 2),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildLoading(String message) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(strokeWidth: 2.5),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            message,
+            style: const TextStyle(
+              color: AppTheme.textSecondary,
+              fontSize: 13,
+            ),
+          ),
+        ],
       ),
     );
   }

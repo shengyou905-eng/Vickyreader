@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../services/book_service.dart';
+import '../services/sync_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   bool _isLoading = false;
@@ -32,6 +36,7 @@ class AuthProvider extends ChangeNotifier {
         notifyListeners();
         return false;
       }
+      unawaited(_afterAuthSuccess());
       _isLoading = false;
       notifyListeners();
       return true;
@@ -55,6 +60,7 @@ class AuthProvider extends ChangeNotifier {
         notifyListeners();
         return false;
       }
+      unawaited(_afterAuthSuccess());
       _isLoading = false;
       notifyListeners();
       return true;
@@ -75,5 +81,19 @@ class AuthProvider extends ChangeNotifier {
   void clearError() {
     _error = null;
     notifyListeners();
+  }
+
+  Future<void> _afterAuthSuccess() async {
+    final userId = AuthService.userId;
+    if (userId == null || userId.isEmpty) return;
+
+    try {
+      SyncService.instance.setUserId(userId);
+      await SyncService.instance.mergeAnonymousData(userId);
+      await BookService.syncFreeNotes();
+      await SyncService.instance.pullAll();
+    } catch (_) {
+      // 登录不能被同步问题卡住；随心记页面进入时还会再次尝试同步。
+    }
   }
 }

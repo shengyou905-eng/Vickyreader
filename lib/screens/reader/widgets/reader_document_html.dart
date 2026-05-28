@@ -408,7 +408,9 @@ class ReaderDocumentHtml {
     if (t.startsWith(RegExp(r'<!DOCTYPE', caseSensitive: false)) ||
         RegExp(r'<html[\s>]', caseSensitive: false).hasMatch(t)) {
       final doc = html_parser.parse(content);
-      var body = (doc.body?.innerHtml ?? '').trim();
+      final chapterBody = doc.querySelector('#readSurface > .chapter-body') ??
+          doc.querySelector('.chapter-body');
+      var body = (chapterBody?.innerHtml ?? doc.body?.innerHtml ?? '').trim();
       // Fall back to raw content if body is empty after parsing
       if (body.isEmpty) body = content;
       body = body.replaceAll(

@@ -47,19 +47,35 @@ class EpubService {
     final archive = ZipDecoder().decodeBytes(bytes);
 
     // Parse container.xml
-    final containerFile = archive.findFile('META-INF/container.xml');
-    if (containerFile == null) throw Exception('Invalid EPUB: missing container.xml');
+    final containerFile = _findContainerFile(archive);
+    if (containerFile == null) {
+      throw Exception('Invalid EPUB: missing container.xml');
+    }
+    final containerRoot = _containerRootFor(containerFile.name);
 
     final containerXml = XmlDocument.parse(
       utf8.decode(containerFile.content as List<int>),
     );
-    final rootfile = containerXml
-        .findAllElements('rootfile')
-        .firstWhere((e) => e.getAttribute('media-type') == 'application/oebps-package+xml');
-    final opfPath = rootfile.getAttribute('full-path')!;
+    final rootfiles = containerXml.findAllElements('rootfile').toList();
+    if (rootfiles.isEmpty) {
+      throw Exception('Invalid EPUB: missing rootfile');
+    }
+    final rootfile = rootfiles.firstWhere(
+      (e) => e.getAttribute('media-type') == 'application/oebps-package+xml',
+      orElse: () => rootfiles.first,
+    );
+    final rawOpfPath = rootfile.getAttribute('full-path') ?? '';
+    if (rawOpfPath.isEmpty) {
+      throw Exception('Invalid EPUB: missing OPF path');
+    }
 
     // Parse content.opf
-    final opfFile = archive.findFile(opfPath);
+    var opfPath = _normalizeArchivePath(rawOpfPath);
+    var opfFile = _findArchiveFile(archive, opfPath);
+    if (opfFile == null && containerRoot.isNotEmpty) {
+      opfPath = _joinArchivePath(containerRoot, rawOpfPath);
+      opfFile = _findArchiveFile(archive, opfPath);
+    }
     if (opfFile == null) throw Exception('Invalid EPUB: missing content.opf');
 
     final opfDir = p.dirname(opfPath);
@@ -95,8 +111,8 @@ class EpubService {
     final imageDir = p.join(bookChapterDir, 'images');
     await Directory(imageDir).create();
 
-    // Extract ALL images from EPUB to book images dir
-    final imageMap = _extractAllImages(archive, imageDir);
+    // Extract ALL images from EPUB to book images dir.
+    final imageMap = await _extractAllImages(archive, imageDir);
 
     // Extract cover image (multi-strategy)
     String? coverPath;
@@ -120,7 +136,7 @@ class EpubService {
     for (int i = 0; i < spine.length; i++) {
       final href = spine[i];
       final fullPath = _resolvePath(opfDir, href);
-      final file = archive.findFile(fullPath);
+      final file = _findArchiveFile(archive, fullPath);
       if (file != null) {
         final rawHtml = utf8.decode(file.content as List<int>);
         final cleanContent = _cleanHtml(rawHtml, archive, opfDir);
@@ -184,6 +200,43 @@ class EpubService {
     return chapters;
   }
 
+  static Future<List<EpubChapter>> getChapterShells(String bookId) async {
+    final titles = await getChapterTitles(bookId);
+    return [
+      for (var i = 0; i < titles.length; i++)
+        EpubChapter(title: titles[i], content: '', index: i),
+    ];
+  }
+
+  static Future<String> getChapterContent(String bookId, int index) async {
+    final filePath = await getChapterFilePath(bookId, index);
+    final file = File(filePath);
+    if (!await file.exists()) return '';
+    return file.readAsString();
+  }
+
+  static Future<List<String>> getChapterTitles(String bookId) async {
+    final appDir = await getApplicationDocumentsDirectory();
+    final bookChapterDir = p.join(appDir.path, AppConstants.booksDir, bookId);
+    final titlesFile = File(p.join(bookChapterDir, 'titles.json'));
+    if (!await titlesFile.exists()) return const [];
+    try {
+      return (jsonDecode(await titlesFile.readAsString()) as List).cast<String>();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static Future<bool> isReadableEpub(String filePath) async {
+    try {
+      final bytes = await File(filePath).readAsBytes();
+      final archive = ZipDecoder().decodeBytes(bytes);
+      return _findContainerFile(archive) != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Get the chapter HTML file path for file-based loading
   static Future<String> getChapterFilePath(String bookId, int index) async {
     final appDir = await getApplicationDocumentsDirectory();
@@ -218,6 +271,62 @@ class EpubService {
   }
 
   // ---- Internal ----
+
+  static ArchiveFile? _findContainerFile(Archive archive) {
+    final exact = _findArchiveFile(archive, 'META-INF/container.xml');
+    if (exact != null) return exact;
+    for (final file in archive.files) {
+      final name = _normalizeArchivePath(file.name).toLowerCase();
+      if (name.endsWith('meta-inf/container.xml')) {
+        return file;
+      }
+    }
+    return null;
+  }
+
+  static ArchiveFile? _findArchiveFile(Archive archive, String path) {
+    final normalized = _normalizeArchivePath(path);
+    final exact = archive.findFile(normalized);
+    if (exact != null) return exact;
+    final lower = normalized.toLowerCase();
+    for (final file in archive.files) {
+      if (_normalizeArchivePath(file.name).toLowerCase() == lower) {
+        return file;
+      }
+    }
+    return null;
+  }
+
+  static String _normalizeArchivePath(String value) {
+    var normalized = value.replaceAll('\\', '/').trim();
+    if (normalized.isEmpty) return '';
+    try {
+      normalized = Uri.decodeFull(normalized);
+    } catch (_) {
+      // Some EPUBs contain raw percent signs in zip entry names.
+    }
+    while (normalized.startsWith('/')) {
+      normalized = normalized.substring(1);
+    }
+    if (normalized.isEmpty) return '';
+    return p.normalize(normalized).replaceAll('\\', '/');
+  }
+
+  static String _containerRootFor(String containerPath) {
+    final normalized = _normalizeArchivePath(containerPath);
+    final marker = 'META-INF/container.xml';
+    final lower = normalized.toLowerCase();
+    final index = lower.lastIndexOf(marker.toLowerCase());
+    if (index <= 0) return '';
+    return normalized.substring(0, index);
+  }
+
+  static String _joinArchivePath(String base, String href) {
+    final normalizedBase = _normalizeArchivePath(base);
+    final normalizedHref = _normalizeArchivePath(href);
+    if (normalizedBase.isEmpty) return normalizedHref;
+    return _normalizeArchivePath(p.join(normalizedBase, normalizedHref));
+  }
 
   static EpubMetadata _parseMetadata(XmlDocument opf) {
     final metadataNode = opf.findAllElements('metadata').first;
@@ -327,16 +436,24 @@ class EpubService {
 
   /// Extract ALL images from EPUB archive into the book's images directory.
   /// Returns a map of original href → local file path.
-  static Map<String, String> _extractAllImages(Archive archive, String imageDir) {
+  static Future<Map<String, String>> _extractAllImages(
+    Archive archive,
+    String imageDir,
+  ) async {
     final imageMap = <String, String>{};
+    var written = 0;
     for (final file in archive.files) {
       if (file.isFile && _isImageFile(file.name)) {
         final ext = p.extension(file.name).isNotEmpty ? p.extension(file.name) : '.jpg';
         final localName = '${_hashFilename(file.name)}$ext';
         final localPath = p.join(imageDir, localName);
         try {
-          File(localPath).writeAsBytesSync(file.content as List<int>);
+          await File(localPath).writeAsBytes(file.content as List<int>);
           imageMap[file.name] = localPath;
+          written += 1;
+          if (written % 8 == 0) {
+            await Future<void>.delayed(Duration.zero);
+          }
         } catch (_) {}
       }
     }
@@ -381,7 +498,7 @@ class EpubService {
       Archive archive, String opfDir, String coverHref, String appDir) async {
     try {
       final resolvedPath = _resolvePath(opfDir, coverHref);
-      var file = archive.findFile(resolvedPath);
+      var file = _findArchiveFile(archive, resolvedPath);
       // Try case-insensitive match
       file ??= archive.files
           .where((f) => f.name.toLowerCase() == resolvedPath.toLowerCase())
@@ -409,7 +526,7 @@ class EpubService {
       for (final entry in manifest.entries) {
         if (entry.key.toLowerCase().contains('cover') && _isImageFile(entry.value)) {
           final resolvedPath = _resolvePath(opfDir, entry.value);
-          final file = archive.findFile(resolvedPath);
+          final file = _findArchiveFile(archive, resolvedPath);
           if (file != null) return await _saveCoverFile(file, appDir);
         }
       }
@@ -451,7 +568,7 @@ class EpubService {
       final href = m.group(1);
       if (href == null) return '';
       final resolved = _resolvePath(opfDir, href);
-      final cssFile = archive.findFile(resolved);
+      final cssFile = _findArchiveFile(archive, resolved);
       if (cssFile != null) {
         final css = utf8.decode(cssFile.content as List<int>);
         return '<style>\n$css\n</style>';

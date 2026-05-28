@@ -32,7 +32,8 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
     if (reader.selectedText == null || reader.book == null) return;
 
     await ai.loadHistory(reader.book!.id);
-    final chapter = reader.currentChapter;
+    final chapter = await reader.ensureChapterLoaded();
+    if (!mounted) return;
     await ai.explain(
       selectedText: reader.selectedText!,
       bookTitle: reader.book!.title,
@@ -44,6 +45,7 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
   }
 
   void _sendFollowUp() {
+    if (context.read<AiProvider>().isLoading) return;
     final text = _followUpController.text.trim();
     if (text.isEmpty) return;
     _followUpController.clear();
@@ -87,11 +89,25 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
                   ),
                 ),
                 const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.close, size: 18),
-                  onPressed: () {
-                    context.read<ReaderProvider>().clearSelection();
-                    context.read<AiProvider>().clearMessages();
+                Consumer<AiProvider>(
+                  builder: (context, ai, _) {
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (ai.isLoading)
+                          TextButton(
+                            onPressed: ai.cancelGeneration,
+                            child: const Text('停止'),
+                          ),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 18),
+                          onPressed: () {
+                            ai.clearMessages();
+                            context.read<ReaderProvider>().clearSelection();
+                          },
+                        ),
+                      ],
+                    );
                   },
                 ),
               ],
@@ -102,17 +118,17 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
             child: Consumer<AiProvider>(
               builder: (context, ai, _) {
                 if (ai.isLoading && ai.messages.isEmpty) {
-                  return const Center(
+                  return Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        CircularProgressIndicator(
+                        const CircularProgressIndicator(
                           color: AppTheme.primary,
                         ),
-                        SizedBox(height: 12),
+                        const SizedBox(height: 12),
                         Text(
-                          '正在搜索解释...',
-                          style: TextStyle(
+                          ai.loadingText ?? '小U正在阅读这一段…',
+                          style: const TextStyle(
                             fontSize: 13,
                             color: AppTheme.textSecondary,
                           ),
@@ -163,25 +179,26 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
                   }
                 });
 
+                final hasEmptyAssistant = ai.messages.isNotEmpty &&
+                    ai.messages.last.role == 'assistant' &&
+                    ai.messages.last.content.isEmpty;
+
                 return ListView.builder(
                   controller: _scrollController,
                   padding: const EdgeInsets.all(16),
-                  itemCount: ai.messages.length + (ai.isLoading ? 1 : 0),
+                  itemCount: ai.messages.length +
+                      (ai.isLoading && !hasEmptyAssistant ? 1 : 0),
                   itemBuilder: (context, index) {
                     if (index >= ai.messages.length) {
-                      return const Padding(
-                        padding: EdgeInsets.all(8.0),
-                        child: Center(
-                          child: SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        ),
+                      return _LoadingBubble(
+                        text: ai.loadingText ?? '正在组织语言…',
+                        onCancel: ai.cancelGeneration,
                       );
                     }
                     final msg = ai.messages[index];
                     final isUser = msg.role == 'user';
+                    final isWaitingAssistant =
+                        !isUser && msg.content.trim().isEmpty;
                     return Align(
                       alignment:
                           isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -197,14 +214,39 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
                               : AppTheme.background,
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Text(
-                          msg.content,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: AppTheme.textPrimary,
-                            height: 1.5,
-                          ),
-                        ),
+                        child: isWaitingAssistant
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: AppTheme.primary,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      ai.loadingText ?? '小U正在阅读这一段…',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        color: AppTheme.textSecondary,
+                                        height: 1.5,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : Text(
+                                msg.content,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: AppTheme.textPrimary,
+                                  height: 1.5,
+                                ),
+                              ),
                       ),
                     );
                   },
@@ -236,9 +278,18 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.send_rounded, color: AppTheme.primary),
-                  onPressed: _sendFollowUp,
+                Consumer<AiProvider>(
+                  builder: (context, ai, _) {
+                    return IconButton(
+                      icon: Icon(
+                        Icons.send_rounded,
+                        color: ai.isLoading
+                            ? AppTheme.textSecondary
+                            : AppTheme.primary,
+                      ),
+                      onPressed: ai.isLoading ? null : _sendFollowUp,
+                    );
+                  },
                 ),
               ],
             ),
@@ -253,5 +304,65 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
     _followUpController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+}
+
+class _LoadingBubble extends StatelessWidget {
+  final String text;
+  final VoidCallback onCancel;
+
+  const _LoadingBubble({
+    required this.text,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(12),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.82,
+        ),
+        decoration: BoxDecoration(
+          color: AppTheme.background,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppTheme.primary,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                text,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppTheme.textSecondary,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: onCancel,
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text('取消'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

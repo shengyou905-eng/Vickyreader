@@ -24,9 +24,11 @@ class ReaderProvider extends ChangeNotifier {
   List<Bookmark> _bookmarks = [];
   bool _isBookmarked = false;
   Timer? _progressSaveTimer;
+  final Set<int> _loadedChapterIndexes = {};
   int _openBookToken = 0;
   int _readingPositionRevision = 0;
   String? _loadError;
+  String _loadingMessage = '正在打开书籍…';
 
   Book? get book => _book;
   List<EpubChapter> get chapters => _chapters;
@@ -45,6 +47,7 @@ class ReaderProvider extends ChangeNotifier {
   bool get isBookmarked => _isBookmarked;
   int get readingPositionRevision => _readingPositionRevision;
   String? get loadError => _loadError;
+  String get loadingMessage => _loadingMessage;
 
   void setScrollTarget(String? text) {
     _scrollToText = text;
@@ -61,6 +64,7 @@ class ReaderProvider extends ChangeNotifier {
     _progressSaveTimer?.cancel();
     _book = book;
     _chapters = [];
+    _loadedChapterIndexes.clear();
     _highlights = [];
     _bookmarks = [];
     _currentChapterIndex = 0;
@@ -70,6 +74,7 @@ class ReaderProvider extends ChangeNotifier {
     _scrollToText = null;
     _isBookmarked = false;
     _loadError = null;
+    _loadingMessage = _initialLoadingMessage(book);
     _isLoading = true;
     notifyListeners();
 
@@ -77,10 +82,14 @@ class ReaderProvider extends ChangeNotifier {
       final readableBook = await BookService.prepareBookForReading(book);
       if (token != _openBookToken || _disposed) return;
       _book = readableBook;
+      _loadingMessage = '正在整理章节…';
+      notifyListeners();
 
       final chaptersFuture = readableBook.format == 'pdf'
           ? Future.value([EpubChapter(title: 'PDF 文档', content: '', index: 0)])
-          : EpubService.getChapters(readableBook.id);
+          : BookService.isMingtaiShelfBook(readableBook)
+              ? BookService.getMingtaiChapterShells(readableBook.id)
+              : EpubService.getChapterShells(readableBook.id);
       final highlightsFuture = BookService.getHighlights(readableBook.id);
       final bookmarksFuture = BookService.getBookmarks(readableBook.id);
       final progressFuture = BookService.getReadingProgress(readableBook.id);
@@ -96,14 +105,20 @@ class ReaderProvider extends ChangeNotifier {
       _chapters = results[0] as List<EpubChapter>;
       _highlights = results[1] as List<Highlight>;
       _bookmarks = results[2] as List<Bookmark>;
+      _loadingMessage = '正在恢复阅读位置…';
 
       final restored = _applyReadingProgress(
         results[3] as ({String chapterIndex, double scrollOffset})?,
       );
+      _loadingMessage = '正在加载当前章节…';
+      notifyListeners();
+      await _loadChapterContent(restored.chapterIndex, notify: false);
+      if (token != _openBookToken || _disposed) return;
       _checkBookmarkStatus();
       _isLoading = false;
       notifyListeners();
 
+      unawaited(_preloadAdjacentChapters(token, restored.chapterIndex));
       unawaited(_refreshRemoteReadingProgress(
         readableBook.id,
         token,
@@ -116,6 +131,59 @@ class ReaderProvider extends ChangeNotifier {
       _loadError = '打开书籍失败：$e';
       notifyListeners();
     }
+  }
+
+  Future<EpubChapter?> ensureChapterLoaded([int? index]) {
+    return _loadChapterContent(index ?? _currentChapterIndex);
+  }
+
+  Future<EpubChapter?> _loadChapterContent(
+    int index, {
+    bool notify = true,
+  }) async {
+    final book = _book;
+    if (book == null || index < 0 || index >= _chapters.length) return null;
+
+    final chapter = _chapters[index];
+    if (book.format == 'pdf' ||
+        _loadedChapterIndexes.contains(index) ||
+        chapter.content.isNotEmpty) {
+      return chapter;
+    }
+
+    final content = BookService.isMingtaiShelfBook(book)
+        ? await BookService.getMingtaiChapterContent(book.id, index)
+        : await EpubService.getChapterContent(book.id, index);
+    if (_disposed ||
+        _book?.id != book.id ||
+        index < 0 ||
+        index >= _chapters.length) {
+      return null;
+    }
+    final current = _chapters[index];
+    final loaded = EpubChapter(
+      title: current.title,
+      content: content,
+      index: current.index,
+    );
+    _chapters[index] = loaded;
+    _loadedChapterIndexes.add(index);
+    if (notify) notifyListeners();
+    return loaded;
+  }
+
+  Future<void> _preloadAdjacentChapters(int token, int centerIndex) async {
+    for (final index in [centerIndex + 1, centerIndex - 1]) {
+      if (token != _openBookToken || _disposed) return;
+      await _loadChapterContent(index, notify: false).catchError((_) => null);
+    }
+  }
+
+  String _initialLoadingMessage(Book book) {
+    final isRemoteMingtai = BookService.isMingtaiShelfBook(book) &&
+        (book.filePath.startsWith('http://') ||
+            book.filePath.startsWith('https://'));
+    return isRemoteMingtai ? '正在准备明台书籍…' : '正在打开书籍…';
   }
 
   ({int chapterIndex, double scrollOffset}) _applyReadingProgress(
@@ -158,6 +226,7 @@ class ReaderProvider extends ChangeNotifier {
 
     _applyReadingProgress(progress);
     _checkBookmarkStatus();
+    unawaited(_loadChapterContent(_currentChapterIndex));
     notifyListeners();
   }
 
@@ -168,6 +237,7 @@ class ReaderProvider extends ChangeNotifier {
       _readingPositionRevision++;
       _checkBookmarkStatus();
       _scheduleProgressSave();
+      unawaited(_preloadAdjacentChapters(_openBookToken, index));
       notifyListeners();
     }
   }
@@ -179,7 +249,8 @@ class ReaderProvider extends ChangeNotifier {
   }
 
   Future<void> toggleBookmark() async {
-    if (_book == null || currentChapter == null) return;
+    final chapter = await _loadChapterContent(_currentChapterIndex);
+    if (_book == null || chapter == null) return;
     final chapterIdx = _currentChapterIndex.toString();
 
     if (_isBookmarked) {
@@ -192,14 +263,14 @@ class ReaderProvider extends ChangeNotifier {
       _isBookmarked = false;
     } else {
       // Add bookmark
-      final plainText = EpubService.getPlainText(currentChapter!.content);
+      final plainText = EpubService.getPlainText(chapter.content);
       final snippet = plainText.length > 30 ? plainText.substring(0, 30) : plainText;
       final bm = Bookmark(
         id: const Uuid().v4(),
         userId: _getUserId(),
         bookId: _book!.id,
         chapterIndex: chapterIdx,
-        chapterTitle: currentChapter!.title,
+        chapterTitle: chapter.title,
         snippet: snippet,
         scrollOffset: _scrollOffset,
         progress: progress,

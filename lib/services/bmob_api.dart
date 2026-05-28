@@ -13,6 +13,8 @@ class BmobApi {
   static const _tokenKey = 'auth_token';
   static const _userIdKey = 'auth_user_id';
   static const _emailKey = 'auth_email';
+  static const _authTimeout = Duration(seconds: 20);
+  static const _mingtaiTimeout = Duration(seconds: 20);
 
   String? _token;
   String? _userId;
@@ -38,11 +40,10 @@ class BmobApi {
 
   Future<Map<String, dynamic>?> signUp(String email, String password) async {
     try {
-      final res = await http.post(
+      final res = await _postJsonWithRetry(
         Uri.parse('${AppConstants.apiBaseUrl}/api/auth/register'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': email, 'password': password}),
-      ).timeout(const Duration(seconds: 15));
+        {'email': email, 'password': password},
+      );
 
       if (res.statusCode == 201) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -63,11 +64,10 @@ class BmobApi {
 
   Future<Map<String, dynamic>?> signIn(String email, String password) async {
     try {
-      final res = await http.post(
+      final res = await _postJsonWithRetry(
         Uri.parse('${AppConstants.apiBaseUrl}/api/auth/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': email, 'password': password}),
-      ).timeout(const Duration(seconds: 15));
+        {'email': email, 'password': password},
+      );
 
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -218,6 +218,60 @@ class BmobApi {
     }
   }
 
+  Future<List<Map<String, dynamic>>> listFreeNotes({
+    String? query,
+    int limit = 500,
+  }) async {
+    final queryParams = <String, String>{'limit': limit.toString()};
+    final q = query?.trim() ?? '';
+    if (q.isNotEmpty) queryParams['query'] = q;
+
+    final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/free-notes')
+        .replace(queryParameters: queryParams);
+    final res = await http
+        .get(uri, headers: _authHeaders())
+        .timeout(const Duration(seconds: 15));
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return List<Map<String, dynamic>>.from(data['notes'] ?? []);
+    }
+    throw Exception('查询随心记失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>?> upsertFreeNote({
+    required String id,
+    required String content,
+    required String createdAt,
+    required String updatedAt,
+  }) async {
+    final res = await http.post(
+      Uri.parse('${AppConstants.apiBaseUrl}/api/free-notes'),
+      headers: _authHeaders(),
+      body: jsonEncode({
+        'id': id,
+        'content': content,
+        'created_at': createdAt,
+        'updated_at': updatedAt,
+      }),
+    ).timeout(const Duration(seconds: 15));
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return data['note'] as Map<String, dynamic>?;
+    }
+    throw Exception('保存随心记失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<bool> deleteFreeNote(String id) async {
+    final safeId = Uri.encodeComponent(id);
+    final res = await http.delete(
+      Uri.parse('${AppConstants.apiBaseUrl}/api/free-notes/$safeId'),
+      headers: _authHeaders(),
+    ).timeout(const Duration(seconds: 15));
+    if (res.statusCode == 204) return true;
+    if (res.statusCode == 404) return false;
+    throw Exception('删除随心记失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
   Future<Map<String, dynamic>> answerInsightQuestion(String questionId) async {
     final res = await http.post(
       Uri.parse('${AppConstants.apiBaseUrl}/api/insights/questions/$questionId/answer'),
@@ -346,7 +400,7 @@ class BmobApi {
     try {
       final res = await http
           .get(uri, headers: _authHeaders())
-          .timeout(const Duration(seconds: 8));
+          .timeout(_mingtaiTimeout);
 
       debugPrint('[MingtaiBooks] statusCode=${res.statusCode}');
 
@@ -374,17 +428,22 @@ class BmobApi {
       );
     } on TimeoutException catch (e) {
       debugPrint('[MingtaiBooks] timeout=$e');
-      throw Exception('明台书库连接超时');
+      throw Exception('明台连接有点慢，请稍后重试');
     }
   }
 
   Future<Map<String, dynamic>> getMingtaiBook(String bookId) async {
-    final res = await http
-        .get(
-          Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId'),
-          headers: _authHeaders(),
-        )
-        .timeout(const Duration(seconds: 8));
+    late final http.Response res;
+    try {
+      res = await http
+          .get(
+            Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId'),
+            headers: _authHeaders(),
+          )
+          .timeout(_mingtaiTimeout);
+    } on TimeoutException {
+      throw Exception('明台书籍加载超时，请稍后重试');
+    }
 
     if (res.statusCode == 200) {
       return jsonDecode(res.body) as Map<String, dynamic>;
@@ -392,11 +451,63 @@ class BmobApi {
     throw Exception('读取明台书籍失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
+  Future<List<Map<String, dynamic>>> listMingtaiBookChapters(
+    String bookId,
+  ) async {
+    late final http.Response res;
+    try {
+      res = await http
+          .get(
+            Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/chapters'),
+            headers: _authHeaders(),
+          )
+          .timeout(_mingtaiTimeout);
+    } on TimeoutException {
+      throw Exception('明台章节目录加载超时，请稍后重试');
+    }
+
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return List<Map<String, dynamic>>.from(data['chapters'] ?? []);
+    }
+    throw Exception('读取明台章节目录失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>> getMingtaiBookChapter(
+    String bookId,
+    int chapterIndex,
+  ) async {
+    late final http.Response res;
+    try {
+      res = await http
+          .get(
+            Uri.parse(
+              '${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/chapters/$chapterIndex',
+            ),
+            headers: _authHeaders(),
+          )
+          .timeout(_mingtaiTimeout);
+    } on TimeoutException {
+      throw Exception('明台章节内容加载超时，请稍后重试');
+    }
+
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return Map<String, dynamic>.from(data['chapter'] ?? {});
+    }
+    throw Exception('读取明台章节失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
   Future<Map<String, dynamic>> borrowMingtaiBook(String bookId) async {
-    final res = await http.post(
-      Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/borrow'),
-      headers: _authHeaders(),
-    ).timeout(const Duration(seconds: 8));
+    late final http.Response res;
+    try {
+      res = await http.post(
+        Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/borrow'),
+        headers: _authHeaders(),
+      ).timeout(_mingtaiTimeout);
+    } on TimeoutException {
+      throw Exception('借阅请求超时，请稍后重试');
+    }
 
     if (res.statusCode == 200) {
       return jsonDecode(res.body) as Map<String, dynamic>;
@@ -408,11 +519,16 @@ class BmobApi {
     required String annotationId,
     required String content,
   }) async {
-    final res = await http.post(
-      Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/annotations/$annotationId/resonances'),
-      headers: _authHeaders(),
-      body: jsonEncode({'content': content}),
-    ).timeout(const Duration(seconds: 8));
+    late final http.Response res;
+    try {
+      res = await http.post(
+        Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/annotations/$annotationId/resonances'),
+        headers: _authHeaders(),
+        body: jsonEncode({'content': content}),
+      ).timeout(_mingtaiTimeout);
+    } on TimeoutException {
+      throw Exception('共鸣发送超时，请稍后重试');
+    }
 
     if (res.statusCode == 201) {
       return jsonDecode(res.body) as Map<String, dynamic>;
@@ -428,7 +544,7 @@ class BmobApi {
     try {
       final res = await http
           .get(uri, headers: _authHeaders())
-          .timeout(const Duration(seconds: 8));
+          .timeout(_mingtaiTimeout);
 
       debugPrint('[MingtaiFeed] statusCode=${res.statusCode}');
 
@@ -526,6 +642,45 @@ class BmobApi {
     };
   }
 
+  Future<http.Response> _postJsonWithRetry(
+    Uri uri,
+    Map<String, dynamic> body, {
+    int retries = 1,
+  }) async {
+    Object? lastError;
+    for (var attempt = 0; attempt <= retries; attempt += 1) {
+      try {
+        final res = await http.post(
+          uri,
+          headers: const {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Connection': 'close',
+          },
+          body: jsonEncode(body),
+        ).timeout(_authTimeout);
+
+        if (res.statusCode >= 500 && attempt < retries) {
+          await Future<void>.delayed(Duration(milliseconds: 450 * (attempt + 1)));
+          continue;
+        }
+        return res;
+      } on TimeoutException catch (e) {
+        lastError = e;
+      } on SocketException catch (e) {
+        lastError = e;
+      } on http.ClientException catch (e) {
+        lastError = e;
+      }
+
+      if (attempt < retries) {
+        await Future<void>.delayed(Duration(milliseconds: 450 * (attempt + 1)));
+      }
+    }
+
+    throw lastError ?? Exception('请求失败');
+  }
+
   String _publicUrlOrEmpty(String? value) {
     final url = value?.trim() ?? '';
     if (url.startsWith('http://') || url.startsWith('https://')) {
@@ -569,11 +724,16 @@ class BmobApi {
 
   String _friendlyError(dynamic e) {
     final s = e.toString();
-    if (s.contains('HandshakeException') || s.contains('SocketException')) {
-      return '无法连接服务器：${s.length > 80 ? s.substring(0, 80) : s}';
+    if (s.contains('Connection closed before full header') ||
+        s.contains('Software caused connection abort') ||
+        s.contains('Connection reset by peer') ||
+        s.contains('ClientException') ||
+        s.contains('SocketException') ||
+        s.contains('HandshakeException')) {
+      return '服务器连接被中断，请稍后重试；如果连续出现，请确认后端服务正在运行。';
     }
     if (s.contains('TimeoutException')) {
-      return '连接超时，请检查网络';
+      return '连接超时，请检查网络或稍后重试。';
     }
     return s.length > 100 ? s.substring(0, 100) : s;
   }

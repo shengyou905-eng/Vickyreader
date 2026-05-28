@@ -8,6 +8,7 @@ const insightsRoutes = require('./routes/insights.routes');
 const mingtaiRoutes = require('./routes/mingtai.routes');
 const readingProgressRoutes = require('./routes/readingProgress.routes');
 const aiRoutes = require('./routes/ai.routes');
+const freeNotesRoutes = require('./routes/freeNotes.routes');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -33,6 +34,7 @@ app.use('/api/insights', insightsRoutes);
 app.use('/api/mingtai', mingtaiRoutes);
 app.use('/api/reading-progress', readingProgressRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/free-notes', freeNotesRoutes);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });

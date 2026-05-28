@@ -26,6 +26,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   Map<int, MingtaiInsight> _insights = {};
   String? _selectedTag;
   int _insightDays = 7;
+  bool _insightExpanded = false;
   bool _loading = true;
   bool _hasLoadedOnce = false;
   bool _refreshing = false;
@@ -230,6 +231,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         backgroundColor: AppTheme.primary,
         foregroundColor: Colors.white,
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 
@@ -252,59 +254,70 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
 
   Widget _buildContent() {
     final insight = _insights[_insightDays] ?? MingtaiInsight.empty(_insightDays);
-    return Column(
-      children: [
-        _buildInsightCard(insight),
-        _buildQuestionCards(),
-        const SizedBox(height: 12),
-        if (_allTags.isNotEmpty)
-          SizedBox(
-            height: 40,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              children: [
-                _TagChip(label: '全部', selected: _selectedTag == null, onTap: () => _onTagTap(null)),
-                ..._allTags.map((t) => _TagChip(
-                  label: t, selected: false, onTap: () => _onTagTap(t),
-                )),
-              ],
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        slivers: [
+          SliverToBoxAdapter(child: _buildInsightCard(insight)),
+          SliverToBoxAdapter(child: _buildQuestionCards()),
+          const SliverToBoxAdapter(child: SizedBox(height: 12)),
+          if (_allTags.isNotEmpty)
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: 40,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  children: [
+                    _TagChip(
+                      label: '全部',
+                      selected: _selectedTag == null,
+                      onTap: () => _onTagTap(null),
+                    ),
+                    ..._allTags.map(
+                      (t) => _TagChip(
+                        label: t,
+                        selected: false,
+                        onTap: () => _onTagTap(t),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
-        const SizedBox(height: 8),
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: _load,
-            child: _items.isEmpty
-                ? ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.only(bottom: 24),
-                    children: [_buildEmpty()],
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.only(bottom: 24),
-                    itemCount: _items.length,
-                    itemBuilder: (_, i) {
-                      final item = _items[i];
-                      return XiaouCard(
-                        originalText: (item['original_text'] as String?) ?? '',
-                        userNote: (item['user_note'] as String?) ?? '',
-                        aiTags: (item['ai_tags'] as String?) ?? '',
-                        aiUnderstanding: (item['ai_understanding'] as String?) ?? '',
-                        bookTitle: (item['book_title'] as String?) ?? '',
-                        onTagTap: _openTopic,
-                        onPublish: _publishingIds.contains((item['id'] as String?) ?? '')
-                            ? null
-                            : () => _publishItem((item['id'] as String?) ?? ''),
-                        onDelete: _deletingIds.contains((item['id'] as String?) ?? '')
-                            ? null
-                            : () => _deleteItem((item['id'] as String?) ?? ''),
-                      );
-                    },
-                  ),
-          ),
-        ),
-      ],
+          const SliverToBoxAdapter(child: SizedBox(height: 8)),
+          if (_items.isEmpty)
+            SliverToBoxAdapter(child: _buildEmpty())
+          else
+            SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (_, i) {
+                  final item = _items[i];
+                  final id = (item['id'] as String?) ?? '';
+                  return XiaouCard(
+                    originalText: (item['original_text'] as String?) ?? '',
+                    userNote: (item['user_note'] as String?) ?? '',
+                    aiTags: (item['ai_tags'] as String?) ?? '',
+                    aiUnderstanding:
+                        (item['ai_understanding'] as String?) ?? '',
+                    bookTitle: (item['book_title'] as String?) ?? '',
+                    onTagTap: _openTopic,
+                    onPublish: _publishingIds.contains(id)
+                        ? null
+                        : () => _publishItem(id),
+                    onDelete: _deletingIds.contains(id)
+                        ? null
+                        : () => _deleteItem(id),
+                  );
+                },
+                childCount: _items.length,
+              ),
+            ),
+          const SliverToBoxAdapter(child: SizedBox(height: 112)),
+        ],
+      ),
     );
   }
 
@@ -354,6 +367,10 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
           const SizedBox(height: 22),
           Text(
             insight.summary,
+            maxLines: _insightExpanded ? null : 6,
+            overflow: _insightExpanded
+                ? TextOverflow.visible
+                : TextOverflow.ellipsis,
             style: const TextStyle(
               color: AppTheme.textPrimary,
               fontSize: 17,
@@ -361,9 +378,26 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
               height: 1.55,
             ),
           ),
+          if (_shouldShowInsightToggle(insight.summary)) ...[
+            const SizedBox(height: 8),
+            TextButton(
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(44, 30),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                foregroundColor: AppTheme.primaryDark,
+              ),
+              onPressed: () {
+                setState(() => _insightExpanded = !_insightExpanded);
+              },
+              child: Text(_insightExpanded ? '收起' : '展开'),
+            ),
+          ],
           const SizedBox(height: 14),
           Text(
             _buildInsightMeta(insight),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: AppTheme.textSecondary,
               fontSize: 12,
@@ -373,6 +407,10 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         ],
       ),
     );
+  }
+
+  bool _shouldShowInsightToggle(String text) {
+    return text.trim().length > 90 || text.trim().split('\n').length > 3;
   }
 
   String _buildInsightMeta(MingtaiInsight insight) {
@@ -494,6 +532,8 @@ class _InsightQuestionCard extends StatelessWidget {
             const Spacer(),
             Text(
               question.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: AppTheme.textPrimary,
                 fontSize: 14,
@@ -504,6 +544,8 @@ class _InsightQuestionCard extends StatelessWidget {
             const SizedBox(height: 6),
             const Text(
               '让小U回看我的记录',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
             ),
           ],

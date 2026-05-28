@@ -3,6 +3,7 @@ const fs = require('fs/promises');
 const path = require('path');
 
 const uploadDir = path.resolve(__dirname, '..', '..', 'uploads', 'public_books');
+const backendRoot = path.resolve(__dirname, '..', '..');
 const supportedExtensions = new Set(['epub', 'txt', 'pdf']);
 const mimeByType = {
   epub: 'application/epub+zip',
@@ -76,6 +77,20 @@ async function savePublicBookFile(buffer, { fileName, fileType, mimeType }) {
   };
 }
 
+function absoluteStoragePath(storagePath) {
+  const normalized = String(storagePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!normalized) return '';
+
+  const absolutePath = path.resolve(backendRoot, normalized);
+  if (!absolutePath.startsWith(backendRoot)) {
+    throw Object.assign(new Error('Invalid storage_path'), {
+      statusCode: 400,
+    });
+  }
+  return absolutePath;
+}
+
 module.exports = {
+  absoluteStoragePath,
   savePublicBookFile,
 };

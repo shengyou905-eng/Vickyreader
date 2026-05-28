@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../config/constants.dart';
 import '../models/ai_conversation.dart';
 import 'auth_service.dart';
 
 class AiService {
+  static const Duration _connectTimeout = Duration(seconds: 60);
+
   /// 小U解释：逐字流式返回
   static Stream<String> explainStream({
     required String selectedText,
@@ -59,38 +62,63 @@ class AiService {
       Uri.parse('${AppConstants.apiBaseUrl}$path'),
     );
     request.headers['Content-Type'] = 'application/json';
+    request.headers['Accept'] = 'text/event-stream';
     request.headers['Authorization'] = 'Bearer $token';
     request.body = jsonEncode(body);
 
-    final streamed = await request.send().timeout(const Duration(seconds: 10));
+    final client = http.Client();
+    try {
+      final streamed = await client.send(request).timeout(_connectTimeout);
 
-    if (streamed.statusCode != 200) {
-      final errorBody = await streamed.stream.bytesToString();
-      String errorMsg = '请求失败 (${streamed.statusCode})';
-      try {
-        final parsed = jsonDecode(errorBody);
-        if (parsed['error'] != null) errorMsg = parsed['error'].toString();
-      } catch (_) {}
-      throw Exception(errorMsg);
-    }
-
-    await for (final line in streamed.stream
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())) {
-      if (!line.startsWith('data: ')) continue;
-      final data = line.substring(6).trim();
-      if (data == '[DONE]') return;
-      try {
-        final parsed = jsonDecode(data);
-        if (parsed['error'] != null) {
-          throw Exception(parsed['error'].toString());
-        }
-        final content = parsed['content'] as String?;
-        if (content != null && content.isNotEmpty) yield content;
-      } catch (e) {
-        if (e is Exception && e.toString().contains('error')) rethrow;
-        // skip malformed SSE chunks
+      if (streamed.statusCode != 200) {
+        final errorBody = await streamed.stream.bytesToString();
+        String errorMsg = '请求失败 (${streamed.statusCode})';
+        try {
+          final parsed = jsonDecode(errorBody);
+          if (parsed['error'] != null) errorMsg = parsed['error'].toString();
+        } catch (_) {}
+        throw Exception(errorMsg);
       }
+
+      await for (final line in streamed.stream
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        if (!line.startsWith('data: ')) continue;
+        final data = line.substring(6).trim();
+        if (data == '[DONE]') return;
+        try {
+          final parsed = jsonDecode(data);
+          if (parsed is! Map<String, dynamic>) continue;
+          if (parsed['error'] != null) {
+            throw Exception(parsed['error'].toString());
+          }
+          final content = parsed['content'] as String?;
+          if (content != null && content.isNotEmpty) yield content;
+        } on FormatException {
+          // skip malformed or status-only SSE chunks
+        }
+      }
+    } on TimeoutException {
+      throw Exception('这段内容有些复杂，小U思考得久了一点。请稍后重试。');
+    } on SocketException {
+      throw Exception('网络似乎有些慢，请稍后重试。');
+    } on http.ClientException {
+      throw Exception('网络连接中断，请稍后重试。');
+    } finally {
+      client.close();
     }
+  }
+
+  static String friendlyError(Object error) {
+    final raw = error.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+    if (raw.contains('TimeoutException') || raw.contains('Future not completed')) {
+      return '这段内容有些复杂，小U思考得久了一点。请稍后重试。';
+    }
+    if (raw.contains('SocketException') ||
+        raw.contains('ClientException') ||
+        raw.contains('Connection')) {
+      return '网络似乎有些慢，请稍后重试。';
+    }
+    return raw.isEmpty ? '小U暂时没有想好，请稍后重试。' : raw;
   }
 }

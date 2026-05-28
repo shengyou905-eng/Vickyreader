@@ -62,6 +62,18 @@ CREATE TABLE IF NOT EXISTS reading_progresses (
 CREATE INDEX IF NOT EXISTS idx_reading_progresses_user_book
   ON reading_progresses(user_id, book_id);
 
+CREATE TABLE IF NOT EXISTS free_notes (
+  id TEXT NOT NULL,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_free_notes_user_updated
+  ON free_notes(user_id, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS public_books (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   publisher_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -79,6 +91,7 @@ CREATE TABLE IF NOT EXISTS public_books (
   ),
   metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   borrow_count INTEGER NOT NULL DEFAULT 0,
+  chapter_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(publisher_user_id, source_book_id)
@@ -96,11 +109,30 @@ ALTER TABLE public_books
 ALTER TABLE public_books
   ADD COLUMN IF NOT EXISTS file_size BIGINT NOT NULL DEFAULT 0;
 
+ALTER TABLE public_books
+  ADD COLUMN IF NOT EXISTS chapter_count INTEGER NOT NULL DEFAULT 0;
+
 CREATE INDEX IF NOT EXISTS idx_public_books_created
   ON public_books(created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_public_books_copyright
   ON public_books(copyright_status);
+
+CREATE TABLE IF NOT EXISTS book_chapters (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  public_book_id UUID NOT NULL REFERENCES public_books(id) ON DELETE CASCADE,
+  chapter_index INTEGER NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL DEFAULT '',
+  plain_text TEXT NOT NULL DEFAULT '',
+  href TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(public_book_id, chapter_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_book_chapters_public_book
+  ON book_chapters(public_book_id, chapter_index);
 
 CREATE TABLE IF NOT EXISTS books (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
