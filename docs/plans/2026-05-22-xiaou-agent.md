@@ -1,5 +1,7 @@
 # 小U Agent 化 — 实施计划
 
+> 历史方案说明：本文早于 `docs/zhidu_product_direction.md`。后续不可直接按“通用聊天 Agent”思路实现小U；必须以“阅读意识层”为准，先做结构化记忆、主题层和人格层缓存，再做克制的回顾式对话。
+
 > **For Hermes:** 使用 subagent-driven-development 逐 task 执行。
 
 **目标：** 把小U从静态知识浏览页变成真正的 AI Agent —— 基于用户阅读记录的对话式体验，支持流式输出、多轮追问。

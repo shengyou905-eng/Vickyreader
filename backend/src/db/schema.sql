@@ -77,11 +77,13 @@ CREATE INDEX IF NOT EXISTS idx_free_notes_user_updated
 CREATE TABLE IF NOT EXISTS public_books (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   publisher_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  uploader_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   source_book_id TEXT NOT NULL,
   title TEXT NOT NULL,
   author TEXT,
   cover_url TEXT,
   file_url TEXT,
+  original_file_url TEXT,
   storage_path TEXT,
   file_type TEXT,
   file_size BIGINT NOT NULL DEFAULT 0,
@@ -91,6 +93,7 @@ CREATE TABLE IF NOT EXISTS public_books (
   ),
   metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   borrow_count INTEGER NOT NULL DEFAULT 0,
+  read_count INTEGER NOT NULL DEFAULT 0,
   chapter_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -99,6 +102,9 @@ CREATE TABLE IF NOT EXISTS public_books (
 
 ALTER TABLE public_books
   ADD COLUMN IF NOT EXISTS file_url TEXT;
+
+ALTER TABLE public_books
+  ADD COLUMN IF NOT EXISTS original_file_url TEXT;
 
 ALTER TABLE public_books
   ADD COLUMN IF NOT EXISTS storage_path TEXT;
@@ -112,6 +118,24 @@ ALTER TABLE public_books
 ALTER TABLE public_books
   ADD COLUMN IF NOT EXISTS chapter_count INTEGER NOT NULL DEFAULT 0;
 
+ALTER TABLE public_books
+  ADD COLUMN IF NOT EXISTS uploader_user_id UUID REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE public_books
+  ADD COLUMN IF NOT EXISTS read_count INTEGER NOT NULL DEFAULT 0;
+
+UPDATE public_books
+SET uploader_user_id = publisher_user_id
+WHERE uploader_user_id IS NULL;
+
+UPDATE public_books
+SET original_file_url = file_url
+WHERE original_file_url IS NULL AND file_url IS NOT NULL;
+
+UPDATE public_books
+SET read_count = borrow_count
+WHERE read_count = 0 AND borrow_count > 0;
+
 CREATE INDEX IF NOT EXISTS idx_public_books_created
   ON public_books(created_at DESC);
 
@@ -121,10 +145,15 @@ CREATE INDEX IF NOT EXISTS idx_public_books_copyright
 CREATE TABLE IF NOT EXISTS book_chapters (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   public_book_id UUID NOT NULL REFERENCES public_books(id) ON DELETE CASCADE,
+  book_id UUID REFERENCES public_books(id) ON DELETE CASCADE,
   chapter_index INTEGER NOT NULL,
   title TEXT NOT NULL DEFAULT '',
+  chapter_title TEXT,
   content TEXT NOT NULL DEFAULT '',
+  content_html TEXT,
   plain_text TEXT NOT NULL DEFAULT '',
+  content_text TEXT,
+  word_count INTEGER NOT NULL DEFAULT 0,
   href TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -133,6 +162,37 @@ CREATE TABLE IF NOT EXISTS book_chapters (
 
 CREATE INDEX IF NOT EXISTS idx_book_chapters_public_book
   ON book_chapters(public_book_id, chapter_index);
+
+ALTER TABLE book_chapters
+  ADD COLUMN IF NOT EXISTS book_id UUID REFERENCES public_books(id) ON DELETE CASCADE;
+
+ALTER TABLE book_chapters
+  ADD COLUMN IF NOT EXISTS chapter_title TEXT;
+
+ALTER TABLE book_chapters
+  ADD COLUMN IF NOT EXISTS content_html TEXT;
+
+ALTER TABLE book_chapters
+  ADD COLUMN IF NOT EXISTS content_text TEXT;
+
+ALTER TABLE book_chapters
+  ADD COLUMN IF NOT EXISTS word_count INTEGER NOT NULL DEFAULT 0;
+
+UPDATE book_chapters
+SET book_id = public_book_id
+WHERE book_id IS NULL;
+
+UPDATE book_chapters
+SET chapter_title = title
+WHERE chapter_title IS NULL;
+
+UPDATE book_chapters
+SET content_html = content
+WHERE content_html IS NULL;
+
+UPDATE book_chapters
+SET content_text = plain_text
+WHERE content_text IS NULL;
 
 CREATE TABLE IF NOT EXISTS books (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -207,6 +267,12 @@ ALTER TABLE public_annotations
 ALTER TABLE public_annotations
   ADD COLUMN IF NOT EXISTS chapter_title TEXT;
 
+ALTER TABLE public_annotations
+  ADD COLUMN IF NOT EXISTS position_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+ALTER TABLE public_annotations
+  ALTER COLUMN entry_id DROP NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_public_annotations_created
   ON public_annotations(created_at DESC);
 
@@ -257,6 +323,28 @@ CREATE TABLE IF NOT EXISTS book_resonance (
 
 CREATE INDEX IF NOT EXISTS idx_book_resonance_annotation
   ON book_resonance(annotation_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS annotation_comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  annotation_id UUID NOT NULL REFERENCES public_annotations(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_annotation_comments_annotation
+  ON annotation_comments(annotation_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS annotation_resonances (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  annotation_id UUID NOT NULL REFERENCES public_annotations(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(annotation_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_annotation_resonances_annotation
+  ON annotation_resonances(annotation_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS reading_personality_profiles (
   user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

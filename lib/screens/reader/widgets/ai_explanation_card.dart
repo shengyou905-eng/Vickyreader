@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../config/theme.dart';
 import '../../../providers/reader_provider.dart';
 import '../../../providers/ai_provider.dart';
+import '../../../services/book_service.dart';
 
 class AiExplanationCard extends StatefulWidget {
   const AiExplanationCard({super.key});
@@ -15,6 +16,8 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
   final TextEditingController _followUpController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _initialized = false;
+  bool _publishing = false;
+  bool _published = false;
 
   @override
   void initState() {
@@ -50,6 +53,51 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
     if (text.isEmpty) return;
     _followUpController.clear();
     context.read<AiProvider>().sendFollowUp(text);
+  }
+
+  Future<void> _publishExplanation() async {
+    if (_publishing || _published) return;
+    final reader = context.read<ReaderProvider>();
+    final ai = context.read<AiProvider>();
+    final book = reader.book;
+    final selectedText = reader.selectedText ?? '';
+    String? answer;
+    for (final message in ai.messages.reversed) {
+      if (message.role == 'assistant' && message.content.trim().isNotEmpty) {
+        answer = message.content.trim();
+        break;
+      }
+    }
+    if (book == null ||
+        !BookService.isMingtaiShelfBook(book) ||
+        selectedText.isEmpty ||
+        answer == null) {
+      return;
+    }
+
+    setState(() => _publishing = true);
+    try {
+      await BookService.createPublicAnnotationForCurrentBook(
+        book: book,
+        chapterIndex: reader.currentChapterIndex,
+        chapterTitle: reader.currentChapter?.title ?? '',
+        source: 'ai_explanation',
+        originalText: selectedText,
+        annotationText: answer,
+      );
+      if (!mounted) return;
+      setState(() => _published = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('小U解释已公开到明台')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('公开失败：$e')),
+      );
+    } finally {
+      if (mounted) setState(() => _publishing = false);
+    }
   }
 
   @override
@@ -253,6 +301,42 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
                 );
               },
             ),
+          ),
+          Consumer2<ReaderProvider, AiProvider>(
+            builder: (context, reader, ai, _) {
+              final book = reader.book;
+              final canPublish = book != null &&
+                  BookService.isMingtaiShelfBook(book) &&
+                  !ai.isLoading &&
+                  ai.error == null &&
+                  ai.messages.any((message) =>
+                      message.role == 'assistant' &&
+                      message.content.trim().isNotEmpty);
+              if (!canPublish) return const SizedBox.shrink();
+              return Align(
+                alignment: Alignment.centerRight,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  child: TextButton.icon(
+                    onPressed:
+                        _publishing || _published ? null : _publishExplanation,
+                    icon: Icon(
+                      _published
+                          ? Icons.check_circle_outline
+                          : Icons.public_outlined,
+                      size: 18,
+                    ),
+                    label: Text(
+                      _published
+                          ? '已公开到明台'
+                          : _publishing
+                              ? '公开中...'
+                              : '公开到明台',
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
           // Follow-up input
           Container(

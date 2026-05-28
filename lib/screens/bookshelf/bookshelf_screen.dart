@@ -71,6 +71,16 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
   }
 
   void _openBook(Book book) {
+    if (BookService.isMingtaiShelfBook(book)) {
+      final readerProvider = context.read<ReaderProvider>();
+      unawaited(readerProvider.openBook(book));
+      if (mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const ReaderScreen()),
+        );
+      }
+      return;
+    }
     if (book.format == 'public') {
       final publicBookId = _publicBookIdFromShelfBook(book);
       if (publicBookId.isEmpty) {

@@ -1,16 +1,24 @@
-# ai_reader
+# 知读 ZhiDu
 
-A new Flutter project.
+知读是围绕阅读展开的精神空间，不是 AI 效率工具。产品由四个空间组成：
 
-## Getting Started
+- 书架：私人阅读与标记
+- 小U：阅读意识层与长期回顾
+- 随心记：绝对私密的意识流记录
+- 明台：公共可阅读书库
 
-This project is a starting point for a Flutter application.
+当前开发优先级：
 
-A few resources to get you started if this is your first Flutter project:
+1. 阅读器性能与稳定性
+2. 明台公共书库
+3. 小U人格化回顾
+4. 主题关联图谱
+5. 长期记忆结构
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+开发前请先阅读：
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- `docs/zhidu_product_direction.md`
+- `ai_reading_app_product_structure_cn.md`
+- `CLAUDE.md`
+
+明台不是社交 feed；小U不是通用聊天机器人；随心记永远不公开、不进入小U、不做 AI 分析。

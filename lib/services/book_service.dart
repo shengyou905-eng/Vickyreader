@@ -125,13 +125,16 @@ class MingtaiPublicBook {
   factory MingtaiPublicBook.fromRemote(Map<String, dynamic> row) {
     final title = _safePublicTitle(row['title']?.toString() ?? '');
     final author = _safePublicAuthor(row['author']?.toString() ?? '');
+    final fileUrl = (row['file_url']?.toString() ?? '').trim();
+    final originalFileUrl =
+        (row['original_file_url']?.toString() ?? '').trim();
     return MingtaiPublicBook(
       id: row['id']?.toString() ?? '',
       sourceBookId: row['source_book_id']?.toString() ?? '',
       title: title,
       author: author,
       coverUrl: row['cover_url']?.toString() ?? '',
-      fileUrl: row['file_url']?.toString() ?? '',
+      fileUrl: fileUrl.isNotEmpty ? fileUrl : originalFileUrl,
       storagePath: row['storage_path']?.toString() ?? '',
       fileType: _safeFileType(
         row['file_type']?.toString() ?? '',
@@ -143,6 +146,7 @@ class MingtaiPublicBook {
       copyrightStatus: row['copyright_status']?.toString() ?? '',
       borrowCount: int.tryParse(row['borrow_count']?.toString() ?? '') ?? 0,
       readingCount: int.tryParse(row['reading_count']?.toString() ?? '') ??
+          int.tryParse(row['read_count']?.toString() ?? '') ??
           int.tryParse(row['borrow_count']?.toString() ?? '') ??
           0,
       annotationCount:
@@ -208,6 +212,7 @@ class MingtaiFeedItem {
   final List<String> tags;
   final Map<String, dynamic> metadata;
   final int resonanceCount;
+  final int commentCount;
   final DateTime? createdAt;
 
   const MingtaiFeedItem({
@@ -225,6 +230,7 @@ class MingtaiFeedItem {
     required this.tags,
     required this.metadata,
     required this.resonanceCount,
+    required this.commentCount,
     required this.createdAt,
   });
 
@@ -254,6 +260,8 @@ class MingtaiFeedItem {
       metadata: metadata,
       resonanceCount:
           int.tryParse(row['resonance_count']?.toString() ?? '') ?? 0,
+      commentCount:
+          int.tryParse(row['comment_count']?.toString() ?? '') ?? 0,
       createdAt: BookService._tryParseDate(row['created_at']),
     );
   }
@@ -990,11 +998,6 @@ class BookService {
     );
   }
 
-  static Future<List<MingtaiFeedItem>> getMingtaiFeed({int limit = 50}) async {
-    final rows = await BmobApi.instance.listMingtaiFeed(limit: limit);
-    return rows.map(MingtaiFeedItem.fromRemote).toList();
-  }
-
   static List<MingtaiPublicBook> cachedMingtaiBooks({int limit = 50}) {
     final cached = _mingtaiBooksCache ?? const <MingtaiPublicBook>[];
     return cached.take(limit).toList();
@@ -1280,7 +1283,8 @@ class BookService {
     final rows = await BmobApi.instance.listMingtaiBookChapters(publicBookId);
     final shells = rows
         .map((row) => EpubChapter(
-              title: row['title']?.toString() ??
+              title: row['chapter_title']?.toString() ??
+                  row['title']?.toString() ??
                   '第${(int.tryParse(row['chapter_index']?.toString() ?? '') ?? 0) + 1}章',
               content: '',
               index: int.tryParse(row['chapter_index']?.toString() ?? '') ?? 0,
@@ -1306,7 +1310,9 @@ class BookService {
 
     final publicBookId = publicBookIdFromShelfId(bookId);
     final row = await BmobApi.instance.getMingtaiBookChapter(publicBookId, index);
-    final content = row['content']?.toString() ?? '';
+    final content = row['content_html']?.toString() ??
+        row['content']?.toString() ??
+        '';
     if (content.isNotEmpty) {
       await file.parent.create(recursive: true);
       await file.writeAsString(content);
@@ -1550,12 +1556,47 @@ class BookService {
 
   static Future<void> createMingtaiResonance({
     required String annotationId,
-    required String content,
+    String content = '',
   }) async {
     await BmobApi.instance.createMingtaiResonance(
       annotationId: annotationId,
       content: content,
     );
+  }
+
+  static Future<void> createMingtaiAnnotationComment({
+    required String annotationId,
+    required String content,
+  }) async {
+    await BmobApi.instance.createMingtaiAnnotationComment(
+      annotationId: annotationId,
+      content: content,
+    );
+  }
+
+  static Future<void> createPublicAnnotationForCurrentBook({
+    required Book book,
+    required int chapterIndex,
+    required String chapterTitle,
+    required String source,
+    required String originalText,
+    String annotationText = '',
+    Map<String, dynamic> positionJson = const {},
+  }) async {
+    if (!isMingtaiShelfBook(book)) return;
+    final publicBookId = publicBookIdFromShelfId(book.id);
+    await BmobApi.instance.createMingtaiBookAnnotation(
+      bookId: publicBookId,
+      chapterIndex: chapterIndex,
+      chapterTitle: chapterTitle,
+      source: source,
+      originalText: originalText,
+      annotationText: annotationText,
+      positionJson: positionJson,
+    );
+    _mingtaiBookDetailCache.remove(publicBookId);
+    _mingtaiBookDetailCacheAt.remove(publicBookId);
+    _invalidateMingtaiBooksCache();
   }
 
   static Future<void> publishEntryToMingtai(String itemId) async {

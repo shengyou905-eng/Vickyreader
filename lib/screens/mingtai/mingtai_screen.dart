@@ -84,15 +84,26 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
     );
   }
 
-  List<MingtaiPublicBook> get _recommendedBooks => _books.take(3).toList();
+  List<MingtaiPublicBook> get _recentBooks => _books.take(5).toList();
 
-  List<MingtaiPublicBook> get _popularBooks {
-    final books = [..._books];
-    books.sort((a, b) => b.readingCount.compareTo(a.readingCount));
-    return books.take(3).toList();
+  List<MingtaiPublicBook> get _publicDomainBooks {
+    return _books
+        .where((book) => book.copyrightStatus == 'public_domain')
+        .take(5)
+        .toList();
   }
 
-  List<MingtaiPublicBook> get _latestBooks => _books.take(5).toList();
+  List<MingtaiPublicBook> get _recentlyAnnotatedBooks {
+    final books = [..._books];
+    books.sort((a, b) {
+      final byAnnotation = b.annotationCount.compareTo(a.annotationCount);
+      if (byAnnotation != 0) return byAnnotation;
+      final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bTime.compareTo(aTime);
+    });
+    return books.where((book) => book.annotationCount > 0).take(5).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -130,18 +141,18 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
                           const _QuietEmpty()
                         else ...[
                           _BookSection(
-                            title: '推荐书籍',
-                            books: _recommendedBooks,
+                            title: '最近公开',
+                            books: _recentBooks,
                             onTap: _openBook,
                           ),
                           _BookSection(
-                            title: '热门阅读',
-                            books: _popularBooks,
+                            title: '公版经典',
+                            books: _publicDomainBooks,
                             onTap: _openBook,
                           ),
                           _BookSection(
-                            title: '最新公开',
-                            books: _latestBooks,
+                            title: '最近有人批注的书',
+                            books: _recentlyAnnotatedBooks,
                             onTap: _openBook,
                           ),
                           const SizedBox(height: 12),
@@ -176,6 +187,7 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
   MingtaiBookDetail? _detail;
   final Set<String> _expandedIds = {};
   final Set<String> _resonatingIds = {};
+  final Set<String> _commentingIds = {};
   int _selectedCommunityTab = 0;
   bool _loading = true;
   bool _startingReading = false;
@@ -274,17 +286,43 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
   }
 
   Future<void> _sendResonance(MingtaiFeedItem item) async {
+    if (_resonatingIds.contains(item.id)) return;
+    setState(() => _resonatingIds.add(item.id));
+    try {
+      await BookService.createMingtaiResonance(annotationId: item.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('共鸣已留下'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      _load(forceRefresh: true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('共鸣失败：$e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _resonatingIds.remove(item.id));
+    }
+  }
+
+  Future<void> _sendComment(MingtaiFeedItem item) async {
     final controller = TextEditingController();
     final content = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('写一句共鸣'),
+        title: const Text('围绕这条批注写一句'),
         content: TextField(
           controller: controller,
-          maxLength: 280,
+          maxLength: 1000,
           maxLines: 3,
           decoration: const InputDecoration(
-            hintText: '这条批注让你想到什么？',
+            hintText: '只回应这条页边笔记，不做普通评论区',
           ),
         ),
         actions: [
@@ -302,16 +340,16 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
     controller.dispose();
     if (content == null || content.isEmpty) return;
 
-    setState(() => _resonatingIds.add(item.id));
+    setState(() => _commentingIds.add(item.id));
     try {
-      await BookService.createMingtaiResonance(
+      await BookService.createMingtaiAnnotationComment(
         annotationId: item.id,
         content: content,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('共鸣已留下'),
+          content: Text('评论已留下'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -320,12 +358,12 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('发送失败：$e'),
+          content: Text('评论失败：$e'),
           behavior: SnackBarBehavior.floating,
         ),
       );
     } finally {
-      if (mounted) setState(() => _resonatingIds.remove(item.id));
+      if (mounted) setState(() => _commentingIds.remove(item.id));
     }
   }
 
@@ -344,7 +382,15 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
       final highlights = detail.annotations
           .where((item) => item.source == 'highlight')
           .toList();
-      highlights.sort((a, b) => b.resonanceCount.compareTo(a.resonanceCount));
+      highlights.sort((a, b) {
+        final aChapter = int.tryParse(a.chapterIndex) ?? 0;
+        final bChapter = int.tryParse(b.chapterIndex) ?? 0;
+        final byChapter = aChapter.compareTo(bChapter);
+        if (byChapter != 0) return byChapter;
+        final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bTime.compareTo(aTime);
+      });
       return highlights;
     }
     if (_selectedCommunityTab == 1) {
@@ -395,7 +441,9 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
                           item: item,
                           expanded: _expandedIds.contains(item.id),
                           resonating: _resonatingIds.contains(item.id),
+                          commenting: _commentingIds.contains(item.id),
                           onResonance: () => _sendResonance(item),
+                          onComment: () => _sendComment(item),
                           onToggleContext: () => _toggleContext(item.id),
                         ),
                       ),
@@ -851,7 +899,7 @@ class _CommunityTabs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const labels = ['热门划线', '想法', 'AI解读'];
+    const labels = ['公共划线', '想法', 'AI解读'];
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
@@ -1008,14 +1056,18 @@ class _AnnotationCard extends StatelessWidget {
   final MingtaiFeedItem item;
   final bool expanded;
   final bool resonating;
+  final bool commenting;
   final VoidCallback onResonance;
+  final VoidCallback onComment;
   final VoidCallback onToggleContext;
 
   const _AnnotationCard({
     required this.item,
     required this.expanded,
     required this.resonating,
+    required this.commenting,
     required this.onResonance,
+    required this.onComment,
     required this.onToggleContext,
   });
 
@@ -1097,12 +1149,19 @@ class _AnnotationCard extends StatelessWidget {
                 onTap: resonating ? null : onResonance,
               ),
               _QuietAction(
+                icon: Icons.mode_comment_outlined,
+                label: commenting ? '发送中' : '评论',
+                onTap: commenting ? null : onComment,
+              ),
+              _QuietAction(
                 icon: expanded ? Icons.expand_less : Icons.notes_outlined,
                 label: expanded ? '收起上下文' : '展开上下文',
                 onTap: onToggleContext,
               ),
               if (item.resonanceCount > 0)
                 _MetaPill(text: '已有 ${item.resonanceCount} 人在这里停留过'),
+              if (item.commentCount > 0)
+                _MetaPill(text: '${item.commentCount} 句回应'),
             ],
           ),
         ],

@@ -9,6 +9,7 @@ const { parsePublicBookChapters } = require('../utils/publicBookParser');
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const allowedCopyrightStatuses = new Set(['public_domain', 'original', 'authorized']);
+const allowedAnnotationSources = new Set(['highlight', 'thought', 'ai_explanation']);
 
 function normalizeEntryIds(body) {
   const entryIds = body.entry_ids;
@@ -378,7 +379,11 @@ async function getBookChapter(req, res, next) {
 async function listBooks(req, res, next) {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 100);
-    const books = await mingtaiRepository.listBooks({ limit });
+    const books = await mingtaiRepository.listBooks({
+      limit,
+      search: req.query.q,
+      section: req.query.section,
+    });
     return res.json({ books });
   } catch (error) {
     return next(error);
@@ -407,13 +412,68 @@ async function borrowBook(req, res, next) {
   }
 }
 
-async function createResonance(req, res, next) {
+async function createBookAnnotation(req, res, next) {
+  try {
+    assertUuid(req.params.id, 'book id');
+    const source = String(req.body.source || '').trim();
+    if (!allowedAnnotationSources.has(source)) {
+      throw httpError(400, 'Invalid source');
+    }
+
+    const originalText = String(req.body.original_text || '').trim();
+    const annotationText = String(req.body.annotation_text || '').trim();
+    if (!originalText && !annotationText) {
+      throw httpError(400, 'original_text or annotation_text is required');
+    }
+
+    const annotation = await mingtaiRepository.createPublicAnnotation(
+      req.user.id,
+      req.params.id,
+      {
+        source,
+        chapter_index: req.body.chapter_index,
+        chapter_title: req.body.chapter_title,
+        original_text: originalText,
+        annotation_text: annotationText,
+        auto_tags: req.body.auto_tags,
+        metadata_json: req.body.metadata_json,
+        position_json: req.body.position_json,
+      },
+    );
+    if (!annotation) throw httpError(404, 'Public book not found');
+    return res.status(201).json({ annotation });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function createAnnotationComment(req, res, next) {
   try {
     assertUuid(req.params.id, 'annotation id');
     const content = String(req.body.content || '').trim();
     if (!content) {
       throw httpError(400, 'content is required');
     }
+    if (content.length > 1000) {
+      throw httpError(400, 'content is too long');
+    }
+
+    const comment = await mingtaiRepository.createAnnotationComment(
+      req.user.id,
+      req.params.id,
+      content,
+    );
+    if (!comment) throw httpError(404, 'Annotation not found');
+    return res.status(201).json({ comment });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function createResonance(req, res, next) {
+  try {
+    assertUuid(req.params.id, 'annotation id');
+    const content = String(req.body.content || '').trim();
     if (content.length > 280) {
       throw httpError(400, 'content is too long');
     }
@@ -430,16 +490,6 @@ async function createResonance(req, res, next) {
   }
 }
 
-async function feed(req, res, next) {
-  try {
-    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 100);
-    const annotations = await mingtaiRepository.listFeed({ limit });
-    return res.json({ annotations });
-  } catch (error) {
-    return next(error);
-  }
-}
-
 module.exports = {
   publish,
   publishBook,
@@ -448,6 +498,7 @@ module.exports = {
   listBooks,
   getBook,
   borrowBook,
+  createBookAnnotation,
+  createAnnotationComment,
   createResonance,
-  feed,
 };

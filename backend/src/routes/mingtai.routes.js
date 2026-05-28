@@ -24,8 +24,9 @@ router.get('/books/:id/chapters', mingtaiController.listBookChapters);
 router.get('/books/:id/chapters/:chapterIndex', mingtaiController.getBookChapter);
 router.get('/books/:id', mingtaiController.getBook);
 router.post('/books/:id/borrow', auth, mingtaiController.borrowBook);
-router.post('/annotations/:id/resonances', auth, mingtaiController.createResonance);
+router.post('/books/:id/annotations', auth, mingtaiController.createBookAnnotation);
+router.post('/annotations/:id/comments', auth, mingtaiController.createAnnotationComment);
+router.post('/annotations/:id/resonance', auth, mingtaiController.createResonance);
 router.post('/publish', auth, mingtaiController.publish);
-router.get('/feed', mingtaiController.feed);
 
 module.exports = router;
