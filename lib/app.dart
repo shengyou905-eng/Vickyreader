@@ -55,6 +55,7 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
   int _xiaouRefreshSignal = 0;
+  int _freeNotesRefreshSignal = 0;
 
   List<Widget> get _pages => [
         const BookshelfScreen(),
@@ -62,7 +63,7 @@ class _MainScreenState extends State<MainScreen> {
           refreshSignal: _xiaouRefreshSignal,
           autoLoad: false,
         ),
-        const NotesFreeScreen(),
+        NotesFreeScreen(refreshSignal: _freeNotesRefreshSignal),
         const MingtaiScreen(),
       ];
 
@@ -77,8 +78,10 @@ class _MainScreenState extends State<MainScreen> {
         selectedIndex: _currentIndex,
         onDestinationSelected: (i) => setState(() {
           final wasOnXiaou = _currentIndex == 1;
+          final wasOnFreeNotes = _currentIndex == 2;
           _currentIndex = i;
           if (i == 1 && !wasOnXiaou) _xiaouRefreshSignal++;
+          if (i == 2 && !wasOnFreeNotes) _freeNotesRefreshSignal++;
         }),
         destinations: const [
           NavigationDestination(

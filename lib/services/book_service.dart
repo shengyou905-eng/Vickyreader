@@ -498,7 +498,7 @@ class BookService {
     if (q.isEmpty) {
       var localNotes = await _queryFreeNotes(db);
       if (localNotes.isEmpty) {
-        localNotes = await _recoverLocalFreeNotesIfHidden(db);
+        localNotes = await _claimAnonymousFreeNotes(db);
       }
       if (localNotes.isEmpty) {
         await _syncFreeNotesIfPossible(db);
@@ -510,7 +510,7 @@ class BookService {
 
     var notes = await _queryFreeNotes(db, query: q);
     if (notes.isEmpty) {
-      notes = await _recoverLocalFreeNotesIfHidden(db, query: q);
+      notes = await _claimAnonymousFreeNotes(db, query: q);
     }
     return notes;
   }
@@ -663,7 +663,7 @@ class BookService {
     );
   }
 
-  static Future<List<Map<String, dynamic>>> _recoverLocalFreeNotesIfHidden(
+  static Future<List<Map<String, dynamic>>> _claimAnonymousFreeNotes(
     Database db, {
     String? query,
   }) async {
@@ -672,6 +672,8 @@ class BookService {
     final where = <String>[];
     final args = <Object?>[];
 
+    where.add("(user_id = '' OR user_id IS NULL)");
+
     if (q.isNotEmpty) {
       where.add('content LIKE ?');
       args.add('%$q%');
@@ -679,7 +681,7 @@ class BookService {
 
     final notes = await db.query(
       'free_notes',
-      where: where.isEmpty ? null : where.join(' AND '),
+      where: where.join(' AND '),
       whereArgs: args.isEmpty ? null : args,
       orderBy: 'updated_at DESC, created_at DESC',
     );
@@ -688,10 +690,10 @@ class BookService {
       await db.update(
         'free_notes',
         {'user_id': userId},
-        where: "user_id != ? OR user_id IS NULL",
-        whereArgs: [userId],
+        where: "user_id = '' OR user_id IS NULL",
       );
       await _backupFreeNotes(db);
+      return _queryFreeNotes(db, query: q);
     }
 
     return notes;

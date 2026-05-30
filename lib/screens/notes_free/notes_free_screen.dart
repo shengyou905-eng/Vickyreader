@@ -5,7 +5,12 @@ import '../../config/theme.dart';
 import '../../services/book_service.dart';
 
 class NotesFreeScreen extends StatefulWidget {
-  const NotesFreeScreen({super.key});
+  final int refreshSignal;
+
+  const NotesFreeScreen({
+    super.key,
+    this.refreshSignal = 0,
+  });
 
   @override
   State<NotesFreeScreen> createState() => _NotesFreeScreenState();
@@ -21,6 +26,14 @@ class _NotesFreeScreenState extends State<NotesFreeScreen> {
   void initState() {
     super.initState();
     _loadNotes();
+  }
+
+  @override
+  void didUpdateWidget(covariant NotesFreeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.refreshSignal != oldWidget.refreshSignal) {
+      _loadNotes();
+    }
   }
 
   @override
