@@ -6,7 +6,6 @@ class SettingsProvider extends ChangeNotifier {
   double _fontSize = 18.0;
   double _lineHeight = 1.6;
   String _themeMode = 'light'; // 'light', 'sepia', 'dark'
-  String _apiKey = '';
   bool _syncEnabled = false;
   ReaderPagingMode _readerPagingMode = ReaderPagingMode.vertical;
   bool _loaded = false;
@@ -14,7 +13,6 @@ class SettingsProvider extends ChangeNotifier {
   double get fontSize => _fontSize;
   double get lineHeight => _lineHeight;
   String get themeMode => _themeMode;
-  String get apiKey => _apiKey;
   bool get syncEnabled => _syncEnabled;
   ReaderPagingMode get readerPagingMode => _readerPagingMode;
   bool get isLoaded => _loaded;
@@ -24,7 +22,6 @@ class SettingsProvider extends ChangeNotifier {
     _fontSize = prefs.getDouble('fontSize') ?? 18.0;
     _lineHeight = prefs.getDouble('lineHeight') ?? 1.6;
     _themeMode = prefs.getString('themeMode') ?? 'light';
-    _apiKey = prefs.getString('deepseek_api_key') ?? '';
     _syncEnabled = prefs.getBool('syncEnabled') ?? false;
     _readerPagingMode = ReaderPagingMode.fromStorage(
       prefs.getString('reader_paging_mode') ??
@@ -52,13 +49,6 @@ class SettingsProvider extends ChangeNotifier {
     _themeMode = mode;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('themeMode', mode);
-    notifyListeners();
-  }
-
-  Future<void> setApiKey(String key) async {
-    _apiKey = key;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('deepseek_api_key', key);
     notifyListeners();
   }
 

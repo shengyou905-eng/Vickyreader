@@ -1,10 +1,7 @@
 class AppConstants {
   static const String appName = '知读';
-  static const String appTagline = 'AI辅助阅读';
+  static const String appTagline = '让阅读痕迹慢慢显影';
 
-  // DeepSeek API
-  static const String deepseekBaseUrl = 'https://api.deepseek.com';
-  static const String deepseekModel = 'deepseek-chat';
   static const int contextChars = 200;
 
   // Self-hosted backend (生产环境必须使用 HTTPS)
