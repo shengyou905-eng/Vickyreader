@@ -7,7 +7,6 @@ import 'providers/bookshelf_provider.dart';
 import 'providers/reader_provider.dart';
 import 'providers/ai_provider.dart';
 import 'providers/settings_provider.dart';
-import 'providers/xiaou_chat_provider.dart';
 import 'screens/bookmarks/bookmarks_screen.dart';
 import 'screens/bookshelf/bookshelf_screen.dart';
 import 'screens/mingtai/mingtai_screen.dart';
@@ -27,8 +26,9 @@ class AiReaderApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => BookshelfProvider()),
         ChangeNotifierProvider(create: (_) => ReaderProvider()),
         ChangeNotifierProvider(create: (_) => AiProvider()),
-        ChangeNotifierProvider(create: (_) => SettingsProvider()..loadSettings()),
-        ChangeNotifierProvider(create: (_) => XiaouChatProvider()),
+        ChangeNotifierProvider(
+          create: (_) => SettingsProvider()..loadSettings(),
+        ),
       ],
       child: MaterialApp(
         title: AppConstants.appName,
@@ -58,22 +58,16 @@ class _MainScreenState extends State<MainScreen> {
   int _freeNotesRefreshSignal = 0;
 
   List<Widget> get _pages => [
-        const BookshelfScreen(),
-        XiaouHomeScreen(
-          refreshSignal: _xiaouRefreshSignal,
-          autoLoad: false,
-        ),
-        NotesFreeScreen(refreshSignal: _freeNotesRefreshSignal),
-        const MingtaiScreen(),
-      ];
+    const BookshelfScreen(),
+    XiaouHomeScreen(refreshSignal: _xiaouRefreshSignal, autoLoad: false),
+    NotesFreeScreen(refreshSignal: _freeNotesRefreshSignal),
+    const MingtaiScreen(),
+  ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _pages,
-      ),
+      body: IndexedStack(index: _currentIndex, children: _pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (i) => setState(() {

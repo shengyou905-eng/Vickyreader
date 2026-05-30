@@ -126,8 +126,7 @@ class MingtaiPublicBook {
     final title = _safePublicTitle(row['title']?.toString() ?? '');
     final author = _safePublicAuthor(row['author']?.toString() ?? '');
     final fileUrl = (row['file_url']?.toString() ?? '').trim();
-    final originalFileUrl =
-        (row['original_file_url']?.toString() ?? '').trim();
+    final originalFileUrl = (row['original_file_url']?.toString() ?? '').trim();
     return MingtaiPublicBook(
       id: row['id']?.toString() ?? '',
       sourceBookId: row['source_book_id']?.toString() ?? '',
@@ -145,7 +144,8 @@ class MingtaiPublicBook {
       description: row['description']?.toString() ?? '',
       copyrightStatus: row['copyright_status']?.toString() ?? '',
       borrowCount: int.tryParse(row['borrow_count']?.toString() ?? '') ?? 0,
-      readingCount: int.tryParse(row['reading_count']?.toString() ?? '') ??
+      readingCount:
+          int.tryParse(row['reading_count']?.toString() ?? '') ??
           int.tryParse(row['read_count']?.toString() ?? '') ??
           int.tryParse(row['borrow_count']?.toString() ?? '') ??
           0,
@@ -191,10 +191,7 @@ class MingtaiBookDetail {
   final MingtaiPublicBook book;
   final List<MingtaiFeedItem> annotations;
 
-  const MingtaiBookDetail({
-    required this.book,
-    required this.annotations,
-  });
+  const MingtaiBookDetail({required this.book, required this.annotations});
 }
 
 class MingtaiFeedItem {
@@ -242,16 +239,19 @@ class MingtaiFeedItem {
       source: row['source']?.toString() ?? 'manual',
       bookId: row['book_id']?.toString() ?? '',
       bookTitle: row['book_title']?.toString() ?? '未命名文档',
-      bookAuthor: row['book_author']?.toString() ??
+      bookAuthor:
+          row['book_author']?.toString() ??
           metadata['book_author']?.toString() ??
           metadata['author']?.toString() ??
           '佚名',
-      bookCover: row['book_cover']?.toString() ??
+      bookCover:
+          row['book_cover']?.toString() ??
           metadata['book_cover']?.toString() ??
           metadata['cover_path']?.toString() ??
           '',
       chapterIndex: row['chapter_index']?.toString() ?? '',
-      chapterTitle: row['chapter_title']?.toString() ??
+      chapterTitle:
+          row['chapter_title']?.toString() ??
           metadata['chapter_title']?.toString() ??
           '',
       originalText: row['original_text']?.toString() ?? '',
@@ -260,8 +260,7 @@ class MingtaiFeedItem {
       metadata: metadata,
       resonanceCount:
           int.tryParse(row['resonance_count']?.toString() ?? '') ?? 0,
-      commentCount:
-          int.tryParse(row['comment_count']?.toString() ?? '') ?? 0,
+      commentCount: int.tryParse(row['comment_count']?.toString() ?? '') ?? 0,
       createdAt: BookService._tryParseDate(row['created_at']),
     );
   }
@@ -321,14 +320,21 @@ class BookService {
 
   static Future<void> insertBook(Book book) async {
     final db = await DatabaseService.database;
-    await db.insert('books', book.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert(
+      'books',
+      book.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   static Future<void> updateBook(Book book) async {
     final db = await DatabaseService.database;
-    await db.update('books', book.toMap(),
-        where: 'id = ?', whereArgs: [book.id]);
+    await db.update(
+      'books',
+      book.toMap(),
+      where: 'id = ?',
+      whereArgs: [book.id],
+    );
   }
 
   static Future<void> deleteBook(String id) async {
@@ -346,8 +352,12 @@ class BookService {
 
   static Future<List<Highlight>> getHighlights(String bookId) async {
     final db = await DatabaseService.database;
-    final maps = await db.query('highlights',
-        where: 'bookId = ?', whereArgs: [bookId], orderBy: 'createdAt DESC');
+    final maps = await db.query(
+      'highlights',
+      where: 'bookId = ?',
+      whereArgs: [bookId],
+      orderBy: 'createdAt DESC',
+    );
     return maps.map((m) => Highlight.fromMap(m)).toList();
   }
 
@@ -359,14 +369,21 @@ class BookService {
 
   static Future<void> insertHighlight(Highlight h) async {
     final db = await DatabaseService.database;
-    await db.insert('highlights', h.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert(
+      'highlights',
+      h.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   static Future<void> updateHighlightNote(String id, String? note) async {
     final db = await DatabaseService.database;
-    await db.update('highlights', {'note': note},
-        where: 'id = ?', whereArgs: [id]);
+    await db.update(
+      'highlights',
+      {'note': note},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   static Future<void> deleteHighlight(String id) async {
@@ -376,13 +393,18 @@ class BookService {
 
   // ---- AI Messages ----
 
-  static Future<List<AiMessage>> getAiMessages(String bookId, {int limit = 6}) async {
+  static Future<List<AiMessage>> getAiMessages(
+    String bookId, {
+    int limit = 6,
+  }) async {
     final db = await DatabaseService.database;
-    final maps = await db.query('ai_messages',
-        where: 'bookId = ?',
-        whereArgs: [bookId],
-        orderBy: 'timestamp DESC',
-        limit: limit);
+    final maps = await db.query(
+      'ai_messages',
+      where: 'bookId = ?',
+      whereArgs: [bookId],
+      orderBy: 'timestamp DESC',
+      limit: limit,
+    );
     return maps.reversed.map((m) => AiMessage.fromMap(m)).toList();
   }
 
@@ -400,11 +422,14 @@ class BookService {
   // ---- Reading Progress ----
 
   static Future<({String chapterIndex, double scrollOffset})?>
-      getReadingProgress(String bookId) async {
+  getReadingProgress(String bookId) async {
     final db = await DatabaseService.database;
 
-    final maps = await db.query('reading_progress',
-        where: 'bookId = ?', whereArgs: [bookId]);
+    final maps = await db.query(
+      'reading_progress',
+      where: 'bookId = ?',
+      whereArgs: [bookId],
+    );
     if (maps.isEmpty) return null;
     return (
       chapterIndex: maps.first['chapterIndex'] as String,
@@ -413,17 +438,23 @@ class BookService {
   }
 
   static Future<({String chapterIndex, double scrollOffset})?>
-      refreshRemoteReadingProgress(String bookId) async {
+  refreshRemoteReadingProgress(String bookId) async {
     final db = await DatabaseService.database;
     await _pullRemoteReadingProgressIfPossible(db, bookId);
     return getReadingProgress(bookId);
   }
 
   static Future<void> saveReadingProgress(
-      String bookId, String chapterIndex, double scrollOffset,
-      {String userId = '', String updatedAt = ''}) async {
+    String bookId,
+    String chapterIndex,
+    double scrollOffset, {
+    String userId = '',
+    String updatedAt = '',
+  }) async {
     final db = await DatabaseService.database;
-    final now = updatedAt.isNotEmpty ? updatedAt : DateTime.now().toUtc().toIso8601String();
+    final now = updatedAt.isNotEmpty
+        ? updatedAt
+        : DateTime.now().toUtc().toIso8601String();
     final chapter = int.tryParse(chapterIndex) ?? 0;
     final totalChapters = (await getBook(bookId))?.chapterTitles.length ?? 0;
     final progress = totalChapters > 0
@@ -525,6 +556,7 @@ class BookService {
   static Future<void> saveFreeNote({
     String? id,
     String userId = '',
+    String title = '',
     required String content,
     bool waitForRemote = false,
   }) async {
@@ -538,7 +570,7 @@ class BookService {
 
     final existing = await db.query(
       'free_notes',
-      columns: ['created_at'],
+      columns: ['created_at', 'xiaou_authorized'],
       where: 'id = ?',
       whereArgs: [noteId],
       limit: 1,
@@ -546,21 +578,22 @@ class BookService {
     final createdAt = existing.isEmpty
         ? now
         : existing.first['created_at']?.toString() ?? now;
+    final xiaouAuthorized =
+        existing.isNotEmpty && existing.first['xiaou_authorized'] == 1 ? 1 : 0;
 
-    await db.insert(
-      'free_notes',
-      {
-        'id': noteId,
-        'user_id': resolvedUserId,
-        'content': content,
-        'created_at': createdAt,
-        'updated_at': now,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('free_notes', {
+      'id': noteId,
+      'user_id': resolvedUserId,
+      'title': title.trim(),
+      'content': content,
+      'xiaou_authorized': xiaouAuthorized,
+      'created_at': createdAt,
+      'updated_at': now,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
     await _backupFreeNotes(db);
     final remoteSync = _upsertRemoteFreeNoteIfPossible(
       id: noteId,
+      title: title.trim(),
       content: content,
       createdAt: createdAt,
       updatedAt: now,
@@ -585,11 +618,29 @@ class BookService {
       CREATE TABLE IF NOT EXISTS free_notes (
         id TEXT PRIMARY KEY,
         user_id TEXT DEFAULT '',
+        title TEXT DEFAULT '',
         content TEXT NOT NULL,
+        xiaou_authorized INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
     ''');
+    await _addFreeNoteColumnIfMissing(db, 'title', "TEXT DEFAULT ''");
+    await _addFreeNoteColumnIfMissing(
+      db,
+      'xiaou_authorized',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
+  }
+
+  static Future<void> _addFreeNoteColumnIfMissing(
+    Database db,
+    String column,
+    String definition,
+  ) async {
+    final columns = await db.rawQuery('PRAGMA table_info(free_notes)');
+    if (columns.any((item) => item['name'] == column)) return;
+    await db.execute('ALTER TABLE free_notes ADD COLUMN $column $definition');
   }
 
   static Future<void> _backupFreeNotes(Database db) async {
@@ -615,19 +666,22 @@ class BookService {
         final id = note['id']?.toString() ?? '';
         final content = note['content']?.toString() ?? '';
         if (id.isEmpty || content.isEmpty) continue;
-        await db.insert(
-          'free_notes',
-          {
-            'id': id,
-            'user_id': note['user_id']?.toString() ?? '',
-            'content': content,
-            'created_at': note['created_at']?.toString() ??
-                DateTime.now().toUtc().toIso8601String(),
-            'updated_at': note['updated_at']?.toString() ??
-                DateTime.now().toUtc().toIso8601String(),
-          },
-          conflictAlgorithm: ConflictAlgorithm.ignore,
-        );
+        await db.insert('free_notes', {
+          'id': id,
+          'user_id': note['user_id']?.toString() ?? '',
+          'title': note['title']?.toString() ?? '',
+          'content': content,
+          'xiaou_authorized':
+              note['xiaou_authorized'] == true || note['xiaou_authorized'] == 1
+              ? 1
+              : 0,
+          'created_at':
+              note['created_at']?.toString() ??
+              DateTime.now().toUtc().toIso8601String(),
+          'updated_at':
+              note['updated_at']?.toString() ??
+              DateTime.now().toUtc().toIso8601String(),
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
       }
     } catch (_) {
       // Keep SQLite as source of truth if the backup is unreadable.
@@ -651,7 +705,8 @@ class BookService {
     }
 
     if (q.isNotEmpty) {
-      where.add('content LIKE ?');
+      where.add('(title LIKE ? OR content LIKE ?)');
+      args.add('%$q%');
       args.add('%$q%');
     }
 
@@ -675,7 +730,8 @@ class BookService {
     where.add("(user_id = '' OR user_id IS NULL)");
 
     if (q.isNotEmpty) {
-      where.add('content LIKE ?');
+      where.add('(title LIKE ? OR content LIKE ?)');
+      args.add('%$q%');
       args.add('%$q%');
     }
 
@@ -687,11 +743,9 @@ class BookService {
     );
 
     if (notes.isNotEmpty && userId.isNotEmpty) {
-      await db.update(
-        'free_notes',
-        {'user_id': userId},
-        where: "user_id = '' OR user_id IS NULL",
-      );
+      await db.update('free_notes', {
+        'user_id': userId,
+      }, where: "user_id = '' OR user_id IS NULL");
       await _backupFreeNotes(db);
       return _queryFreeNotes(db, query: q);
     }
@@ -731,7 +785,8 @@ class BookService {
       final content = row['content']?.toString() ?? '';
       if (id.isEmpty || content.isEmpty) continue;
 
-      final remoteUpdated = row['updated_at']?.toString() ??
+      final remoteUpdated =
+          row['updated_at']?.toString() ??
           DateTime.now().toUtc().toIso8601String();
       final local = await db.query(
         'free_notes',
@@ -746,21 +801,34 @@ class BookService {
         if (localTime != null &&
             remoteTime != null &&
             localTime.isAfter(remoteTime)) {
+          await db.update(
+            'free_notes',
+            {
+              'xiaou_authorized':
+                  row['xiaou_authorized'] == true ||
+                      row['xiaou_authorized'] == 1
+                  ? 1
+                  : 0,
+            },
+            where: 'id = ?',
+            whereArgs: [id],
+          );
           continue;
         }
       }
 
-      await db.insert(
-        'free_notes',
-        {
-          'id': id,
-          'user_id': userId,
-          'content': content,
-          'created_at': row['created_at']?.toString() ?? remoteUpdated,
-          'updated_at': remoteUpdated,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      await db.insert('free_notes', {
+        'id': id,
+        'user_id': userId,
+        'title': row['title']?.toString() ?? '',
+        'content': content,
+        'xiaou_authorized':
+            row['xiaou_authorized'] == true || row['xiaou_authorized'] == 1
+            ? 1
+            : 0,
+        'created_at': row['created_at']?.toString() ?? remoteUpdated,
+        'updated_at': remoteUpdated,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
   }
 
@@ -781,11 +849,13 @@ class BookService {
       final content = row['content']?.toString() ?? '';
       if (id.isEmpty || content.isEmpty) continue;
 
-      final createdAt = row['created_at']?.toString() ??
+      final createdAt =
+          row['created_at']?.toString() ??
           DateTime.now().toUtc().toIso8601String();
       final updatedAt = row['updated_at']?.toString() ?? createdAt;
       await api.upsertFreeNote(
         id: id,
+        title: row['title']?.toString() ?? '',
         content: content,
         createdAt: createdAt,
         updatedAt: updatedAt,
@@ -805,6 +875,7 @@ class BookService {
 
   static Future<void> _upsertRemoteFreeNoteIfPossible({
     required String id,
+    required String title,
     required String content,
     required String createdAt,
     required String updatedAt,
@@ -815,6 +886,7 @@ class BookService {
       if (!api.isLoggedIn) return;
       await api.upsertFreeNote(
         id: id,
+        title: title,
         content: content,
         createdAt: createdAt,
         updatedAt: updatedAt,
@@ -835,6 +907,27 @@ class BookService {
     }
   }
 
+  static Future<void> setFreeNoteXiaouAuthorization(
+    String id, {
+    required bool authorized,
+  }) async {
+    final api = BmobApi.instance;
+    await api.init();
+    if (!api.isLoggedIn) {
+      throw Exception('请先登录，再把这条随心记交给小U思考');
+    }
+    await api.setFreeNoteXiaouAuthorization(id, authorized: authorized);
+    final db = await DatabaseService.database;
+    await _ensureFreeNotesTable(db);
+    await db.update(
+      'free_notes',
+      {'xiaou_authorized': authorized ? 1 : 0},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    await _backupFreeNotes(db);
+  }
+
   // ---- Bookmarks ----
 
   static Future<List<Bookmark>> getAllBookmarks() async {
@@ -845,15 +938,22 @@ class BookService {
 
   static Future<List<Bookmark>> getBookmarks(String bookId) async {
     final db = await DatabaseService.database;
-    final maps = await db.query('bookmarks',
-        where: 'bookId = ?', whereArgs: [bookId], orderBy: 'createdAt DESC');
+    final maps = await db.query(
+      'bookmarks',
+      where: 'bookId = ?',
+      whereArgs: [bookId],
+      orderBy: 'createdAt DESC',
+    );
     return maps.map((m) => Bookmark.fromMap(m)).toList();
   }
 
   static Future<void> insertBookmark(Bookmark bm) async {
     final db = await DatabaseService.database;
-    await db.insert('bookmarks', bm.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert(
+      'bookmarks',
+      bm.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   static Future<void> deleteBookmark(String id) async {
@@ -863,9 +963,11 @@ class BookService {
 
   static Future<bool> hasBookmark(String bookId, String chapterIndex) async {
     final db = await DatabaseService.database;
-    final maps = await db.query('bookmarks',
-        where: 'bookId = ? AND chapterIndex = ?',
-        whereArgs: [bookId, chapterIndex]);
+    final maps = await db.query(
+      'bookmarks',
+      where: 'bookId = ? AND chapterIndex = ?',
+      whereArgs: [bookId, chapterIndex],
+    );
     return maps.isNotEmpty;
   }
 
@@ -873,8 +975,11 @@ class BookService {
 
   static Future<void> insertUserEntry(UserEntry entry) async {
     final db = await DatabaseService.database;
-    await db.insert('user_entries', entry.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert(
+      'user_entries',
+      entry.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
     await _createRemoteUserEntryIfPossible(db, entry);
     _invalidateMingtaiOverviewCache();
   }
@@ -948,14 +1053,16 @@ class BookService {
       limit: 1,
     );
     final localId = rows.isNotEmpty ? (rows.first['id'] as String? ?? id) : id;
-    final remoteId = rows.isNotEmpty ? (rows.first['bmob_id'] as String? ?? '') : '';
+    final remoteId = rows.isNotEmpty
+        ? (rows.first['bmob_id'] as String? ?? '')
+        : '';
     final api = BmobApi.instance;
     if (api.isLoggedIn) {
       final idToDelete = remoteId.isNotEmpty
           ? remoteId
           : rows.isEmpty
-              ? id
-              : await _findRemoteEntryIdByLocalId(localId);
+          ? id
+          : await _findRemoteEntryIdByLocalId(localId);
       if (idToDelete.isEmpty) {
         throw Exception('找不到远端 entry id，无法确认线上删除');
       }
@@ -990,7 +1097,9 @@ class BookService {
     );
   }
 
-  static Future<MingtaiQuestionAnswer> answerMingtaiQuestion(String questionId) async {
+  static Future<MingtaiQuestionAnswer> answerMingtaiQuestion(
+    String questionId,
+  ) async {
     final data = await BmobApi.instance.answerInsightQuestion(questionId);
     return MingtaiQuestionAnswer(
       questionId: data['question_id']?.toString() ?? questionId,
@@ -1011,7 +1120,8 @@ class BookService {
   }) async {
     final cached = _mingtaiBooksCache;
     final cacheAt = _mingtaiBooksCacheAt;
-    final cacheFresh = cached != null &&
+    final cacheFresh =
+        cached != null &&
         cacheAt != null &&
         DateTime.now().difference(cacheAt) < _mingtaiBooksCacheTtl;
     if (!forceRefresh && cacheFresh) {
@@ -1039,7 +1149,8 @@ class BookService {
   }) async {
     final cached = _mingtaiBookDetailCache[bookId];
     final cacheAt = _mingtaiBookDetailCacheAt[bookId];
-    final cacheFresh = cached != null &&
+    final cacheFresh =
+        cached != null &&
         cacheAt != null &&
         DateTime.now().difference(cacheAt) < _mingtaiBookDetailCacheTtl;
     if (!forceRefresh && cacheFresh) {
@@ -1180,7 +1291,8 @@ class BookService {
     );
   }
 
-  static String publicShelfBookId(String publicBookId) => 'mingtai_$publicBookId';
+  static String publicShelfBookId(String publicBookId) =>
+      'mingtai_$publicBookId';
 
   static String publicBookIdFromShelfId(String id) {
     if (id.startsWith('mingtai_')) return id.substring('mingtai_'.length);
@@ -1192,9 +1304,12 @@ class BookService {
     return book.id.startsWith('mingtai_') || book.id.startsWith('mingtai:');
   }
 
-  static Future<void> prefetchMingtaiBookFile(MingtaiPublicBook publicBook) async {
-    await getMingtaiChapterShells(publicShelfBookId(publicBook.id))
-        .catchError((_) => const <EpubChapter>[]);
+  static Future<void> prefetchMingtaiBookFile(
+    MingtaiPublicBook publicBook,
+  ) async {
+    await getMingtaiChapterShells(
+      publicShelfBookId(publicBook.id),
+    ).catchError((_) => const <EpubChapter>[]);
   }
 
   static Future<Book> prepareBookForReading(Book book) async {
@@ -1272,7 +1387,9 @@ class BookService {
     );
   }
 
-  static Future<List<EpubChapter>> getMingtaiChapterShells(String bookId) async {
+  static Future<List<EpubChapter>> getMingtaiChapterShells(
+    String bookId,
+  ) async {
     final titles = await EpubService.getChapterTitles(bookId);
     if (titles.isNotEmpty) {
       return [
@@ -1283,16 +1400,21 @@ class BookService {
 
     final publicBookId = publicBookIdFromShelfId(bookId);
     final rows = await BmobApi.instance.listMingtaiBookChapters(publicBookId);
-    final shells = rows
-        .map((row) => EpubChapter(
-              title: row['chapter_title']?.toString() ??
-                  row['title']?.toString() ??
-                  '第${(int.tryParse(row['chapter_index']?.toString() ?? '') ?? 0) + 1}章',
-              content: '',
-              index: int.tryParse(row['chapter_index']?.toString() ?? '') ?? 0,
-            ))
-        .toList()
-      ..sort((a, b) => a.index.compareTo(b.index));
+    final shells =
+        rows
+            .map(
+              (row) => EpubChapter(
+                title:
+                    row['chapter_title']?.toString() ??
+                    row['title']?.toString() ??
+                    '第${(int.tryParse(row['chapter_index']?.toString() ?? '') ?? 0) + 1}章',
+                content: '',
+                index:
+                    int.tryParse(row['chapter_index']?.toString() ?? '') ?? 0,
+              ),
+            )
+            .toList()
+          ..sort((a, b) => a.index.compareTo(b.index));
 
     if (shells.isNotEmpty) {
       await _cacheMingtaiChapterTitles(
@@ -1303,7 +1425,10 @@ class BookService {
     return shells;
   }
 
-  static Future<String> getMingtaiChapterContent(String bookId, int index) async {
+  static Future<String> getMingtaiChapterContent(
+    String bookId,
+    int index,
+  ) async {
     final filePath = await EpubService.getChapterFilePath(bookId, index);
     final file = File(filePath);
     if (await file.exists() && await file.length() > 0) {
@@ -1311,10 +1436,12 @@ class BookService {
     }
 
     final publicBookId = publicBookIdFromShelfId(bookId);
-    final row = await BmobApi.instance.getMingtaiBookChapter(publicBookId, index);
-    final content = row['content_html']?.toString() ??
-        row['content']?.toString() ??
-        '';
+    final row = await BmobApi.instance.getMingtaiBookChapter(
+      publicBookId,
+      index,
+    );
+    final content =
+        row['content_html']?.toString() ?? row['content']?.toString() ?? '';
     if (content.isNotEmpty) {
       await file.parent.create(recursive: true);
       await file.writeAsString(content);
@@ -1327,7 +1454,9 @@ class BookService {
     List<String> titles,
   ) async {
     final appDir = await getApplicationDocumentsDirectory();
-    final chapterDir = Directory(p.join(appDir.path, AppConstants.booksDir, bookId));
+    final chapterDir = Directory(
+      p.join(appDir.path, AppConstants.booksDir, bookId),
+    );
     await chapterDir.create(recursive: true);
     final titlesFile = File(p.join(chapterDir.path, 'titles.json'));
     await titlesFile.writeAsString(jsonEncode(titles));
@@ -1372,7 +1501,10 @@ class BookService {
     final dir = await getApplicationDocumentsDirectory();
     final cacheDir = Directory(p.join(dir.path, 'public_books'));
     await cacheDir.create(recursive: true);
-    final localPath = p.join(cacheDir.path, '${_safeFileName(book.id)}.$format');
+    final localPath = p.join(
+      cacheDir.path,
+      '${_safeFileName(book.id)}.$format',
+    );
     final localFile = File(localPath);
     if (await localFile.exists() && await localFile.length() > 0) {
       if (await _isPublicBookFileReadable(localFile, format)) {
@@ -1479,8 +1611,9 @@ class BookService {
         mode: shouldAppend ? FileMode.append : FileMode.write,
       );
 
-      await for (final chunk
-          in response.stream.timeout(const Duration(minutes: 3))) {
+      await for (final chunk in response.stream.timeout(
+        const Duration(minutes: 3),
+      )) {
         sink.add(chunk);
       }
       await sink.close();
@@ -1553,7 +1686,9 @@ class BookService {
       bookId: bookId,
       limit: 200,
     );
-    return rows.where((row) => (row['id']?.toString() ?? '').isNotEmpty).toList();
+    return rows
+        .where((row) => (row['id']?.toString() ?? '').isNotEmpty)
+        .toList();
   }
 
   static Future<void> createMingtaiResonance({
@@ -1636,7 +1771,9 @@ class BookService {
     });
   }
 
-  static Future<List<Map<String, dynamic>>> getMingtaiItems({String? tag}) async {
+  static Future<List<Map<String, dynamic>>> getMingtaiItems({
+    String? tag,
+  }) async {
     final overview = await getMingtaiOverview(tag: tag);
     return overview.items;
   }
@@ -1662,16 +1799,14 @@ class BookService {
         items: const [],
         allItems: const [],
         tags: const [],
-        insights: {
-          7: MingtaiInsight.empty(7),
-          30: MingtaiInsight.empty(30),
-        },
+        insights: {7: MingtaiInsight.empty(7), 30: MingtaiInsight.empty(30)},
       );
     }
 
     final cached = _mingtaiOverviewCache;
     final cacheAt = _mingtaiOverviewCacheAt;
-    final cacheFresh = cached != null &&
+    final cacheFresh =
+        cached != null &&
         cacheAt != null &&
         DateTime.now().difference(cacheAt) < _mingtaiOverviewCacheTtl;
     if (!forceRefresh && cacheFresh) {
@@ -1723,8 +1858,9 @@ class BookService {
     if (normalizedTag.isEmpty) return overview;
     return MingtaiOverview(
       items: overview.allItems.where((item) {
-        return _parseTags((item['ai_tags'] as String?) ?? '')
-            .contains(normalizedTag);
+        return _parseTags(
+          (item['ai_tags'] as String?) ?? '',
+        ).contains(normalizedTag);
       }).toList(),
       allItems: overview.allItems,
       tags: overview.tags,
@@ -1803,7 +1939,9 @@ class BookService {
     final metadata = _metadataToRemote(row['metadata_json']);
     final aiExplanation = row['ai_explanation']?.toString() ?? '';
     final autoSummary = row['auto_summary']?.toString() ?? '';
-    final understanding = aiExplanation.isNotEmpty ? aiExplanation : autoSummary;
+    final understanding = aiExplanation.isNotEmpty
+        ? aiExplanation
+        : autoSummary;
 
     return {
       'id': remoteId.isNotEmpty ? 'entry:$remoteId' : '',
@@ -1813,14 +1951,16 @@ class BookService {
       'book_id': row['book_id']?.toString() ?? '',
       'book_title': row['book_title']?.toString() ?? '',
       'chapter_index': row['chapter_index']?.toString() ?? '',
-      'chapter_title': row['chapter_title']?.toString() ??
+      'chapter_title':
+          row['chapter_title']?.toString() ??
           metadata['chapter_title']?.toString() ??
           '',
       'original_text': row['original_text']?.toString() ?? '',
       'user_note': row['user_input']?.toString() ?? '',
       'ai_tags': _remoteTags(row['auto_tags']).join(','),
       'ai_understanding': understanding,
-      'created_at': row['created_at']?.toString() ??
+      'created_at':
+          row['created_at']?.toString() ??
           DateTime.now().toUtc().toIso8601String(),
       'updated_at': row['updated_at']?.toString() ?? '',
     };
@@ -1986,7 +2126,8 @@ class BookService {
       final row = await api.getReadingProgress(bookId);
       if (row == null) return;
 
-      final updatedAt = (row['updated_at'] as String?) ??
+      final updatedAt =
+          (row['updated_at'] as String?) ??
           DateTime.now().toUtc().toIso8601String();
       final localRows = await db.query(
         'reading_progress',
@@ -2005,18 +2146,14 @@ class BookService {
           return;
         }
       }
-      await db.insert(
-        'reading_progress',
-        {
-          'bookId': bookId,
-          'user_id': (row['user_id'] as String?) ?? '',
-          'chapterIndex': (row['chapter_index'] as String?) ?? '0',
-          'scrollOffset': (row['scroll_offset'] as num?)?.toDouble() ?? 0.0,
-          'updatedAt': updatedAt,
-          'updated_at': updatedAt,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      await db.insert('reading_progress', {
+        'bookId': bookId,
+        'user_id': (row['user_id'] as String?) ?? '',
+        'chapterIndex': (row['chapter_index'] as String?) ?? '0',
+        'scrollOffset': (row['scroll_offset'] as num?)?.toDouble() ?? 0.0,
+        'updatedAt': updatedAt,
+        'updated_at': updatedAt,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     } catch (_) {}
   }
 
@@ -2028,7 +2165,10 @@ class BookService {
     }
   }
 
-  static Future<void> _createRemoteUserEntryIfPossible(Database db, UserEntry entry) async {
+  static Future<void> _createRemoteUserEntryIfPossible(
+    Database db,
+    UserEntry entry,
+  ) async {
     final api = BmobApi.instance;
     if (!api.isLoggedIn) return;
 
@@ -2101,7 +2241,9 @@ class BookService {
     };
   }
 
-  static Map<String, dynamic> _remoteUserEntryToLocal(Map<String, dynamic> row) {
+  static Map<String, dynamic> _remoteUserEntryToLocal(
+    Map<String, dynamic> row,
+  ) {
     final metadata = _metadataToRemote(row['metadata_json']);
     final remoteId = (row['id'] as String?) ?? '';
     final localId = (metadata['local_id'] as String?) ?? remoteId;
@@ -2112,7 +2254,8 @@ class BookService {
       'book_id': (row['book_id'] as String?) ?? '',
       'book_title': (row['book_title'] as String?) ?? '',
       'chapter_index': (row['chapter_index'] as String?) ?? '',
-      'chapter_title': row['chapter_title']?.toString() ??
+      'chapter_title':
+          row['chapter_title']?.toString() ??
           metadata['chapter_title']?.toString() ??
           '',
       'original_text': (row['original_text'] as String?) ?? '',
@@ -2122,7 +2265,8 @@ class BookService {
       'auto_summary': (row['auto_summary'] as String?) ?? '',
       'metadata_json': jsonEncode(metadata),
       'embedding': '',
-      'created_at': (row['created_at'] as String?) ??
+      'created_at':
+          (row['created_at'] as String?) ??
           (row['createdAt'] as String?) ??
           DateTime.now().toUtc().toIso8601String(),
       'updated_at': (row['updatedAt'] as String?) ?? '',
@@ -2183,11 +2327,13 @@ class BookService {
     }
     return raw
         .split(',')
-        .map((tag) => tag
-            .trim()
-            .replaceAll('"', '')
-            .replaceAll('[', '')
-            .replaceAll(']', ''))
+        .map(
+          (tag) => tag
+              .trim()
+              .replaceAll('"', '')
+              .replaceAll('[', '')
+              .replaceAll(']', ''),
+        )
         .where((tag) => tag.isNotEmpty)
         .toList();
   }

@@ -14,7 +14,7 @@ class AppConstants {
 
   // Storage
   static const String dbName = 'ai_reader.db';
-  static const int dbVersion = 10;
+  static const int dbVersion = 11;
   static const List<String> supportedFormats = ['epub', 'txt', 'pdf'];
   static const String booksDir = 'books';
 

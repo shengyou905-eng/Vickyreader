@@ -4,6 +4,7 @@ import '../../config/theme.dart';
 import '../../providers/reader_provider.dart';
 import '../../screens/reader/reader_screen.dart';
 import '../../services/book_service.dart';
+import 'thought_detail_screen.dart';
 
 class NotesScreen extends StatefulWidget {
   const NotesScreen({super.key});
@@ -46,18 +47,16 @@ class _NotesScreenState extends State<NotesScreen> {
     readerProvider.setScrollTarget(text);
 
     if (mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const ReaderScreen()),
-      );
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const ReaderScreen()));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('笔记'),
-      ),
+      appBar: AppBar(title: const Text('阅读回应')),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : DefaultTabController(
@@ -75,10 +74,7 @@ class _NotesScreenState extends State<NotesScreen> {
                   ),
                   Expanded(
                     child: TabBarView(
-                      children: [
-                        _buildHighlightsList(),
-                        _buildNotesList(),
-                      ],
+                      children: [_buildHighlightsList(), _buildNotesList()],
                     ),
                   ),
                 ],
@@ -117,7 +113,8 @@ class _NotesScreenState extends State<NotesScreen> {
                 left: BorderSide(
                   color: Color(
                     int.tryParse(
-                            (h['color'] as String).replaceFirst('#', '0xFF')) ??
+                          (h['color'] as String).replaceFirst('#', '0xFF'),
+                        ) ??
                         0xFFB39DDB,
                   ),
                   width: 3,
@@ -185,10 +182,7 @@ class _NotesScreenState extends State<NotesScreen> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(10),
               border: const Border(
-                left: BorderSide(
-                  color: Color(0xFFFFB74D),
-                  width: 3,
-                ),
+                left: BorderSide(color: Color(0xFFFFB74D), width: 3),
               ),
             ),
             child: Column(
@@ -197,7 +191,10 @@ class _NotesScreenState extends State<NotesScreen> {
                 if (n['selectedText'] != null)
                   Text(
                     n['selectedText'] as String,
-                    style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppTheme.textSecondary,
+                    ),
                   ),
                 if (n['selectedText'] != null) const SizedBox(height: 6),
                 Text(
@@ -207,7 +204,10 @@ class _NotesScreenState extends State<NotesScreen> {
                 const SizedBox(height: 4),
                 Text(
                   n['updatedAt'] as String,
-                  style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppTheme.textSecondary,
+                  ),
                 ),
               ],
             ),
@@ -218,22 +218,8 @@ class _NotesScreenState extends State<NotesScreen> {
   }
 
   Future<void> _openNote(Map<String, dynamic> n) async {
-    final bookId = n['bookId'] as String;
-    final chapterIdx = int.tryParse(n['chapterIndex'] as String? ?? '0') ?? 0;
-    final text = n['selectedText'] as String?;
-
-    final book = await BookService.getBook(bookId);
-    if (book == null || !mounted) return;
-
-    final readerProvider = context.read<ReaderProvider>();
-    await readerProvider.openBook(book);
-    readerProvider.goToChapter(chapterIdx);
-    if (text != null) readerProvider.setScrollTarget(text);
-
-    if (mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const ReaderScreen()),
-      );
-    }
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => ThoughtDetailScreen(note: n)));
   }
 }

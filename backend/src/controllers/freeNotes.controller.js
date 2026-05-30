@@ -37,8 +37,35 @@ async function deleteFreeNote(req, res, next) {
   }
 }
 
+async function authorizeForXiaou(req, res, next) {
+  try {
+    const authorized = await freeNoteRepository.authorizeForXiaou(
+      req.user.id,
+      req.params.id,
+    );
+    if (!authorized) throw httpError(404, 'Free note not found');
+    return res.json({ xiaou_authorized: true });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function revokeXiaouAuthorization(req, res, next) {
+  try {
+    await freeNoteRepository.revokeXiaouAuthorization(
+      req.user.id,
+      req.params.id,
+    );
+    return res.status(204).send();
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   upsertFreeNote,
   listFreeNotes,
   deleteFreeNote,
+  authorizeForXiaou,
+  revokeXiaouAuthorization,
 };

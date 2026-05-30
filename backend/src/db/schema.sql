@@ -65,14 +65,31 @@ CREATE INDEX IF NOT EXISTS idx_reading_progresses_user_book
 CREATE TABLE IF NOT EXISTS free_notes (
   id TEXT NOT NULL,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL DEFAULT '',
   content TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, id)
 );
 
+ALTER TABLE free_notes
+  ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT '';
+
 CREATE INDEX IF NOT EXISTS idx_free_notes_user_updated
   ON free_notes(user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS xiaou_free_note_grants (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  free_note_id TEXT NOT NULL,
+  granted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, free_note_id),
+  FOREIGN KEY (user_id, free_note_id)
+    REFERENCES free_notes(user_id, id)
+    ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_xiaou_free_note_grants_user
+  ON xiaou_free_note_grants(user_id, granted_at DESC);
 
 CREATE TABLE IF NOT EXISTS public_books (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

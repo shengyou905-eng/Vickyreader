@@ -42,39 +42,59 @@ class SyncService {
   }
 
   Future<void> _pullTable(
-      Database db, BmobApi api, String table, String lastSync) async {
+    Database db,
+    BmobApi api,
+    String table,
+    String lastSync,
+  ) async {
     try {
       final whereClause = _userId != null
           ? '{"user_id":"$_userId","updatedAt":{"\$gt":"$lastSync"}}'
           : null;
       final bmobTable = table;
-      final rows = await api.select(bmobTable,
-          whereJson: whereClause, order: 'updatedAt', limit: 500);
+      final rows = await api.select(
+        bmobTable,
+        whereJson: whereClause,
+        order: 'updatedAt',
+        limit: 500,
+      );
 
       for (final r in rows) {
         final bmobId = r['objectId'] as String;
-        final local = await db.query(table,
-            where: 'bmob_id = ?', whereArgs: [bmobId]);
+        final local = await db.query(
+          table,
+          where: 'bmob_id = ?',
+          whereArgs: [bmobId],
+        );
         final localRecord = local.isNotEmpty ? local.first : null;
 
         try {
           if (localRecord == null) {
             // New remote record — insert locally
             final localMap = _toLocal(table, r, bmobId);
-            await db.insert(table, localMap,
-                conflictAlgorithm: ConflictAlgorithm.replace);
+            await db.insert(
+              table,
+              localMap,
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
           } else {
             // Compare timestamps, keep newer
             final localUpdated = localRecord['updated_at'] as String? ?? '';
             final remoteUpdated = r['updatedAt'] as String? ?? '';
             if (remoteUpdated.compareTo(localUpdated) > 0) {
               final localMap = _toLocal(table, r, bmobId);
-              await db.update(table, localMap,
-                  where: 'bmob_id = ?', whereArgs: [bmobId]);
+              await db.update(
+                table,
+                localMap,
+                where: 'bmob_id = ?',
+                whereArgs: [bmobId],
+              );
             }
           }
         } catch (e) {
-          debugPrint('[SyncService] pullTable($table) merge error for $bmobId: $e');
+          debugPrint(
+            '[SyncService] pullTable($table) merge error for $bmobId: $e',
+          );
         }
       }
     } catch (e) {
@@ -97,19 +117,27 @@ class SyncService {
   }
 
   Future<void> _pushTable(
-      Database db, BmobApi api, String table, String lastSync) async {
+    Database db,
+    BmobApi api,
+    String table,
+    String lastSync,
+  ) async {
     try {
       List<Map<String, dynamic>> records;
       if (lastSync.isNotEmpty) {
-        records = await db.query(table,
-            where: "updated_at > ? AND user_id = ?",
-            whereArgs: [lastSync, _userId!],
-            limit: 500);
+        records = await db.query(
+          table,
+          where: "updated_at > ? AND user_id = ?",
+          whereArgs: [lastSync, _userId!],
+          limit: 500,
+        );
       } else {
-        records = await db.query(table,
-            where: 'user_id = ?',
-            whereArgs: [_userId!],
-            limit: 500);
+        records = await db.query(
+          table,
+          where: 'user_id = ?',
+          whereArgs: [_userId!],
+          limit: 500,
+        );
       }
 
       final bmobTable = table;
@@ -122,16 +150,24 @@ class SyncService {
             // Update existing remote record
             await api.update(bmobTable, bmobId, remoteMap);
             final keyColumn = _localKeyColumn(table);
-            await db.update(table, {'bmob_id': bmobId},
-                where: '$keyColumn = ?', whereArgs: [r[keyColumn]]);
+            await db.update(
+              table,
+              {'bmob_id': bmobId},
+              where: '$keyColumn = ?',
+              whereArgs: [r[keyColumn]],
+            );
           } else {
             // Create new remote record
             final result = await api.create(bmobTable, remoteMap);
             if (result != null) {
               final newBmobId = result['objectId'] as String;
               final keyColumn = _localKeyColumn(table);
-              await db.update(table, {'bmob_id': newBmobId},
-                  where: '$keyColumn = ?', whereArgs: [r[keyColumn]]);
+              await db.update(
+                table,
+                {'bmob_id': newBmobId},
+                where: '$keyColumn = ?',
+                whereArgs: [r[keyColumn]],
+              );
             }
           }
         } catch (e) {
@@ -151,36 +187,45 @@ class SyncService {
     final db = await DatabaseService.database;
     final now = DateTime.now().toUtc().toIso8601String();
 
-    await db.update('books',
-        {'user_id': newUserId, 'updated_at': now},
-        where: "user_id = '' OR user_id IS NULL");
-    await db.update('highlights',
-        {'user_id': newUserId, 'updated_at': now},
-        where: "user_id = '' OR user_id IS NULL");
-    await db.update('notes',
-        {'user_id': newUserId, 'updated_at': now},
-        where: "user_id = '' OR user_id IS NULL");
-    await db.update('reading_progress',
-        {'user_id': newUserId, 'updated_at': now},
-        where: "user_id = '' OR user_id IS NULL");
-    await db.update('bookmarks',
-        {'user_id': newUserId, 'updated_at': now},
-        where: "user_id = '' OR user_id IS NULL");
-    await db.update('user_entries',
-        {'user_id': newUserId, 'updated_at': now},
-        where: "user_id = '' OR user_id IS NULL");
+    await db.update('books', {
+      'user_id': newUserId,
+      'updated_at': now,
+    }, where: "user_id = '' OR user_id IS NULL");
+    await db.update('highlights', {
+      'user_id': newUserId,
+      'updated_at': now,
+    }, where: "user_id = '' OR user_id IS NULL");
+    await db.update('notes', {
+      'user_id': newUserId,
+      'updated_at': now,
+    }, where: "user_id = '' OR user_id IS NULL");
+    await db.update('reading_progress', {
+      'user_id': newUserId,
+      'updated_at': now,
+    }, where: "user_id = '' OR user_id IS NULL");
+    await db.update('bookmarks', {
+      'user_id': newUserId,
+      'updated_at': now,
+    }, where: "user_id = '' OR user_id IS NULL");
+    await db.update('user_entries', {
+      'user_id': newUserId,
+      'updated_at': now,
+    }, where: "user_id = '' OR user_id IS NULL");
     await db.execute('''
       CREATE TABLE IF NOT EXISTS free_notes (
         id TEXT PRIMARY KEY,
         user_id TEXT DEFAULT '',
+        title TEXT DEFAULT '',
         content TEXT NOT NULL,
+        xiaou_authorized INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
     ''');
-    await db.update('free_notes',
-        {'user_id': newUserId, 'updated_at': now},
-        where: "user_id = '' OR user_id IS NULL");
+    await db.update('free_notes', {
+      'user_id': newUserId,
+      'updated_at': now,
+    }, where: "user_id = '' OR user_id IS NULL");
 
     _userId = newUserId;
     await _setLastSyncTime('');
@@ -207,7 +252,10 @@ class SyncService {
 
   // Column mapping: Bmob remote → SQLite local
   Map<String, dynamic> _toLocal(
-      String table, Map<String, dynamic> r, String bmobId) {
+    String table,
+    Map<String, dynamic> r,
+    String bmobId,
+  ) {
     final now = DateTime.now().toUtc().toIso8601String();
     switch (table) {
       case 'books':

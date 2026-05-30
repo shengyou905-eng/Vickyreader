@@ -1,4 +1,5 @@
 const entryRepository = require('../repositories/entry.repository');
+const freeNoteRepository = require('../repositories/freeNote.repository');
 const httpError = require('../utils/httpError');
 
 const DEEPSEEK_URL = 'https://api.deepseek.com/v1/chat/completions';
@@ -36,8 +37,11 @@ async function answerQuestion(req, res, next) {
     }
 
     // 获取用户最近 500 条阅读记录
-    const entries = await entryRepository.listEntries(req.user.id, { limit: 500 });
-    const context = buildContext(entries);
+    const [entries, authorizedFreeNotes] = await Promise.all([
+      entryRepository.listEntries(req.user.id, { limit: 500 }),
+      freeNoteRepository.listAuthorizedForXiaou(req.user.id, { limit: 100 }),
+    ]);
+    const context = buildContext(entries, authorizedFreeNotes);
 
     const messages = [
       { role: 'system', content: SYSTEM_PROMPT },
@@ -80,11 +84,7 @@ async function answerQuestion(req, res, next) {
   }
 }
 
-function buildContext(entries) {
-  if (!entries || entries.length === 0) {
-    return '用户还没有任何阅读记录。鼓励用户多划线、写想法、使用小U解释，积累后再来回顾。';
-  }
-
+function buildContext(entries = [], authorizedFreeNotes = []) {
   const lines = entries.slice(0, 500).map((entry, i) => {
     const book = entry.book_title || '未知书籍';
     const text = entry.original_text || entry.user_input || entry.ai_explanation || '';
@@ -93,7 +93,18 @@ function buildContext(entries) {
     return `${i + 1}. [${source}]《${book}》${tags ? ` 🏷${tags}` : ''}\n   ${text.slice(0, 200)}`;
   });
 
-  return `共 ${entries.length} 条记录（展示最近 ${Math.min(entries.length, 500)} 条）：\n\n${lines.join('\n\n')}`;
+  const readingContext = entries.length === 0
+    ? '用户还没有任何阅读记录。'
+    : `共 ${entries.length} 条阅读记录（展示最近 ${Math.min(entries.length, 500)} 条）：\n\n${lines.join('\n\n')}`;
+  const freeNoteLines = authorizedFreeNotes.slice(0, 100).map((note, i) => {
+    const title = String(note.title || '').trim();
+    const label = title ? `「${title}」` : '无标题片段';
+    return `${i + 1}. ${label}\n   ${String(note.content || '').slice(0, 300)}`;
+  });
+  const freeNoteContext = freeNoteLines.length === 0
+    ? '用户没有主动交给小U的私人片段。'
+    : `以下 ${freeNoteLines.length} 条内容来自用户主动授权的随心记。它们不是阅读笔记，不要把它们描述成书籍摘录：\n\n${freeNoteLines.join('\n\n')}`;
+  return `【阅读痕迹】\n${readingContext}\n\n【用户主动交来的私人片段】\n${freeNoteContext}`;
 }
 
 function sourceLabel(source) {

@@ -3,7 +3,6 @@ import '../../config/theme.dart';
 import '../../services/book_service.dart';
 import 'topic_screen.dart';
 import 'widgets/xiaou_card.dart';
-import 'xiaou_chat_screen.dart';
 
 class XiaouHomeScreen extends StatefulWidget {
   final int refreshSignal;
@@ -78,15 +77,16 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         forceRefresh: forceRefresh,
       );
       if (requestTag != _selectedTag) return;
-      if (mounted) setState(() {
-        _items = overview.items;
-        _allItems = overview.allItems;
-        _allTags = overview.tags;
-        _insights = overview.insights;
-        _hasLoadedOnce = true;
-        _loading = false;
-        _refreshing = false;
-      });
+      if (mounted)
+        setState(() {
+          _items = overview.items;
+          _allItems = overview.allItems;
+          _allTags = overview.tags;
+          _insights = overview.insights;
+          _hasLoadedOnce = true;
+          _loading = false;
+          _refreshing = false;
+        });
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -117,10 +117,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     final sourceItems = _allItems.isNotEmpty ? _allItems : _items;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => XiaouTopicScreen(
-          tag: tag,
-          items: sourceItems,
-        ),
+        builder: (_) => XiaouTopicScreen(tag: tag, items: sourceItems),
       ),
     );
   }
@@ -141,10 +138,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
       if (!mounted) return;
       setState(() => _deletingIds.remove(id));
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('删除失败：$e'),
-          behavior: SnackBarBehavior.floating,
-        ),
+        SnackBar(content: Text('删除失败：$e'), behavior: SnackBarBehavior.floating),
       );
     }
   }
@@ -164,10 +158,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('公开失败：$e'),
-          behavior: SnackBarBehavior.floating,
-        ),
+        SnackBar(content: Text('公开失败：$e'), behavior: SnackBarBehavior.floating),
       );
     } finally {
       if (mounted) setState(() => _publishingIds.remove(id));
@@ -184,10 +175,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('生成失败：$e'),
-          behavior: SnackBarBehavior.floating,
-        ),
+        SnackBar(content: Text('生成失败：$e'), behavior: SnackBarBehavior.floating),
       );
     } finally {
       if (mounted) setState(() => _answeringQuestionId = null);
@@ -205,33 +193,70 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('小U'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('小U'), centerTitle: true),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                if (_refreshing)
-                  const LinearProgressIndicator(minHeight: 2),
-                Expanded(
-                  child: _buildContent(),
-                ),
+                if (_refreshing) const LinearProgressIndicator(minHeight: 2),
+                Expanded(child: _buildContent()),
               ],
             ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const XiaouChatScreen()),
-          );
-        },
-        icon: const Icon(Icons.chat_bubble_outline),
-        label: const Text('和小U聊聊'),
+        onPressed: _showGuidedQuestions,
+        icon: const Icon(Icons.auto_awesome_outlined),
+        label: const Text('向小U回望'),
         backgroundColor: AppTheme.primary,
         foregroundColor: Colors.white,
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+    );
+  }
+
+  void _showGuidedQuestions() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '向小U回望',
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 19,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                '从一段阅读轨迹开始，不必把它变成一场聊天。',
+                style: TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontSize: 13,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 12),
+              for (final question in _insightQuestions)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(question.icon, color: AppTheme.primary),
+                  title: Text(question.title),
+                  trailing: const Icon(Icons.chevron_right, size: 20),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _askQuestion(question);
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -243,17 +268,27 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         children: [
           Icon(Icons.lightbulb_outline, size: 64, color: AppTheme.primaryLight),
           const SizedBox(height: 16),
-          const Text('小U知识中枢',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
+          const Text(
+            '小U知识中枢',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.textPrimary,
+            ),
+          ),
           const SizedBox(height: 8),
-          const Text('划线、想法和小U解释会自动进入这里', style: TextStyle(color: AppTheme.textSecondary)),
+          const Text(
+            '划线、想法和小U解释会自动进入这里',
+            style: TextStyle(color: AppTheme.textSecondary),
+          ),
         ],
       ),
     );
   }
 
   Widget _buildContent() {
-    final insight = _insights[_insightDays] ?? MingtaiInsight.empty(_insightDays);
+    final insight =
+        _insights[_insightDays] ?? MingtaiInsight.empty(_insightDays);
     return RefreshIndicator(
       onRefresh: _load,
       child: CustomScrollView(
@@ -292,28 +327,24 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
             SliverToBoxAdapter(child: _buildEmpty())
           else
             SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (_, i) {
-                  final item = _items[i];
-                  final id = (item['id'] as String?) ?? '';
-                  return XiaouCard(
-                    originalText: (item['original_text'] as String?) ?? '',
-                    userNote: (item['user_note'] as String?) ?? '',
-                    aiTags: (item['ai_tags'] as String?) ?? '',
-                    aiUnderstanding:
-                        (item['ai_understanding'] as String?) ?? '',
-                    bookTitle: (item['book_title'] as String?) ?? '',
-                    onTagTap: _openTopic,
-                    onPublish: _publishingIds.contains(id)
-                        ? null
-                        : () => _publishItem(id),
-                    onDelete: _deletingIds.contains(id)
-                        ? null
-                        : () => _deleteItem(id),
-                  );
-                },
-                childCount: _items.length,
-              ),
+              delegate: SliverChildBuilderDelegate((_, i) {
+                final item = _items[i];
+                final id = (item['id'] as String?) ?? '';
+                return XiaouCard(
+                  originalText: (item['original_text'] as String?) ?? '',
+                  userNote: (item['user_note'] as String?) ?? '',
+                  aiTags: (item['ai_tags'] as String?) ?? '',
+                  aiUnderstanding: (item['ai_understanding'] as String?) ?? '',
+                  bookTitle: (item['book_title'] as String?) ?? '',
+                  onTagTap: _openTopic,
+                  onPublish: _publishingIds.contains(id)
+                      ? null
+                      : () => _publishItem(id),
+                  onDelete: _deletingIds.contains(id)
+                      ? null
+                      : () => _deleteItem(id),
+                );
+              }, childCount: _items.length),
             ),
           const SliverToBoxAdapter(child: SizedBox(height: 112)),
         ],
@@ -347,7 +378,11 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.auto_awesome, color: AppTheme.primaryDark, size: 18),
+              const Icon(
+                Icons.auto_awesome,
+                color: AppTheme.primaryDark,
+                size: 18,
+              ),
               const SizedBox(width: 8),
               const Text(
                 '最近回顾',
@@ -714,14 +749,24 @@ class _TagChip extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
-  const _TagChip({required this.label, required this.selected, required this.onTap});
+  const _TagChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: ChoiceChip(
-        label: Text(label, style: TextStyle(fontSize: 12, color: selected ? Colors.white : AppTheme.textPrimary)),
+        label: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: selected ? Colors.white : AppTheme.textPrimary,
+          ),
+        ),
         selected: selected,
         selectedColor: AppTheme.primary,
         backgroundColor: AppTheme.dividerColor.withAlpha(80),

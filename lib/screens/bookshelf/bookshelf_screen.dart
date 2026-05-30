@@ -75,9 +75,9 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
       final readerProvider = context.read<ReaderProvider>();
       unawaited(readerProvider.openBook(book));
       if (mounted) {
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const ReaderScreen()),
-        );
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const ReaderScreen()));
       }
       return;
     }
@@ -97,11 +97,9 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
     final readerProvider = context.read<ReaderProvider>();
     unawaited(readerProvider.openBook(book));
     if (mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => const ReaderScreen(),
-        ),
-      );
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const ReaderScreen()));
     }
   }
 
@@ -272,10 +270,7 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('发布失败：$e'),
-          behavior: SnackBarBehavior.floating,
-        ),
+        SnackBar(content: Text('发布失败：$e'), behavior: SnackBarBehavior.floating),
       );
     }
   }
@@ -295,7 +290,7 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.note_alt_outlined),
-            tooltip: '笔记',
+            tooltip: '阅读回应',
             onPressed: () {
               Navigator.of(context).pushNamed('/notes');
             },
@@ -385,10 +380,7 @@ class _AddBookTile extends StatelessWidget {
           const SizedBox(height: 6),
           const Text(
             '导入书籍',
-            style: TextStyle(
-              fontSize: 13,
-              color: AppTheme.textSecondary,
-            ),
+            style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
           ),
         ],
       ),

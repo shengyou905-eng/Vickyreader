@@ -109,8 +109,9 @@ class BmobApi {
     if (order != null) queryParams['order'] = order;
     if (limit != null) queryParams['limit'] = limit.toString();
 
-    final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/classes/$table')
-        .replace(queryParameters: queryParams.isNotEmpty ? queryParams : null);
+    final uri = Uri.parse(
+      '${AppConstants.apiBaseUrl}/api/classes/$table',
+    ).replace(queryParameters: queryParams.isNotEmpty ? queryParams : null);
 
     final res = await http
         .get(uri, headers: _authHeaders())
@@ -122,43 +123,60 @@ class BmobApi {
     throw Exception('查询失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
-  Future<Map<String, dynamic>?> create(String table, Map<String, dynamic> body) async {
-    final res = await http.post(
-      Uri.parse('${AppConstants.apiBaseUrl}/api/classes/$table'),
-      headers: _authHeaders(),
-      body: jsonEncode(body),
-    ).timeout(const Duration(seconds: 10));
+  Future<Map<String, dynamic>?> create(
+    String table,
+    Map<String, dynamic> body,
+  ) async {
+    final res = await http
+        .post(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/classes/$table'),
+          headers: _authHeaders(),
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 10));
     if (res.statusCode == 201) {
       return jsonDecode(res.body) as Map<String, dynamic>;
     }
     throw Exception('创建失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
-  Future<bool> update(String table, String objectId, Map<String, dynamic> body) async {
-    final res = await http.put(
-      Uri.parse('${AppConstants.apiBaseUrl}/api/classes/$table/$objectId'),
-      headers: _authHeaders(),
-      body: jsonEncode(body),
-    ).timeout(const Duration(seconds: 10));
+  Future<bool> update(
+    String table,
+    String objectId,
+    Map<String, dynamic> body,
+  ) async {
+    final res = await http
+        .put(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/classes/$table/$objectId'),
+          headers: _authHeaders(),
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 10));
     if (res.statusCode == 200) return true;
     throw Exception('更新失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
   Future<bool> delete(String table, String objectId) async {
-    final res = await http.delete(
-      Uri.parse('${AppConstants.apiBaseUrl}/api/classes/$table/$objectId'),
-      headers: _authHeaders(),
-    ).timeout(const Duration(seconds: 10));
+    final res = await http
+        .delete(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/classes/$table/$objectId'),
+          headers: _authHeaders(),
+        )
+        .timeout(const Duration(seconds: 10));
     if (res.statusCode == 200) return true;
     throw Exception('删除失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
-  Future<Map<String, dynamic>?> createUserEntry(Map<String, dynamic> body) async {
-    final res = await http.post(
-      Uri.parse('${AppConstants.apiBaseUrl}/api/entries'),
-      headers: _authHeaders(),
-      body: jsonEncode(body),
-    ).timeout(const Duration(seconds: 10));
+  Future<Map<String, dynamic>?> createUserEntry(
+    Map<String, dynamic> body,
+  ) async {
+    final res = await http
+        .post(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/entries'),
+          headers: _authHeaders(),
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 10));
     if (res.statusCode == 201) {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       return data['entry'] as Map<String, dynamic>?;
@@ -190,8 +208,9 @@ class BmobApi {
     }
     if (limit != null) queryParams['limit'] = limit.toString();
 
-    final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/entries')
-        .replace(queryParameters: queryParams.isNotEmpty ? queryParams : null);
+    final uri = Uri.parse(
+      '${AppConstants.apiBaseUrl}/api/entries',
+    ).replace(queryParameters: queryParams.isNotEmpty ? queryParams : null);
 
     final res = await http
         .get(uri, headers: _authHeaders())
@@ -205,10 +224,12 @@ class BmobApi {
 
   Future<bool> deleteUserEntry(String id) async {
     try {
-      final res = await http.delete(
-        Uri.parse('${AppConstants.apiBaseUrl}/api/entries/$id'),
-        headers: _authHeaders(),
-      ).timeout(const Duration(seconds: 6));
+      final res = await http
+          .delete(
+            Uri.parse('${AppConstants.apiBaseUrl}/api/entries/$id'),
+            headers: _authHeaders(),
+          )
+          .timeout(const Duration(seconds: 6));
 
       if (res.statusCode == 204) return true;
       if (res.statusCode == 404) return false;
@@ -226,8 +247,9 @@ class BmobApi {
     final q = query?.trim() ?? '';
     if (q.isNotEmpty) queryParams['query'] = q;
 
-    final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/free-notes')
-        .replace(queryParameters: queryParams);
+    final uri = Uri.parse(
+      '${AppConstants.apiBaseUrl}/api/free-notes',
+    ).replace(queryParameters: queryParams);
     final res = await http
         .get(uri, headers: _authHeaders())
         .timeout(const Duration(seconds: 15));
@@ -240,20 +262,24 @@ class BmobApi {
 
   Future<Map<String, dynamic>?> upsertFreeNote({
     required String id,
+    required String title,
     required String content,
     required String createdAt,
     required String updatedAt,
   }) async {
-    final res = await http.post(
-      Uri.parse('${AppConstants.apiBaseUrl}/api/free-notes'),
-      headers: _authHeaders(),
-      body: jsonEncode({
-        'id': id,
-        'content': content,
-        'created_at': createdAt,
-        'updated_at': updatedAt,
-      }),
-    ).timeout(const Duration(seconds: 15));
+    final res = await http
+        .post(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/free-notes'),
+          headers: _authHeaders(),
+          body: jsonEncode({
+            'id': id,
+            'title': title,
+            'content': content,
+            'created_at': createdAt,
+            'updated_at': updatedAt,
+          }),
+        )
+        .timeout(const Duration(seconds: 15));
     if (res.statusCode == 200) {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       return data['note'] as Map<String, dynamic>?;
@@ -263,20 +289,49 @@ class BmobApi {
 
   Future<bool> deleteFreeNote(String id) async {
     final safeId = Uri.encodeComponent(id);
-    final res = await http.delete(
-      Uri.parse('${AppConstants.apiBaseUrl}/api/free-notes/$safeId'),
-      headers: _authHeaders(),
-    ).timeout(const Duration(seconds: 15));
+    final res = await http
+        .delete(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/free-notes/$safeId'),
+          headers: _authHeaders(),
+        )
+        .timeout(const Duration(seconds: 15));
     if (res.statusCode == 204) return true;
     if (res.statusCode == 404) return false;
     throw Exception('删除随心记失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
+  Future<void> setFreeNoteXiaouAuthorization(
+    String id, {
+    required bool authorized,
+  }) async {
+    final safeId = Uri.encodeComponent(id);
+    final uri = Uri.parse(
+      '${AppConstants.apiBaseUrl}/api/free-notes/$safeId/xiaou-authorization',
+    );
+    final res = authorized
+        ? await http
+              .post(uri, headers: _authHeaders())
+              .timeout(const Duration(seconds: 15))
+        : await http
+              .delete(uri, headers: _authHeaders())
+              .timeout(const Duration(seconds: 15));
+    if (authorized && res.statusCode == 200) return;
+    if (!authorized && res.statusCode == 204) return;
+    throw Exception(
+      '${authorized ? '授权' : '撤回授权'}失败 '
+      '(HTTP ${res.statusCode}): ${res.body}',
+    );
+  }
+
   Future<Map<String, dynamic>> answerInsightQuestion(String questionId) async {
-    final res = await http.post(
-      Uri.parse('${AppConstants.apiBaseUrl}/api/insights/questions/$questionId/answer'),
-      headers: _authHeaders(),
-    ).timeout(const Duration(seconds: 15));
+    final res = await http
+        .post(
+          Uri.parse(
+            '${AppConstants.apiBaseUrl}/api/insights/questions/$questionId/answer',
+          ),
+          headers: _authHeaders(),
+        )
+        .timeout(const Duration(seconds: 15));
 
     if (res.statusCode == 200) {
       return jsonDecode(res.body) as Map<String, dynamic>;
@@ -287,11 +342,13 @@ class BmobApi {
   Future<List<Map<String, dynamic>>> publishMingtaiAnnotations(
     List<String> entryIds,
   ) async {
-    final res = await http.post(
-      Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/publish'),
-      headers: _authHeaders(),
-      body: jsonEncode({'entry_ids': entryIds}),
-    ).timeout(const Duration(seconds: 10));
+    final res = await http
+        .post(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/publish'),
+          headers: _authHeaders(),
+          body: jsonEncode({'entry_ids': entryIds}),
+        )
+        .timeout(const Duration(seconds: 10));
 
     if (res.statusCode == 201) {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -340,15 +397,13 @@ class BmobApi {
       'file_size': fileBytes.length.toString(),
       if (entryIds.isNotEmpty) 'entry_ids': entryIds.join(','),
     };
-    final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books')
-        .replace(queryParameters: fields);
+    final uri = Uri.parse(
+      '${AppConstants.apiBaseUrl}/api/mingtai/books',
+    ).replace(queryParameters: fields);
 
     debugPrint('[MingtaiPublishBook] POST $uri');
     debugPrint(
-      '[MingtaiPublishBook] request.body=${jsonEncode({
-        ...fields,
-        'binary_file_bytes': fileBytes.length,
-      })}',
+      '[MingtaiPublishBook] request.body=${jsonEncode({...fields, 'binary_file_bytes': fileBytes.length})}',
     );
     debugPrint('[MingtaiPublishBook] source_book_id=$resolvedSourceBookId');
 
@@ -359,11 +414,7 @@ class BmobApi {
         'x-copyright-status': copyrightStatus,
       });
     final res = await http
-        .post(
-          uri,
-          headers: headers,
-          body: fileBytes,
-        )
+        .post(uri, headers: headers, body: fileBytes)
         .timeout(const Duration(minutes: 3));
 
     debugPrint('[MingtaiPublishBook] statusCode=${res.statusCode}');
@@ -386,15 +437,14 @@ class BmobApi {
     final book = rawBook is Map ? Map<String, dynamic>.from(rawBook) : data;
     final fileUrl = book['file_url']?.toString().trim() ?? '';
     if (fileUrl.isEmpty) {
-      throw Exception(
-        '服务器没有保存书籍文件：public_books.file_url 为空。请先部署最新后端后重新发布。',
-      );
+      throw Exception('服务器没有保存书籍文件：public_books.file_url 为空。请先部署最新后端后重新发布。');
     }
   }
 
   Future<List<Map<String, dynamic>>> listMingtaiBooks({int limit = 50}) async {
-    final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books')
-        .replace(queryParameters: {'limit': limit.toString()});
+    final uri = Uri.parse(
+      '${AppConstants.apiBaseUrl}/api/mingtai/books',
+    ).replace(queryParameters: {'limit': limit.toString()});
 
     debugPrint('[MingtaiBooks] GET $uri');
     try {
@@ -458,7 +508,9 @@ class BmobApi {
     try {
       res = await http
           .get(
-            Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/chapters'),
+            Uri.parse(
+              '${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/chapters',
+            ),
             headers: _authHeaders(),
           )
           .timeout(_mingtaiTimeout);
@@ -501,10 +553,14 @@ class BmobApi {
   Future<Map<String, dynamic>> borrowMingtaiBook(String bookId) async {
     late final http.Response res;
     try {
-      res = await http.post(
-        Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/borrow'),
-        headers: _authHeaders(),
-      ).timeout(_mingtaiTimeout);
+      res = await http
+          .post(
+            Uri.parse(
+              '${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/borrow',
+            ),
+            headers: _authHeaders(),
+          )
+          .timeout(_mingtaiTimeout);
     } on TimeoutException {
       throw Exception('借阅请求超时，请稍后重试');
     }
@@ -521,11 +577,15 @@ class BmobApi {
   }) async {
     late final http.Response res;
     try {
-      res = await http.post(
-        Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/annotations/$annotationId/resonance'),
-        headers: _authHeaders(),
-        body: jsonEncode({'content': content}),
-      ).timeout(_mingtaiTimeout);
+      res = await http
+          .post(
+            Uri.parse(
+              '${AppConstants.apiBaseUrl}/api/mingtai/annotations/$annotationId/resonance',
+            ),
+            headers: _authHeaders(),
+            body: jsonEncode({'content': content}),
+          )
+          .timeout(_mingtaiTimeout);
     } on TimeoutException {
       throw Exception('共鸣发送超时，请稍后重试');
     }
@@ -547,18 +607,22 @@ class BmobApi {
   }) async {
     late final http.Response res;
     try {
-      res = await http.post(
-        Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/annotations'),
-        headers: _authHeaders(),
-        body: jsonEncode({
-          'source': source,
-          'chapter_index': chapterIndex.toString(),
-          'chapter_title': chapterTitle,
-          'original_text': originalText,
-          'annotation_text': annotationText,
-          'position_json': positionJson,
-        }),
-      ).timeout(_mingtaiTimeout);
+      res = await http
+          .post(
+            Uri.parse(
+              '${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/annotations',
+            ),
+            headers: _authHeaders(),
+            body: jsonEncode({
+              'source': source,
+              'chapter_index': chapterIndex.toString(),
+              'chapter_title': chapterTitle,
+              'original_text': originalText,
+              'annotation_text': annotationText,
+              'position_json': positionJson,
+            }),
+          )
+          .timeout(_mingtaiTimeout);
     } on TimeoutException {
       throw Exception('公开批注发送超时，请稍后重试');
     }
@@ -575,11 +639,15 @@ class BmobApi {
   }) async {
     late final http.Response res;
     try {
-      res = await http.post(
-        Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/annotations/$annotationId/comments'),
-        headers: _authHeaders(),
-        body: jsonEncode({'content': content}),
-      ).timeout(_mingtaiTimeout);
+      res = await http
+          .post(
+            Uri.parse(
+              '${AppConstants.apiBaseUrl}/api/mingtai/annotations/$annotationId/comments',
+            ),
+            headers: _authHeaders(),
+            body: jsonEncode({'content': content}),
+          )
+          .timeout(_mingtaiTimeout);
     } on TimeoutException {
       throw Exception('评论发送超时，请稍后重试');
     }
@@ -597,17 +665,19 @@ class BmobApi {
     required double scrollOffset,
     String? cfi,
   }) async {
-    final res = await http.post(
-      Uri.parse('${AppConstants.apiBaseUrl}/api/reading-progress'),
-      headers: _authHeaders(),
-      body: jsonEncode({
-        'book_id': bookId,
-        'progress': progress,
-        'chapter_index': chapterIndex,
-        'scroll_offset': scrollOffset,
-        if (cfi != null && cfi.isNotEmpty) 'cfi': cfi,
-      }),
-    ).timeout(const Duration(seconds: 10));
+    final res = await http
+        .post(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/reading-progress'),
+          headers: _authHeaders(),
+          body: jsonEncode({
+            'book_id': bookId,
+            'progress': progress,
+            'chapter_index': chapterIndex,
+            'scroll_offset': scrollOffset,
+            if (cfi != null && cfi.isNotEmpty) 'cfi': cfi,
+          }),
+        )
+        .timeout(const Duration(seconds: 10));
 
     if (res.statusCode == 200) {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -617,10 +687,12 @@ class BmobApi {
   }
 
   Future<Map<String, dynamic>?> getReadingProgress(String bookId) async {
-    final res = await http.get(
-      Uri.parse('${AppConstants.apiBaseUrl}/api/reading-progress/$bookId'),
-      headers: _authHeaders(),
-    ).timeout(const Duration(seconds: 10));
+    final res = await http
+        .get(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/reading-progress/$bookId'),
+          headers: _authHeaders(),
+        )
+        .timeout(const Duration(seconds: 10));
 
     if (res.statusCode == 200) {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -646,9 +718,7 @@ class BmobApi {
     await prefs.setString(_emailKey, email);
   }
 
-  Map<String, String> _authHeaders({
-    String contentType = 'application/json',
-  }) {
+  Map<String, String> _authHeaders({String contentType = 'application/json'}) {
     final token = _token?.trim() ?? '';
     return {
       if (token.isNotEmpty) 'Authorization': 'Bearer $token',
@@ -664,18 +734,22 @@ class BmobApi {
     Object? lastError;
     for (var attempt = 0; attempt <= retries; attempt += 1) {
       try {
-        final res = await http.post(
-          uri,
-          headers: const {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Connection': 'close',
-          },
-          body: jsonEncode(body),
-        ).timeout(_authTimeout);
+        final res = await http
+            .post(
+              uri,
+              headers: const {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Connection': 'close',
+              },
+              body: jsonEncode(body),
+            )
+            .timeout(_authTimeout);
 
         if (res.statusCode >= 500 && attempt < retries) {
-          await Future<void>.delayed(Duration(milliseconds: 450 * (attempt + 1)));
+          await Future<void>.delayed(
+            Duration(milliseconds: 450 * (attempt + 1)),
+          );
           continue;
         }
         return res;

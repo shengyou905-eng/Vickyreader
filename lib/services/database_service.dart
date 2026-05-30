@@ -1,5 +1,6 @@
 import 'package:sqflite/sqflite.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' show sqfliteFfiInit, databaseFactoryFfi;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart'
+    show sqfliteFfiInit, databaseFactoryFfi;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
@@ -153,17 +154,24 @@ class DatabaseService {
       CREATE TABLE free_notes (
         id TEXT PRIMARY KEY,
         user_id TEXT DEFAULT '',
+        title TEXT DEFAULT '',
         content TEXT NOT NULL,
+        xiaou_authorized INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
     ''');
   }
 
-  static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+  static Future<void> _onUpgrade(
+    Database db,
+    int oldVersion,
+    int newVersion,
+  ) async {
     if (oldVersion < 2) {
       await db.execute(
-          "ALTER TABLE books ADD COLUMN format TEXT NOT NULL DEFAULT 'epub'");
+        "ALTER TABLE books ADD COLUMN format TEXT NOT NULL DEFAULT 'epub'",
+      );
     }
     if (oldVersion < 3) {
       await db.execute("ALTER TABLE notes ADD COLUMN selectedText TEXT");
@@ -171,13 +179,25 @@ class DatabaseService {
     }
     if (oldVersion < 4) {
       await db.execute("ALTER TABLE books ADD COLUMN user_id TEXT DEFAULT ''");
-      await db.execute("ALTER TABLE books ADD COLUMN updated_at TEXT DEFAULT ''");
-      await db.execute("ALTER TABLE highlights ADD COLUMN user_id TEXT DEFAULT ''");
-      await db.execute("ALTER TABLE highlights ADD COLUMN updated_at TEXT DEFAULT ''");
+      await db.execute(
+        "ALTER TABLE books ADD COLUMN updated_at TEXT DEFAULT ''",
+      );
+      await db.execute(
+        "ALTER TABLE highlights ADD COLUMN user_id TEXT DEFAULT ''",
+      );
+      await db.execute(
+        "ALTER TABLE highlights ADD COLUMN updated_at TEXT DEFAULT ''",
+      );
       await db.execute("ALTER TABLE notes ADD COLUMN user_id TEXT DEFAULT ''");
-      await db.execute("ALTER TABLE notes ADD COLUMN updated_at TEXT DEFAULT ''");
-      await db.execute("ALTER TABLE reading_progress ADD COLUMN user_id TEXT DEFAULT ''");
-      await db.execute("ALTER TABLE reading_progress ADD COLUMN updated_at TEXT DEFAULT ''");
+      await db.execute(
+        "ALTER TABLE notes ADD COLUMN updated_at TEXT DEFAULT ''",
+      );
+      await db.execute(
+        "ALTER TABLE reading_progress ADD COLUMN user_id TEXT DEFAULT ''",
+      );
+      await db.execute(
+        "ALTER TABLE reading_progress ADD COLUMN updated_at TEXT DEFAULT ''",
+      );
     }
     if (oldVersion < 5) {
       await db.execute('''
@@ -195,11 +215,18 @@ class DatabaseService {
       ''');
     }
     if (oldVersion < 6) {
-      await db.execute("ALTER TABLE books ADD COLUMN chapterTitles TEXT DEFAULT ''");
+      await db.execute(
+        "ALTER TABLE books ADD COLUMN chapterTitles TEXT DEFAULT ''",
+      );
     }
     if (oldVersion < 9) {
       await _addColumnIfMissing(db, 'bookmarks', 'user_id', "TEXT DEFAULT ''");
-      await _addColumnIfMissing(db, 'bookmarks', 'updated_at', "TEXT DEFAULT ''");
+      await _addColumnIfMissing(
+        db,
+        'bookmarks',
+        'updated_at',
+        "TEXT DEFAULT ''",
+      );
       await _addColumnIfMissing(db, 'bookmarks', 'bmob_id', "TEXT DEFAULT ''");
       await db.execute('''
         CREATE TABLE IF NOT EXISTS user_entries (
@@ -233,6 +260,15 @@ class DatabaseService {
           updated_at TEXT NOT NULL
         )
       ''');
+    }
+    if (oldVersion < 11) {
+      await _addColumnIfMissing(db, 'free_notes', 'title', "TEXT DEFAULT ''");
+      await _addColumnIfMissing(
+        db,
+        'free_notes',
+        'xiaou_authorized',
+        'INTEGER NOT NULL DEFAULT 0',
+      );
     }
   }
 

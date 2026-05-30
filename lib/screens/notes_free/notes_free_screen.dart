@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../config/theme.dart';
 import '../../services/book_service.dart';
+import '../../services/share_service.dart';
 
 class NotesFreeScreen extends StatefulWidget {
   final int refreshSignal;
@@ -24,8 +25,9 @@ class _NotesFreeScreenState extends State<NotesFreeScreen> {
     final query = _query.trim().toLowerCase();
     if (query.isEmpty) return _notes;
     return _notes.where((note) {
+      final title = note['title']?.toString().toLowerCase() ?? '';
       final content = note['content']?.toString().toLowerCase() ?? '';
-      return content.contains(query);
+      return title.contains(query) || content.contains(query);
     }).toList();
   }
 
@@ -343,10 +345,13 @@ class _FreeNoteEditor extends StatefulWidget {
 
 class _FreeNoteEditorState extends State<_FreeNoteEditor> {
   late final TextEditingController _controller;
+  late final TextEditingController _titleController;
   late final String _noteId;
   Timer? _autosaveTimer;
   bool _saving = false;
   bool _autosaving = false;
+  bool _changingAuthorization = false;
+  late bool _xiaouAuthorized;
 
   @override
   void initState() {
@@ -358,6 +363,12 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
     _controller = TextEditingController(
       text: widget.note?['content']?.toString() ?? '',
     )..addListener(_scheduleAutosave);
+    _titleController = TextEditingController(
+      text: widget.note?['title']?.toString() ?? '',
+    )..addListener(_scheduleAutosave);
+    _xiaouAuthorized =
+        widget.note?['xiaou_authorized'] == true ||
+        widget.note?['xiaou_authorized'] == 1;
   }
 
   @override
@@ -365,6 +376,7 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
     unawaited(_autosave());
     _autosaveTimer?.cancel();
     _controller.dispose();
+    _titleController.dispose();
     super.dispose();
   }
 
@@ -378,7 +390,11 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
     if (content.isEmpty || _saving || _autosaving) return;
     if (mounted) setState(() => _autosaving = true);
     try {
-      await BookService.saveFreeNote(id: _noteId, content: content);
+      await BookService.saveFreeNote(
+        id: _noteId,
+        title: _titleController.text,
+        content: content,
+      );
     } finally {
       _autosaving = false;
       if (mounted) setState(() {});
@@ -391,10 +407,102 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
     _autosaveTimer?.cancel();
     setState(() => _saving = true);
     try {
-      await BookService.saveFreeNote(id: _noteId, content: content);
+      await BookService.saveFreeNote(
+        id: _noteId,
+        title: _titleController.text,
+        content: content,
+      );
       if (mounted) Navigator.pop(context, true);
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _setXiaouAuthorization() async {
+    final content = _controller.text.trim();
+    if (content.isEmpty || _changingAuthorization) return;
+    setState(() => _changingAuthorization = true);
+    try {
+      await BookService.saveFreeNote(
+        id: _noteId,
+        title: _titleController.text,
+        content: content,
+        waitForRemote: true,
+      );
+      final authorized = !_xiaouAuthorized;
+      await BookService.setFreeNoteXiaouAuthorization(
+        _noteId,
+        authorized: authorized,
+      );
+      if (!mounted) return;
+      setState(() => _xiaouAuthorized = authorized);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(authorized ? '已交给小U思考，可随时撤回' : '已撤回，小U不会再读取这条随心记'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('操作失败：$error'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _changingAuthorization = false);
+    }
+  }
+
+  String _resolvedTitle() {
+    final title = _titleController.text.trim();
+    return title.isNotEmpty ? title : _noteTitle(_controller.text);
+  }
+
+  String _shareText() {
+    return '${_resolvedTitle()}\n\n${_controller.text.trim()}\n\n'
+        '${_shareDate()}\n\n知读';
+  }
+
+  String _shareDate() {
+    final value = widget.note?['updated_at']?.toString() ?? '';
+    final time = DateTime.tryParse(value)?.toLocal() ?? DateTime.now();
+    String two(int number) => number.toString().padLeft(2, '0');
+    return '${time.year}年${two(time.month)}月${two(time.day)}日';
+  }
+
+  Future<void> _shareImage() async {
+    await ShareService.shareCard(
+      context,
+      fileName: 'zhidu_free_note_${DateTime.now().millisecondsSinceEpoch}',
+      text: _shareText(),
+      card: ZhiDuShareCard(
+        eyebrow: '随心记',
+        title: _resolvedTitle(),
+        body: _controller.text.trim(),
+        date: _shareDate(),
+      ),
+    );
+  }
+
+  Future<void> _onMenuSelected(String action) async {
+    try {
+      if (action == 'xiaou') {
+        await _setXiaouAuthorization();
+      } else if (action == 'share_text') {
+        await ShareService.shareText(context, _shareText());
+      } else if (action == 'share_image') {
+        await _shareImage();
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('分享失败：$error'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -455,6 +563,26 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
                           ],
                         ),
                       ),
+                      PopupMenuButton<String>(
+                        tooltip: '更多',
+                        enabled: !_changingAuthorization,
+                        onSelected: _onMenuSelected,
+                        itemBuilder: (_) => [
+                          PopupMenuItem(
+                            value: 'xiaou',
+                            child: Text(_xiaouAuthorized ? '撤回小U授权' : '交给小U思考'),
+                          ),
+                          const PopupMenuDivider(),
+                          const PopupMenuItem(
+                            value: 'share_text',
+                            child: Text('分享文本'),
+                          ),
+                          const PopupMenuItem(
+                            value: 'share_image',
+                            child: Text('分享图片'),
+                          ),
+                        ],
+                      ),
                       TextButton(
                         onPressed: _saving ? null : _save,
                         child: Text(_saving ? '保存中...' : '保存'),
@@ -465,6 +593,28 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
                 const Padding(
                   padding: EdgeInsets.fromLTRB(20, 13, 20, 0),
                   child: Divider(height: 1, color: Color(0xFFEFEAF5)),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 14, 22, 0),
+                  child: TextField(
+                    controller: _titleController,
+                    maxLines: 1,
+                    textInputAction: TextInputAction.next,
+                    style: const TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    decoration: const InputDecoration(
+                      hintText: '标题（可选）',
+                      hintStyle: TextStyle(color: Color(0xFFAAA2B5)),
+                      filled: false,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
                 ),
                 Expanded(
                   child: SingleChildScrollView(
@@ -509,7 +659,11 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        _autosaving ? '正在安静保存...' : '仅自己可见',
+                        _autosaving
+                            ? '正在安静保存...'
+                            : _xiaouAuthorized
+                            ? '已主动交给小U思考 · 可随时撤回'
+                            : '仅自己可见',
                         style: const TextStyle(
                           fontSize: 12,
                           color: AppTheme.textSecondary,
@@ -541,7 +695,8 @@ class _FreeNoteCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final content = note['content']?.toString().trim() ?? '';
-    final title = _noteTitle(content);
+    final savedTitle = note['title']?.toString().trim() ?? '';
+    final title = savedTitle.isEmpty ? _noteTitle(content) : savedTitle;
     final preview = _notePreview(content, title);
     final updatedAt = _formatTime(note['updated_at']?.toString() ?? '');
 
