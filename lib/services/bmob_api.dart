@@ -497,6 +497,23 @@ class BmobApi {
     }
   }
 
+  Future<Map<String, dynamic>> getMingtaiHome() async {
+    try {
+      final res = await http
+          .get(
+            Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/home'),
+            headers: _authHeaders(),
+          )
+          .timeout(_mingtaiTimeout);
+      if (res.statusCode == 200) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      }
+      throw Exception('读取明台首页失败 (HTTP ${res.statusCode}): ${res.body}');
+    } on TimeoutException {
+      throw Exception('明台连接有点慢，请稍后重试');
+    }
+  }
+
   Future<Map<String, dynamic>> getMingtaiBook(String bookId) async {
     late final http.Response res;
     try {
@@ -584,6 +601,23 @@ class BmobApi {
       return jsonDecode(res.body) as Map<String, dynamic>;
     }
     throw Exception('借阅明台书籍失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<void> recordMingtaiBookRead(String bookId) async {
+    try {
+      final res = await http
+          .post(
+            Uri.parse(
+              '${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/read',
+            ),
+            headers: _authHeaders(),
+          )
+          .timeout(_mingtaiTimeout);
+      if (res.statusCode == 200) return;
+      throw Exception('记录明台阅读失败 (HTTP ${res.statusCode}): ${res.body}');
+    } on TimeoutException {
+      throw Exception('记录明台阅读超时，请稍后重试');
+    }
   }
 
   Future<Map<String, dynamic>> createMingtaiResonance({

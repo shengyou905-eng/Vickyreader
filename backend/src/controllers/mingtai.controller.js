@@ -390,6 +390,15 @@ async function listBooks(req, res, next) {
   }
 }
 
+async function getHome(req, res, next) {
+  try {
+    const home = await mingtaiRepository.getHome();
+    return res.json(home);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function getBook(req, res, next) {
   try {
     assertUuid(req.params.id, 'book id');
@@ -405,6 +414,17 @@ async function borrowBook(req, res, next) {
   try {
     assertUuid(req.params.id, 'book id');
     const book = await mingtaiRepository.borrowBook(req.params.id);
+    if (!book) throw httpError(404, 'Public book not found');
+    return res.json({ book });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function recordBookRead(req, res, next) {
+  try {
+    assertUuid(req.params.id, 'book id');
+    const book = await mingtaiRepository.recordBookRead(req.params.id);
     if (!book) throw httpError(404, 'Public book not found');
     return res.json({ book });
   } catch (error) {
@@ -496,8 +516,10 @@ module.exports = {
   listBookChapters,
   getBookChapter,
   listBooks,
+  getHome,
   getBook,
   borrowBook,
+  recordBookRead,
   createBookAnnotation,
   createAnnotationComment,
   createResonance,

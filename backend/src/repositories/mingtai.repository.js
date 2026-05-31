@@ -539,6 +539,8 @@ async function listBooks({ limit = 50, search = '', section = '' } = {}) {
     ? 'annotation_count DESC, b.updated_at DESC, b.created_at DESC'
     : section === 'popular'
       ? 'reading_count DESC, b.updated_at DESC, b.created_at DESC'
+      : section === 'reading'
+        ? 'CASE WHEN b.read_count > 0 THEN 0 ELSE 1 END, b.updated_at DESC, b.created_at DESC'
       : 'b.updated_at DESC, b.created_at DESC';
 
   const result = await query(
@@ -584,6 +586,160 @@ async function listBooks({ limit = 50, search = '', section = '' } = {}) {
   );
 
   return result.rows.map(shapeBook);
+}
+
+async function getHome() {
+  const [todayPage, recentThoughts, recentDiscussions, readingNow, latestBooks] =
+    await Promise.all([
+      getTodayPage(),
+      listRecentThoughts({ limit: 4 }),
+      listRecentDiscussions({ limit: 4 }),
+      listBooks({ limit: 5, section: 'reading' }),
+      listBooks({ limit: 6 }),
+    ]);
+
+  return {
+    today_page: todayPage,
+    recent_thoughts: recentThoughts,
+    recent_discussions: recentDiscussions,
+    reading_now: readingNow.filter((book) => book.read_count > 0),
+    latest_books: latestBooks,
+  };
+}
+
+async function getTodayPage() {
+  const annotationResult = await query(
+    `SELECT
+       a.id,
+       a.public_book_id,
+       a.source,
+       a.original_text,
+       a.annotation_text,
+       a.chapter_index,
+       a.chapter_title,
+       b.title AS book_title,
+       b.author AS book_author,
+       b.cover_url AS book_cover,
+       a.created_at
+     FROM public_annotations a
+     INNER JOIN public_books b ON b.id = a.public_book_id
+     WHERE COALESCE(NULLIF(a.original_text, ''), NULLIF(a.annotation_text, '')) IS NOT NULL
+     ORDER BY md5(a.id::text || CURRENT_DATE::text)
+     LIMIT 1`,
+  );
+  if (annotationResult.rows[0]) {
+    return shapePageMoment(annotationResult.rows[0]);
+  }
+
+  const chapterResult = await query(
+    `SELECT
+       c.id,
+       c.public_book_id,
+       'excerpt' AS source,
+       LEFT(COALESCE(NULLIF(c.content_text, ''), NULLIF(c.plain_text, '')), 320) AS original_text,
+       '' AS annotation_text,
+       c.chapter_index::text,
+       COALESCE(c.chapter_title, c.title, '') AS chapter_title,
+       b.title AS book_title,
+       b.author AS book_author,
+       b.cover_url AS book_cover,
+       c.created_at
+     FROM book_chapters c
+     INNER JOIN public_books b ON b.id = c.public_book_id
+     WHERE COALESCE(NULLIF(c.content_text, ''), NULLIF(c.plain_text, '')) IS NOT NULL
+     ORDER BY md5(c.id::text || CURRENT_DATE::text)
+     LIMIT 1`,
+  );
+  return chapterResult.rows[0] ? shapePageMoment(chapterResult.rows[0]) : null;
+}
+
+async function listRecentThoughts({ limit = 4 } = {}) {
+  const result = await query(
+    `SELECT
+       a.id,
+       a.entry_id,
+       a.public_book_id,
+       a.source,
+       a.book_id,
+       a.book_title,
+       a.book_author,
+       a.book_cover,
+       a.chapter_index,
+       a.chapter_title,
+       a.original_text,
+       a.annotation_text,
+       a.auto_tags,
+       a.metadata_json,
+       a.position_json,
+       0 AS resonance_count,
+       0 AS comment_count,
+       a.created_at
+     FROM public_annotations a
+     WHERE a.source = 'thought'
+       AND NULLIF(a.annotation_text, '') IS NOT NULL
+     ORDER BY a.created_at DESC
+     LIMIT $1`,
+    [limit],
+  );
+  return result.rows.map(shapeAnnotation);
+}
+
+async function listRecentDiscussions({ limit = 4 } = {}) {
+  const result = await query(
+    `SELECT DISTINCT ON (b.id)
+       b.id,
+       b.publisher_user_id,
+       b.uploader_user_id,
+       b.source_book_id,
+       b.title,
+       b.author,
+       b.cover_url,
+       b.file_url,
+       b.original_file_url,
+       b.storage_path,
+       b.file_type,
+       b.file_size,
+       b.chapter_count,
+       b.description,
+       b.copyright_status,
+       b.borrow_count,
+       b.read_count,
+       a.source AS latest_source,
+       COALESCE(NULLIF(a.annotation_text, ''), NULLIF(a.original_text, '')) AS latest_excerpt,
+       a.created_at AS activity_at,
+       b.created_at,
+       b.updated_at
+     FROM public_books b
+     INNER JOIN public_annotations a ON a.public_book_id = b.id
+     WHERE COALESCE(NULLIF(a.annotation_text, ''), NULLIF(a.original_text, '')) IS NOT NULL
+     ORDER BY b.id, a.created_at DESC`,
+  );
+
+  return result.rows
+    .sort((a, b) => new Date(b.activity_at) - new Date(a.activity_at))
+    .slice(0, limit)
+    .map((row) => ({
+      book: shapeBook(row),
+      excerpt: row.latest_excerpt || '',
+      source: row.latest_source || '',
+      activity_at: row.activity_at,
+    }));
+}
+
+function shapePageMoment(row) {
+  return {
+    id: row.id,
+    public_book_id: row.public_book_id,
+    source: row.source || 'excerpt',
+    text: row.original_text || row.annotation_text || '',
+    annotation_text: row.annotation_text || '',
+    chapter_index: row.chapter_index || '',
+    chapter_title: row.chapter_title || '',
+    book_title: safeTitle(row.book_title),
+    book_author: safeAuthor(row.book_author),
+    book_cover: row.book_cover || '',
+    created_at: row.created_at,
+  };
 }
 
 async function getBook(publicBookId) {
@@ -884,7 +1040,6 @@ async function borrowBook(publicBookId) {
   const result = await query(
     `UPDATE public_books
      SET borrow_count = borrow_count + 1,
-         read_count = read_count + 1,
          updated_at = now()
      WHERE id = $1
      RETURNING
@@ -926,6 +1081,51 @@ async function borrowBook(publicBookId) {
   return shapeBook(result.rows[0]);
 }
 
+async function recordBookRead(publicBookId) {
+  const result = await query(
+    `UPDATE public_books
+     SET read_count = read_count + 1,
+         updated_at = now()
+     WHERE id = $1
+     RETURNING
+       id,
+       publisher_user_id,
+       uploader_user_id,
+       source_book_id,
+       title,
+       author,
+       cover_url,
+       file_url,
+       original_file_url,
+       storage_path,
+       file_type,
+       file_size,
+       chapter_count,
+       description,
+       copyright_status,
+       borrow_count,
+       read_count,
+       read_count AS reading_count,
+       0 AS annotation_count,
+       0 AS recent_discussion_count,
+       created_at,
+       updated_at`,
+    [publicBookId],
+  );
+
+  if (result.rows.length === 0) return null;
+
+  await query(
+    `UPDATE book_publications
+     SET reading_count = reading_count + 1,
+         updated_at = now()
+     WHERE public_book_id = $1`,
+    [publicBookId],
+  );
+
+  return shapeBook(result.rows[0]);
+}
+
 module.exports = {
   publishBook,
   publishEntries,
@@ -934,9 +1134,11 @@ module.exports = {
   getBookChapter,
   getBookStorageInfo,
   listBooks,
+  getHome,
   getBook,
   createPublicAnnotation,
   createAnnotationComment,
   createResonance,
   borrowBook,
+  recordBookRead,
 };

@@ -293,6 +293,113 @@ class MingtaiBookDetail {
   const MingtaiBookDetail({required this.book, required this.annotations});
 }
 
+class MingtaiPageMoment {
+  final String id;
+  final String publicBookId;
+  final String source;
+  final String text;
+  final String annotationText;
+  final String chapterIndex;
+  final String chapterTitle;
+  final String bookTitle;
+  final String bookAuthor;
+  final String bookCover;
+
+  const MingtaiPageMoment({
+    required this.id,
+    required this.publicBookId,
+    required this.source,
+    required this.text,
+    required this.annotationText,
+    required this.chapterIndex,
+    required this.chapterTitle,
+    required this.bookTitle,
+    required this.bookAuthor,
+    required this.bookCover,
+  });
+
+  factory MingtaiPageMoment.fromRemote(Map<String, dynamic> row) {
+    return MingtaiPageMoment(
+      id: row['id']?.toString() ?? '',
+      publicBookId: row['public_book_id']?.toString() ?? '',
+      source: row['source']?.toString() ?? 'excerpt',
+      text: row['text']?.toString() ?? '',
+      annotationText: row['annotation_text']?.toString() ?? '',
+      chapterIndex: row['chapter_index']?.toString() ?? '',
+      chapterTitle: row['chapter_title']?.toString() ?? '',
+      bookTitle: row['book_title']?.toString() ?? '未命名文档',
+      bookAuthor: row['book_author']?.toString() ?? '佚名',
+      bookCover: row['book_cover']?.toString() ?? '',
+    );
+  }
+}
+
+class MingtaiDiscussionPreview {
+  final MingtaiPublicBook book;
+  final String excerpt;
+  final String source;
+
+  const MingtaiDiscussionPreview({
+    required this.book,
+    required this.excerpt,
+    required this.source,
+  });
+
+  factory MingtaiDiscussionPreview.fromRemote(Map<String, dynamic> row) {
+    return MingtaiDiscussionPreview(
+      book: MingtaiPublicBook.fromRemote(
+        Map<String, dynamic>.from(row['book'] ?? {}),
+      ),
+      excerpt: row['excerpt']?.toString() ?? '',
+      source: row['source']?.toString() ?? '',
+    );
+  }
+}
+
+class MingtaiHomeData {
+  final MingtaiPageMoment? todayPage;
+  final List<MingtaiFeedItem> recentThoughts;
+  final List<MingtaiDiscussionPreview> recentDiscussions;
+  final List<MingtaiPublicBook> readingNow;
+  final List<MingtaiPublicBook> latestBooks;
+
+  const MingtaiHomeData({
+    required this.todayPage,
+    required this.recentThoughts,
+    required this.recentDiscussions,
+    required this.readingNow,
+    required this.latestBooks,
+  });
+
+  factory MingtaiHomeData.fromRemote(Map<String, dynamic> row) {
+    final today = row['today_page'];
+    return MingtaiHomeData(
+      todayPage: today is Map
+          ? MingtaiPageMoment.fromRemote(Map<String, dynamic>.from(today))
+          : null,
+      recentThoughts: _remoteMaps(
+        row['recent_thoughts'],
+      ).map(MingtaiFeedItem.fromRemote).toList(),
+      recentDiscussions: _remoteMaps(
+        row['recent_discussions'],
+      ).map(MingtaiDiscussionPreview.fromRemote).toList(),
+      readingNow: _remoteMaps(
+        row['reading_now'],
+      ).map(MingtaiPublicBook.fromRemote).toList(),
+      latestBooks: _remoteMaps(
+        row['latest_books'],
+      ).map(MingtaiPublicBook.fromRemote).toList(),
+    );
+  }
+
+  static List<Map<String, dynamic>> _remoteMaps(Object? raw) {
+    return (raw as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+}
+
 class MingtaiFeedItem {
   final String id;
   final String entryId;
@@ -370,6 +477,8 @@ class BookService {
   static const String _freeNotesBackupKey = 'free_notes_local_backup_v1';
   static List<MingtaiPublicBook>? _mingtaiBooksCache;
   static DateTime? _mingtaiBooksCacheAt;
+  static MingtaiHomeData? _mingtaiHomeCache;
+  static DateTime? _mingtaiHomeCacheAt;
   static final Map<String, MingtaiBookDetail> _mingtaiBookDetailCache = {};
   static final Map<String, DateTime> _mingtaiBookDetailCacheAt = {};
   static final Map<String, Future<String>> _publicBookDownloadTasks = {};
@@ -1263,6 +1372,33 @@ class BookService {
     return cached.take(limit).toList();
   }
 
+  static MingtaiHomeData? cachedMingtaiHome() {
+    return _mingtaiHomeCache;
+  }
+
+  static Future<MingtaiHomeData> getMingtaiHome({
+    bool forceRefresh = false,
+  }) async {
+    final cached = _mingtaiHomeCache;
+    final cacheAt = _mingtaiHomeCacheAt;
+    final cacheFresh =
+        cached != null &&
+        cacheAt != null &&
+        DateTime.now().difference(cacheAt) < _mingtaiBooksCacheTtl;
+    if (!forceRefresh && cacheFresh) return cached;
+
+    try {
+      final data = await BmobApi.instance.getMingtaiHome();
+      final home = MingtaiHomeData.fromRemote(data);
+      _mingtaiHomeCache = home;
+      _mingtaiHomeCacheAt = DateTime.now();
+      return home;
+    } catch (_) {
+      if (cached != null) return cached;
+      rethrow;
+    }
+  }
+
   static Future<List<MingtaiPublicBook>> getMingtaiBooks({
     int limit = 50,
     bool forceRefresh = false,
@@ -1422,6 +1558,16 @@ class BookService {
     );
     await insertBook(book);
     return book;
+  }
+
+  static Future<void> recordMingtaiBookRead(String publicBookId) async {
+    try {
+      await BmobApi.instance.recordMingtaiBookRead(publicBookId);
+      _mingtaiHomeCache = null;
+      _mingtaiHomeCacheAt = null;
+    } catch (_) {
+      // Reading should open even when this quiet activity marker fails.
+    }
   }
 
   static Book readableBookFromMingtai(MingtaiPublicBook publicBook) {
@@ -2052,6 +2198,8 @@ class BookService {
     _mingtaiBooksCacheAt = null;
     _mingtaiBookDetailCache.clear();
     _mingtaiBookDetailCacheAt.clear();
+    _mingtaiHomeCache = null;
+    _mingtaiHomeCacheAt = null;
   }
 
   static void _invalidateMingtaiOverviewCache() {
