@@ -17,6 +17,7 @@ class BookGridTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return GestureDetector(
       onTap: onTap,
       onLongPress: onLongPress,
@@ -26,7 +27,7 @@ class BookGridTile extends StatelessWidget {
           Expanded(
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: palette.card,
                 borderRadius: BorderRadius.circular(8),
                 boxShadow: [
                   BoxShadow(
@@ -42,9 +43,9 @@ class BookGridTile extends StatelessWidget {
                     ? Image.file(
                         File(book.coverPath!),
                         fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => _defaultCover(),
+                        errorBuilder: (_, _, _) => _defaultCover(palette),
                       )
-                    : _defaultCover(),
+                    : _defaultCover(palette),
               ),
             ),
           ),
@@ -64,9 +65,8 @@ class BookGridTile extends StatelessWidget {
               padding: const EdgeInsets.only(top: 2),
               child: LinearProgressIndicator(
                 value: book.readingProgress,
-                backgroundColor: AppTheme.dividerColor,
-                valueColor:
-                    const AlwaysStoppedAnimation<Color>(AppTheme.primaryLight),
+                backgroundColor: palette.divider,
+                valueColor: AlwaysStoppedAnimation<Color>(palette.primaryLight),
                 minHeight: 2,
               ),
             ),
@@ -75,8 +75,8 @@ class BookGridTile extends StatelessWidget {
     );
   }
 
-  Widget _defaultCover() {
-    final (icon, color1, color2) = _formatStyle();
+  Widget _defaultCover(AppPalette palette) {
+    final (icon, color1, color2) = _formatStyle(palette);
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -117,7 +117,7 @@ class BookGridTile extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.white.withAlpha(180),
+                color: palette.card.withAlpha(205),
                 borderRadius: BorderRadius.circular(3),
               ),
               child: Text(
@@ -144,12 +144,12 @@ class BookGridTile extends StatelessWidget {
     return book.format.toUpperCase();
   }
 
-  (IconData, Color, Color) _formatStyle() {
+  (IconData, Color, Color) _formatStyle(AppPalette palette) {
     if (book.id.startsWith('mingtai_') || book.id.startsWith('mingtai:')) {
       return (
         Icons.auto_stories_rounded,
-        AppTheme.primaryLight.withAlpha(70),
-        AppTheme.primaryDark.withAlpha(70),
+        palette.illustration.withAlpha(86),
+        palette.icon.withAlpha(105),
       );
     }
     switch (book.format) {
@@ -168,14 +168,14 @@ class BookGridTile extends StatelessWidget {
       case 'public':
         return (
           Icons.auto_stories_rounded,
-          AppTheme.primaryLight.withAlpha(70),
-          AppTheme.primaryDark.withAlpha(70),
+          palette.illustration.withAlpha(86),
+          palette.icon.withAlpha(105),
         );
       default: // epub
         return (
           Icons.menu_book_rounded,
-          AppTheme.primaryLight.withAlpha(80),
-          AppTheme.primaryDark.withAlpha(60),
+          palette.illustration.withAlpha(96),
+          palette.icon.withAlpha(95),
         );
     }
   }

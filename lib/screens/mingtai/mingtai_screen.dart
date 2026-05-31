@@ -571,6 +571,7 @@ class _PublishBookSheetState extends State<_PublishBookSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
@@ -594,7 +595,7 @@ class _PublishBookSheetState extends State<_PublishBookSheet> {
                         width: 38,
                         height: 4,
                         decoration: BoxDecoration(
-                          color: AppTheme.dividerColor,
+                          color: palette.divider,
                           borderRadius: BorderRadius.circular(999),
                         ),
                       ),
@@ -744,21 +745,22 @@ class _TodayPageCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return Container(
       margin: const EdgeInsets.only(bottom: 28),
       padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFFCF8),
+        color: palette.card,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFECE4DA)),
+        border: Border.all(color: palette.divider),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             '今日书页',
             style: TextStyle(
-              color: AppTheme.textSecondary,
+              color: palette.textSecondary,
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
@@ -768,8 +770,8 @@ class _TodayPageCard extends StatelessWidget {
             moment.text,
             maxLines: 7,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: AppTheme.textPrimary,
+            style: TextStyle(
+              color: palette.textPrimary,
               fontSize: 17,
               height: 1.85,
               fontWeight: FontWeight.w500,
@@ -782,8 +784,8 @@ class _TodayPageCard extends StatelessWidget {
               moment.annotationText,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppTheme.textSecondary,
+              style: TextStyle(
+                color: palette.textSecondary,
                 fontSize: 13,
                 height: 1.65,
                 fontStyle: FontStyle.italic,
@@ -842,6 +844,7 @@ class _ThoughtPreviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     final text = item.annotationText.trim().isNotEmpty
         ? item.annotationText.trim()
         : item.originalText.trim();
@@ -852,9 +855,9 @@ class _ThoughtPreviewCard extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.fromLTRB(16, 15, 16, 14),
         decoration: BoxDecoration(
-          color: Colors.white.withAlpha(230),
+          color: palette.card.withAlpha(238),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.dividerColor.withAlpha(105)),
+          border: Border.all(color: palette.divider.withAlpha(135)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -863,8 +866,8 @@ class _ThoughtPreviewCard extends StatelessWidget {
               text,
               maxLines: 4,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppTheme.textPrimary,
+              style: TextStyle(
+                color: palette.textPrimary,
                 fontSize: 15,
                 height: 1.7,
               ),
@@ -874,10 +877,7 @@ class _ThoughtPreviewCard extends StatelessWidget {
               '《${item.bookTitle}》',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 12,
-              ),
+              style: TextStyle(color: palette.textSecondary, fontSize: 12),
             ),
           ],
         ),
@@ -915,6 +915,7 @@ class _DiscussionPreviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return InkWell(
       borderRadius: BorderRadius.circular(16),
       onTap: onTap,
@@ -1060,9 +1061,9 @@ class _PublicBookCard extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.white.withAlpha(238),
+          color: palette.card.withAlpha(242),
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppTheme.dividerColor.withAlpha(120)),
+          border: Border.all(color: palette.divider.withAlpha(150)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1148,13 +1149,14 @@ class _CommunityTabs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     const labels = ['公共划线', '想法', 'AI解读'];
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Colors.white.withAlpha(220),
+        color: palette.card.withAlpha(225),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppTheme.dividerColor.withAlpha(120)),
+        border: Border.all(color: palette.divider.withAlpha(150)),
       ),
       child: Row(
         children: List.generate(labels.length, (index) {
@@ -1168,7 +1170,7 @@ class _CommunityTabs extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 9),
                 decoration: BoxDecoration(
                   color: selected
-                      ? AppTheme.primaryLight.withAlpha(36)
+                      ? palette.primaryLight.withAlpha(92)
                       : Colors.transparent,
                   borderRadius: BorderRadius.circular(999),
                 ),
@@ -1177,8 +1179,8 @@ class _CommunityTabs extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: selected
-                        ? AppTheme.primaryDark
-                        : AppTheme.textSecondary,
+                        ? palette.primaryDark
+                        : palette.textSecondary,
                     fontSize: 13,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                   ),
@@ -1209,12 +1211,13 @@ class _BookDetailHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white.withAlpha(238),
+        color: palette.card.withAlpha(242),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppTheme.dividerColor.withAlpha(120)),
+        border: Border.all(color: palette.divider.withAlpha(150)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1325,6 +1328,7 @@ class _AnnotationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     final contextBefore = item.metadata['contextBefore']?.toString() ?? '';
     final contextAfter = item.metadata['contextAfter']?.toString() ?? '';
     final annotation = item.annotationText.trim().isNotEmpty
@@ -1335,9 +1339,9 @@ class _AnnotationCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
       decoration: BoxDecoration(
-        color: Colors.white.withAlpha(238),
+        color: palette.card.withAlpha(242),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.dividerColor.withAlpha(120)),
+        border: Border.all(color: palette.divider.withAlpha(150)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1375,9 +1379,9 @@ class _AnnotationCard extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
             decoration: BoxDecoration(
-              color: const Color(0xFFFFFBF6),
+              color: palette.background,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFFE8DED3)),
+              border: Border.all(color: palette.divider),
             ),
             child: Text(
               annotation,
@@ -1437,6 +1441,7 @@ class _BookCover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     final canLoadNetwork =
         imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
     return ClipRRect(
@@ -1444,7 +1449,7 @@ class _BookCover extends StatelessWidget {
       child: Container(
         width: large ? 70 : 50,
         height: large ? 96 : 68,
-        color: AppTheme.primaryLight.withAlpha(34),
+        color: palette.illustration.withAlpha(72),
         child: canLoadNetwork
             ? Image.network(
                 imageUrl,
@@ -1462,9 +1467,9 @@ class _BookCoverFallback extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Icon(
+    return Icon(
       Icons.menu_book_outlined,
-      color: AppTheme.primary,
+      color: context.appPalette.icon,
       size: 22,
     );
   }
@@ -1477,10 +1482,11 @@ class _MetaPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
-        color: AppTheme.primaryLight.withAlpha(20),
+        color: palette.primaryLight.withAlpha(68),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
@@ -1504,25 +1510,26 @@ class _QuietAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return InkWell(
       borderRadius: BorderRadius.circular(999),
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
         decoration: BoxDecoration(
-          color: AppTheme.primaryLight.withAlpha(20),
+          color: palette.primaryLight.withAlpha(68),
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: AppTheme.primaryLight.withAlpha(55)),
+          border: Border.all(color: palette.divider),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 15, color: AppTheme.primaryDark),
+            Icon(icon, size: 15, color: palette.primaryDark),
             const SizedBox(width: 5),
             Text(
               label,
-              style: const TextStyle(
-                color: AppTheme.primaryDark,
+              style: TextStyle(
+                color: palette.primaryDark,
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
               ),
@@ -1575,6 +1582,7 @@ class _QuietEmpty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return Container(
       height: 260,
       alignment: Alignment.center,
@@ -1641,9 +1649,9 @@ class _QuietError extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white.withAlpha(235),
+        color: palette.card.withAlpha(240),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.dividerColor),
+        border: Border.all(color: palette.divider),
       ),
       child: Column(
         children: [

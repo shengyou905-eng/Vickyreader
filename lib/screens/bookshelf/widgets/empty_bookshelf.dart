@@ -8,6 +8,7 @@ class EmptyBookshelf extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(40),
@@ -15,7 +16,7 @@ class EmptyBookshelf extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             // Simple vector illustration using Flutter shapes
-            _buildIllustration(),
+            _buildIllustration(palette),
             const SizedBox(height: 32),
             const Text(
               '书架空空如也',
@@ -28,10 +29,7 @@ class EmptyBookshelf extends StatelessWidget {
             const SizedBox(height: 8),
             const Text(
               '导入你的第一本电子书吧～',
-              style: TextStyle(
-                fontSize: 14,
-                color: AppTheme.textSecondary,
-              ),
+              style: TextStyle(fontSize: 14, color: AppTheme.textSecondary),
             ),
             const SizedBox(height: 32),
             ElevatedButton.icon(
@@ -45,15 +43,15 @@ class EmptyBookshelf extends StatelessWidget {
     );
   }
 
-  Widget _buildIllustration() {
+  Widget _buildIllustration(AppPalette palette) {
     return Container(
       width: 140,
       height: 180,
       decoration: BoxDecoration(
-        color: AppTheme.primaryLight.withAlpha(30),
+        color: palette.illustration.withAlpha(30),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: AppTheme.primaryLight.withAlpha(80),
+          color: palette.illustration.withAlpha(100),
           width: 2,
         ),
       ),
@@ -65,9 +63,9 @@ class EmptyBookshelf extends StatelessWidget {
             width: 80,
             height: 110,
             decoration: BoxDecoration(
-              color: AppTheme.primaryLight.withAlpha(60),
+              color: palette.illustration.withAlpha(82),
               borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: AppTheme.primary, width: 1.5),
+              border: Border.all(color: palette.primary, width: 1.5),
             ),
           ),
           // Book spine
@@ -77,7 +75,7 @@ class EmptyBookshelf extends StatelessWidget {
             child: Container(
               width: 3,
               height: 110,
-              color: AppTheme.primary.withAlpha(120),
+              color: palette.primary.withAlpha(120),
             ),
           ),
           // Bookmark
@@ -86,7 +84,7 @@ class EmptyBookshelf extends StatelessWidget {
             top: 28,
             child: CustomPaint(
               size: const Size(16, 28),
-              painter: _BookmarkPainter(),
+              painter: _BookmarkPainter(color: palette.primaryDark),
             ),
           ),
           // Magnifying glass
@@ -96,7 +94,7 @@ class EmptyBookshelf extends StatelessWidget {
             child: Icon(
               Icons.auto_awesome,
               size: 22,
-              color: AppTheme.primaryDark.withAlpha(180),
+              color: palette.icon.withAlpha(190),
             ),
           ),
         ],
@@ -106,10 +104,14 @@ class EmptyBookshelf extends StatelessWidget {
 }
 
 class _BookmarkPainter extends CustomPainter {
+  final Color color;
+
+  const _BookmarkPainter({required this.color});
+
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = AppTheme.primaryDark
+      ..color = color
       ..style = PaintingStyle.fill;
     final path = Path()
       ..moveTo(0, 0)
@@ -122,5 +124,7 @@ class _BookmarkPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _BookmarkPainter oldDelegate) {
+    return oldDelegate.color != color;
+  }
 }

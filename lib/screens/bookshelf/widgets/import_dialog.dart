@@ -7,6 +7,7 @@ class ImportDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return Container(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -18,7 +19,7 @@ class ImportDialog extends StatelessWidget {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: AppTheme.dividerColor,
+                color: palette.divider,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -120,13 +121,14 @@ class _ImportOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          border: Border.all(color: AppTheme.dividerColor),
+          border: Border.all(color: palette.divider),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
@@ -135,10 +137,10 @@ class _ImportOption extends StatelessWidget {
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                color: AppTheme.primaryLight.withAlpha(30),
+                color: palette.primaryLight.withAlpha(74),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(icon, color: AppTheme.primary, size: 22),
+              child: Icon(icon, color: palette.icon, size: 22),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -164,9 +166,9 @@ class _ImportOption extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(
+            Icon(
               Icons.chevron_right_rounded,
-              color: AppTheme.textSecondary,
+              color: palette.textSecondary,
               size: 20,
             ),
           ],

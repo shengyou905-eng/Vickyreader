@@ -277,14 +277,15 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return Scaffold(
       appBar: AppBar(
-        title: const Row(
+        title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.auto_stories, color: AppTheme.primary, size: 24),
-            SizedBox(width: 8),
-            Text(AppConstants.appName),
+            Icon(Icons.auto_stories, color: palette.icon, size: 24),
+            const SizedBox(width: 8),
+            const Text(AppConstants.appName),
           ],
         ),
         actions: [
@@ -353,6 +354,7 @@ class _AddBookTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return GestureDetector(
       onTap: onTap,
       child: Column(
@@ -360,19 +362,19 @@ class _AddBookTile extends StatelessWidget {
           Expanded(
             child: Container(
               decoration: BoxDecoration(
-                color: AppTheme.background,
+                color: palette.background,
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: AppTheme.dividerColor,
+                  color: palette.divider,
                   width: 1.5,
                   strokeAlign: BorderSide.strokeAlignInside,
                 ),
               ),
-              child: const Center(
+              child: Center(
                 child: Icon(
                   Icons.add_rounded,
                   size: 36,
-                  color: AppTheme.primaryLight,
+                  color: palette.illustration,
                 ),
               ),
             ),

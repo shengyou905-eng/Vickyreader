@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/reader_paging_mode.dart';
+import '../config/theme.dart';
 
 class SettingsProvider extends ChangeNotifier {
   double _fontSize = 18.0;
   double _lineHeight = 1.6;
   String _themeMode = 'light'; // 'light', 'sepia', 'dark'
+  AppThemeId _appThemeId = AppThemeId.lavender;
   bool _syncEnabled = false;
   ReaderPagingMode _readerPagingMode = ReaderPagingMode.vertical;
   bool _loaded = false;
@@ -13,6 +15,7 @@ class SettingsProvider extends ChangeNotifier {
   double get fontSize => _fontSize;
   double get lineHeight => _lineHeight;
   String get themeMode => _themeMode;
+  AppThemeId get appThemeId => _appThemeId;
   bool get syncEnabled => _syncEnabled;
   ReaderPagingMode get readerPagingMode => _readerPagingMode;
   bool get isLoaded => _loaded;
@@ -22,6 +25,7 @@ class SettingsProvider extends ChangeNotifier {
     _fontSize = prefs.getDouble('fontSize') ?? 18.0;
     _lineHeight = prefs.getDouble('lineHeight') ?? 1.6;
     _themeMode = prefs.getString('themeMode') ?? 'light';
+    _appThemeId = AppThemeId.fromStorage(prefs.getString('app_theme_id'));
     _syncEnabled = prefs.getBool('syncEnabled') ?? false;
     _readerPagingMode = ReaderPagingMode.fromStorage(
       prefs.getString('reader_paging_mode') ??
@@ -50,6 +54,14 @@ class SettingsProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('themeMode', mode);
     notifyListeners();
+  }
+
+  Future<void> setAppThemeId(AppThemeId themeId) async {
+    if (_appThemeId == themeId) return;
+    _appThemeId = themeId;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('app_theme_id', themeId.storageValue);
   }
 
   Future<void> setSyncEnabled(bool enabled) async {

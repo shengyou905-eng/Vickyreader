@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../config/theme.dart';
 import '../../config/constants.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/settings_provider.dart';
 import '../../services/sync_service.dart';
 import '../auth/auth_screen.dart';
 
@@ -16,10 +17,9 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('设置'),
-      ),
+      appBar: AppBar(title: const Text('设置')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -31,9 +31,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               return Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: palette.card,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppTheme.dividerColor),
+                  border: Border.all(color: palette.divider),
                 ),
                 child: auth.isLoggedIn
                     ? _buildLoggedIn(auth)
@@ -43,17 +43,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 24),
 
+          const _SectionHeader(title: '界面氛围'),
+          const SizedBox(height: 8),
+          const _AppearanceSection(),
+          const SizedBox(height: 24),
+
           // About
-          _SectionHeader(title: '关于'),
+          const _SectionHeader(title: '关于'),
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: palette.card,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.dividerColor),
+              border: Border.all(color: palette.divider),
             ),
-            child: const Column(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
@@ -61,19 +66,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
-                    color: AppTheme.primary,
+                    color: palette.primary,
                   ),
                 ),
-                SizedBox(height: 4),
+                const SizedBox(height: 4),
                 Text(
                   '版本 1.0.0',
-                  style: TextStyle(color: AppTheme.textSecondary),
+                  style: TextStyle(color: palette.textSecondary),
                 ),
-                SizedBox(height: 4),
+                const SizedBox(height: 4),
                 Text(
                   AppConstants.appTagline,
-                  style: TextStyle(
-                      fontSize: 12, color: AppTheme.textSecondary),
+                  style: TextStyle(fontSize: 12, color: palette.textSecondary),
                 ),
               ],
             ),
@@ -85,41 +89,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildLoggedOut() {
+    final palette = context.appPalette;
     return Row(
       children: [
-        const Icon(Icons.account_circle, size: 22, color: AppTheme.primary),
+        Icon(Icons.account_circle, size: 22, color: palette.icon),
         const SizedBox(width: 10),
-        const Expanded(
+        Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              const Text(
                 '未登录',
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
               ),
-              SizedBox(height: 2),
+              const SizedBox(height: 2),
               Text(
                 '登录后同步阅读进度和小U条目',
-                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                style: TextStyle(fontSize: 12, color: palette.textSecondary),
               ),
             ],
           ),
         ),
-        ElevatedButton(
-          onPressed: _openAuth,
-          child: const Text('登录 / 注册'),
-        ),
+        ElevatedButton(onPressed: _openAuth, child: const Text('登录 / 注册')),
       ],
     );
   }
 
   Widget _buildLoggedIn(AuthProvider auth) {
+    final palette = context.appPalette;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            const Icon(Icons.check_circle, size: 22, color: Colors.green),
+            Icon(Icons.check_circle, size: 22, color: palette.icon),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -127,12 +130,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   Text(
                     auth.email ?? '',
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                   const SizedBox(height: 2),
-                  const Text(
+                  Text(
                     '已连接云端账号',
-                    style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: palette.textSecondary,
+                    ),
                   ),
                 ],
               ),
@@ -149,7 +158,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(width: 8),
             TextButton(
               onPressed: () => auth.signOut(),
-              child: const Text('退出登录', style: TextStyle(color: Colors.red)),
+              child: const Text(
+                '退出登录',
+                style: TextStyle(color: Color(0xFFAD6765)),
+              ),
             ),
           ],
         ),
@@ -158,9 +170,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _openAuth() async {
-    final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const AuthScreen()),
-    );
+    final result = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute(builder: (_) => const AuthScreen()));
     if (result == true && mounted) {
       await _onLoginSuccess();
     }
@@ -183,7 +195,128 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await SyncService.instance.pullAll();
     } catch (_) {}
   }
+}
 
+class _AppearanceSection extends StatelessWidget {
+  const _AppearanceSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
+      decoration: BoxDecoration(
+        color: palette.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: palette.divider),
+      ),
+      child: Consumer<SettingsProvider>(
+        builder: (context, settings, _) {
+          return Row(
+            children: [
+              for (var i = 0; i < AppThemeId.values.length; i++) ...[
+                if (i > 0) const SizedBox(width: 8),
+                Expanded(
+                  child: _ThemeChoice(
+                    themeId: AppThemeId.values[i],
+                    selected: settings.appThemeId == AppThemeId.values[i],
+                    onTap: () => settings.setAppThemeId(AppThemeId.values[i]),
+                  ),
+                ),
+              ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ThemeChoice extends StatelessWidget {
+  final AppThemeId themeId;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ThemeChoice({
+    required this.themeId,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppTheme.paletteFor(themeId);
+    final currentPalette = context.appPalette;
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.fromLTRB(7, 8, 7, 7),
+        decoration: BoxDecoration(
+          color: palette.background,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected ? currentPalette.primary : palette.divider,
+            width: selected ? 1.8 : 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            Container(
+              height: 54,
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: palette.card,
+                borderRadius: BorderRadius.circular(7),
+                border: Border.all(color: palette.divider),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Icon(
+                    Icons.auto_stories_outlined,
+                    size: 18,
+                    color: palette.illustration,
+                  ),
+                  const Spacer(),
+                  Container(
+                    width: 21,
+                    height: 9,
+                    decoration: BoxDecoration(
+                      color: palette.primary,
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 7),
+            Text(
+              themeId.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: selected
+                    ? currentPalette.primaryDark
+                    : currentPalette.textPrimary,
+                fontSize: 11,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              themeId.chineseLabel,
+              style: TextStyle(
+                color: currentPalette.textSecondary,
+                fontSize: 10,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _SectionHeader extends StatelessWidget {
@@ -192,14 +325,15 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return Padding(
       padding: const EdgeInsets.only(left: 4, bottom: 4),
       child: Text(
         title,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w600,
-          color: AppTheme.textSecondary,
+          color: palette.textSecondary,
           letterSpacing: 0.5,
         ),
       ),

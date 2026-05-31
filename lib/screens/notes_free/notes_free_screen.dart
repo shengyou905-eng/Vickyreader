@@ -240,6 +240,7 @@ class _FreeNotesSearch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return TextField(
       controller: controller,
       onChanged: onChanged,
@@ -254,14 +255,14 @@ class _FreeNotesSearch extends StatelessWidget {
                 icon: const Icon(Icons.close, size: 18),
                 onPressed: onClear,
               ),
-        fillColor: Colors.white.withOpacity(0.82),
+        fillColor: palette.card.withAlpha(224),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(color: Color(0xFFECE7F4)),
+          borderSide: BorderSide(color: palette.divider),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(color: AppTheme.primaryLight),
+          borderSide: BorderSide(color: palette.primaryLight),
         ),
       ),
     );
@@ -275,30 +276,27 @@ class _RecentWords extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF2EDF9),
+        color: palette.primaryLight.withAlpha(78),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFEAE1F5)),
+        border: Border.all(color: palette.divider),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(
-                Icons.auto_awesome_outlined,
-                size: 16,
-                color: AppTheme.primary,
-              ),
-              SizedBox(width: 7),
+              Icon(Icons.auto_awesome_outlined, size: 16, color: palette.icon),
+              const SizedBox(width: 7),
               Text(
                 '最近落下的词',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: AppTheme.textSecondary,
+                  color: palette.textSecondary,
                 ),
               ),
             ],
@@ -315,15 +313,12 @@ class _RecentWords extends StatelessWidget {
                     vertical: 5,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.62),
+                    color: palette.card.withAlpha(182),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
                     word,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.primaryDark,
-                    ),
+                    style: TextStyle(fontSize: 12, color: palette.primaryDark),
                   ),
                 ),
             ],
@@ -550,6 +545,7 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
   Widget build(BuildContext context) {
     final viewInsets = MediaQuery.of(context).viewInsets;
     final screenHeight = MediaQuery.of(context).size.height;
+    final palette = context.appPalette;
 
     return SafeArea(
       top: false,
@@ -560,9 +556,11 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
         child: SizedBox(
           height: screenHeight * 0.92,
           child: DecoratedBox(
-            decoration: const BoxDecoration(
-              color: Color(0xFFFCFBFE),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+            decoration: BoxDecoration(
+              color: palette.surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -630,9 +628,9 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
                     ],
                   ),
                 ),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(20, 13, 20, 0),
-                  child: Divider(height: 1, color: Color(0xFFEFEAF5)),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 13, 20, 0),
+                  child: Divider(height: 1, color: palette.divider),
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(22, 14, 22, 0),
@@ -645,9 +643,9 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
                       fontSize: 19,
                       fontWeight: FontWeight.w700,
                     ),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       hintText: '标题（可选）',
-                      hintStyle: TextStyle(color: Color(0xFFAAA2B5)),
+                      hintStyle: TextStyle(color: palette.textSecondary),
                       filled: false,
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
@@ -673,11 +671,11 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
                         height: 1.85,
                         color: AppTheme.textPrimary,
                       ),
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         hintText: '不必整理，也不必解释。\n写下此刻经过心里的东西...',
                         hintStyle: TextStyle(
                           height: 1.75,
-                          color: Color(0xFFAAA2B5),
+                          color: palette.textSecondary,
                         ),
                         filled: false,
                         border: InputBorder.none,
@@ -705,8 +703,8 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
                               : Icons.lock_outline,
                           size: 15,
                           color: _xiaouAuthorized
-                              ? AppTheme.primary
-                              : AppTheme.textSecondary,
+                              ? palette.primary
+                              : palette.textSecondary,
                         ),
                       const SizedBox(width: 6),
                       Expanded(
@@ -723,8 +721,8 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
                           style: TextStyle(
                             fontSize: 12,
                             color: _xiaouAuthorized
-                                ? AppTheme.primaryDark
-                                : AppTheme.textSecondary,
+                                ? palette.primaryDark
+                                : palette.textSecondary,
                           ),
                         ),
                       ),
@@ -753,6 +751,7 @@ class _FreeNoteCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     final content = note['content']?.toString().trim() ?? '';
     final savedTitle = note['title']?.toString().trim() ?? '';
     final title = savedTitle.isEmpty ? _noteTitle(content) : savedTitle;
@@ -762,11 +761,11 @@ class _FreeNoteCard extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Material(
-        color: Colors.white.withOpacity(0.92),
+        color: palette.card.withAlpha(238),
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
-          side: const BorderSide(color: Color(0xFFEFEAF5)),
+          side: BorderSide(color: palette.divider),
         ),
         child: InkWell(
           onTap: onTap,
@@ -780,7 +779,7 @@ class _FreeNoteCard extends StatelessWidget {
                   width: 4,
                   height: 42,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFD8C9EE),
+                    color: palette.illustration,
                     borderRadius: BorderRadius.circular(6),
                   ),
                 ),
@@ -826,7 +825,7 @@ class _FreeNoteCard extends StatelessWidget {
                 ),
                 PopupMenuButton<String>(
                   tooltip: '更多',
-                  color: Colors.white,
+                  color: palette.card,
                   icon: const Icon(
                     Icons.more_horiz,
                     size: 20,
@@ -864,6 +863,7 @@ class _FreeNotesEmpty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return Center(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(28, 24, 28, 96),
@@ -873,7 +873,7 @@ class _FreeNotesEmpty extends StatelessWidget {
             Icon(
               hasQuery ? Icons.search_off : Icons.local_florist_outlined,
               size: 54,
-              color: AppTheme.primaryLight,
+              color: palette.illustration,
             ),
             const SizedBox(height: 18),
             Text(

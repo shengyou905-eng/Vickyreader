@@ -30,16 +30,18 @@ class AiReaderApp extends StatelessWidget {
           create: (_) => SettingsProvider()..loadSettings(),
         ),
       ],
-      child: MaterialApp(
-        title: AppConstants.appName,
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.lightTheme,
-        home: const MainScreen(),
-        routes: {
-          '/notes': (_) => const NotesScreen(),
-          '/bookmarks': (_) => const BookmarksScreen(),
-          '/settings': (_) => const SettingsScreen(),
-        },
+      child: Consumer<SettingsProvider>(
+        builder: (context, settings, _) => MaterialApp(
+          title: AppConstants.appName,
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.forTheme(settings.appThemeId),
+          home: const MainScreen(),
+          routes: {
+            '/notes': (_) => const NotesScreen(),
+            '/bookmarks': (_) => const BookmarksScreen(),
+            '/settings': (_) => const SettingsScreen(),
+          },
+        ),
       ),
     );
   }

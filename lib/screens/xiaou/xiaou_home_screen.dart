@@ -219,6 +219,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return Scaffold(
       appBar: AppBar(title: const Text('小U'), centerTitle: true),
       body: _loading
@@ -233,8 +234,8 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         onPressed: _showGuidedQuestions,
         icon: const Icon(Icons.auto_awesome_outlined),
         label: const Text('向小U回望'),
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
+        backgroundColor: palette.primary,
+        foregroundColor: palette.buttonForeground,
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
@@ -250,12 +251,13 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   }
 
   Widget _buildEmpty() {
+    final palette = context.appPalette;
     return SizedBox(
       height: 280,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.lightbulb_outline, size: 64, color: AppTheme.primaryLight),
+          Icon(Icons.lightbulb_outline, size: 64, color: palette.illustration),
           const SizedBox(height: 16),
           const Text(
             '小U知识中枢',
@@ -342,21 +344,22 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   }
 
   Widget _buildInsightCard(MingtaiInsight insight) {
+    final palette = context.appPalette;
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 14),
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
+        gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFFFFF8FB), Color(0xFFF1ECFF)],
+          colors: [palette.card, palette.primaryLight.withAlpha(112)],
         ),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.white.withAlpha(180)),
+        border: Border.all(color: palette.surface.withAlpha(190)),
         boxShadow: [
           BoxShadow(
-            color: AppTheme.primaryDark.withAlpha(18),
+            color: palette.primaryDark.withAlpha(18),
             blurRadius: 24,
             offset: const Offset(0, 10),
           ),
@@ -367,16 +370,12 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         children: [
           Row(
             children: [
-              const Icon(
-                Icons.auto_awesome,
-                color: AppTheme.primaryDark,
-                size: 18,
-              ),
+              Icon(Icons.auto_awesome, color: palette.icon, size: 18),
               const SizedBox(width: 8),
-              const Text(
+              Text(
                 '最近回顾',
                 style: TextStyle(
-                  color: AppTheme.textSecondary,
+                  color: palette.textSecondary,
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                 ),
@@ -395,8 +394,8 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
             overflow: _insightExpanded
                 ? TextOverflow.visible
                 : TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: AppTheme.textPrimary,
+            style: TextStyle(
+              color: palette.textPrimary,
               fontSize: 17,
               fontWeight: FontWeight.w600,
               height: 1.55,
@@ -409,7 +408,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
                 padding: EdgeInsets.zero,
                 minimumSize: const Size(44, 30),
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                foregroundColor: AppTheme.primaryDark,
+                foregroundColor: palette.primaryDark,
               ),
               onPressed: () {
                 setState(() => _insightExpanded = !_insightExpanded);
@@ -422,8 +421,8 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
             _buildInsightMeta(insight),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: AppTheme.textSecondary,
+            style: TextStyle(
+              color: palette.textSecondary,
               fontSize: 12,
               height: 1.4,
             ),
@@ -487,6 +486,7 @@ class _InsightQuestionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return InkWell(
       borderRadius: BorderRadius.circular(18),
       onTap: loading ? null : onTap,
@@ -494,20 +494,16 @@ class _InsightQuestionCard extends StatelessWidget {
         width: 184,
         padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(
-          color: Colors.white.withAlpha(230),
+          color: palette.card.withAlpha(238),
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppTheme.dividerColor.withAlpha(120)),
+          border: Border.all(color: palette.divider.withAlpha(150)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Icon(
-                  _questionIcon(question.id),
-                  size: 18,
-                  color: AppTheme.primary,
-                ),
+                Icon(_questionIcon(question.id), size: 18, color: palette.icon),
                 const Spacer(),
                 if (loading)
                   const SizedBox(
@@ -568,6 +564,7 @@ class _DeepReflectionSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(22, 4, 22, 24),
@@ -596,9 +593,9 @@ class _DeepReflectionSheet extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
-                color: AppTheme.primaryLight.withAlpha(18),
+                color: palette.primaryLight.withAlpha(68),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppTheme.primaryLight.withAlpha(45)),
+                border: Border.all(color: palette.divider),
               ),
               child: Text(
                 insight.deepReflection,
@@ -649,13 +646,13 @@ class _DeepReflectionSheet extends StatelessWidget {
                           vertical: 7,
                         ),
                         decoration: BoxDecoration(
-                          color: AppTheme.primaryLight.withAlpha(28),
+                          color: palette.primaryLight.withAlpha(82),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
                           topic,
                           style: const TextStyle(
-                            color: AppTheme.primaryDark,
+                            color: palette.primaryDark,
                             fontSize: 12,
                           ),
                         ),
@@ -689,6 +686,7 @@ class _QuestionAnswerSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
@@ -707,7 +705,7 @@ class _QuestionAnswerSheet extends StatelessWidget {
                   width: 38,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: AppTheme.dividerColor,
+                    color: palette.divider,
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),
@@ -736,7 +734,7 @@ class _QuestionAnswerSheet extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  color: AppTheme.primaryLight.withAlpha(20),
+                  color: palette.primaryLight.withAlpha(72),
                   borderRadius: BorderRadius.circular(18),
                 ),
                 child: Text(
@@ -775,12 +773,13 @@ class _InsightRangeSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return Container(
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
-        color: Colors.white.withAlpha(130),
+        color: palette.surface.withAlpha(150),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withAlpha(160)),
+        border: Border.all(color: palette.divider.withAlpha(170)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -814,6 +813,7 @@ class _RangeButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return InkWell(
       borderRadius: BorderRadius.circular(999),
       onTap: selected ? null : onTap,
@@ -821,13 +821,13 @@ class _RangeButton extends StatelessWidget {
         duration: const Duration(milliseconds: 160),
         padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
         decoration: BoxDecoration(
-          color: selected ? Colors.white.withAlpha(220) : Colors.transparent,
+          color: selected ? palette.card.withAlpha(235) : Colors.transparent,
           borderRadius: BorderRadius.circular(999),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? AppTheme.primaryDark : AppTheme.textSecondary,
+            color: selected ? palette.primaryDark : palette.textSecondary,
             fontSize: 12,
             fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
           ),
@@ -849,6 +849,7 @@ class _TagChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: ChoiceChip(
@@ -856,12 +857,12 @@ class _TagChip extends StatelessWidget {
           label,
           style: TextStyle(
             fontSize: 12,
-            color: selected ? Colors.white : AppTheme.textPrimary,
+            color: selected ? palette.buttonForeground : palette.textPrimary,
           ),
         ),
         selected: selected,
-        selectedColor: AppTheme.primary,
-        backgroundColor: AppTheme.dividerColor.withAlpha(80),
+        selectedColor: palette.primary,
+        backgroundColor: palette.divider.withAlpha(100),
         onSelected: (_) => onTap(),
       ),
     );
