@@ -324,19 +324,34 @@ class BmobApi {
   }
 
   Future<Map<String, dynamic>> answerInsightQuestion(String questionId) async {
+    final safeQuestionId = Uri.encodeComponent(questionId);
     final res = await http
         .post(
           Uri.parse(
-            '${AppConstants.apiBaseUrl}/api/insights/questions/$questionId/answer',
+            '${AppConstants.apiBaseUrl}/api/insights/questions/$safeQuestionId/answer',
           ),
           headers: _authHeaders(),
         )
-        .timeout(const Duration(seconds: 15));
+        .timeout(const Duration(seconds: 5));
 
     if (res.statusCode == 200) {
       return jsonDecode(res.body) as Map<String, dynamic>;
     }
-    throw Exception('生成小U回答失败 (HTTP ${res.statusCode}): ${res.body}');
+    throw Exception('读取小U回望失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>> getXiaouHomeInsight() async {
+    final res = await http
+        .get(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/insights/home'),
+          headers: _authHeaders(),
+        )
+        .timeout(const Duration(seconds: 5));
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return Map<String, dynamic>.from(data['insight'] ?? {});
+    }
+    throw Exception('读取小U首页失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
   Future<List<Map<String, dynamic>>> publishMingtaiAnnotations(

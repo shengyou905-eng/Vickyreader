@@ -19,6 +19,7 @@ class ShareService {
     required Widget card,
     required String fileName,
     String? text,
+    Color backgroundColor = const Color(0xFFFAF8FD),
   }) async {
     final overlay = Overlay.of(context, rootOverlay: true);
     final boundaryKey = GlobalKey();
@@ -31,7 +32,10 @@ class ShareService {
           type: MaterialType.transparency,
           child: RepaintBoundary(
             key: boundaryKey,
-            child: SizedBox(width: 360, child: card),
+            child: ColoredBox(
+              color: backgroundColor,
+              child: SizedBox(width: 360, child: card),
+            ),
           ),
         ),
       ),
@@ -69,6 +73,96 @@ class ShareService {
     if (box == null || !box.hasSize) return const Rect.fromLTWH(0, 0, 1, 1);
     final origin = box.localToGlobal(Offset.zero);
     return origin & box.size;
+  }
+}
+
+class FreeNoteShareCard extends StatelessWidget {
+  static const backgroundColor = Color(0xFFF8F5FC);
+
+  final String body;
+  final String date;
+  final String? title;
+
+  const FreeNoteShareCard({
+    super.key,
+    required this.body,
+    required this.date,
+    this.title,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleTitle = title?.trim() ?? '';
+    final content = body.trim();
+    final shortText = content.length <= 140;
+
+    return Container(
+      color: backgroundColor,
+      padding: const EdgeInsets.fromLTRB(36, 40, 36, 30),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 500),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '随心记',
+              style: TextStyle(
+                color: Color(0xFF9B91AA),
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 46),
+            if (visibleTitle.isNotEmpty) ...[
+              Text(
+                visibleTitle,
+                style: const TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 17,
+                  height: 1.6,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
+            Text(
+              content,
+              textAlign: TextAlign.left,
+              style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: shortText ? 16 : 14,
+                height: shortText ? 1.95 : 1.85,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+            SizedBox(height: shortText ? 150 : 92),
+            Container(width: 28, height: 1, color: const Color(0xFFDCD5E5)),
+            const SizedBox(height: 15),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    date,
+                    style: const TextStyle(
+                      color: Color(0xFFAAA2B3),
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+                const Text(
+                  '知读',
+                  style: TextStyle(
+                    color: Color(0xFF8C7AA8),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

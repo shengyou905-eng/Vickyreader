@@ -91,6 +91,27 @@ CREATE TABLE IF NOT EXISTS xiaou_free_note_grants (
 CREATE INDEX IF NOT EXISTS idx_xiaou_free_note_grants_user
   ON xiaou_free_note_grants(user_id, granted_at DESC);
 
+CREATE TABLE IF NOT EXISTS user_insights (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  recent_focus JSONB NOT NULL DEFAULT '{}'::jsonb,
+  weekly_summary TEXT NOT NULL DEFAULT '',
+  long_term_topics JSONB NOT NULL DEFAULT '[]'::jsonb,
+  high_value_questions JSONB NOT NULL DEFAULT '[]'::jsonb,
+  recent_entries JSONB NOT NULL DEFAULT '[]'::jsonb,
+  deep_reflection TEXT NOT NULL DEFAULT '',
+  source_entry_count INTEGER NOT NULL DEFAULT 0,
+  authorized_note_count INTEGER NOT NULL DEFAULT 0,
+  refreshed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_insights_refreshed
+  ON user_insights(refreshed_at DESC);
+
+ALTER TABLE user_insights
+  ADD COLUMN IF NOT EXISTS recent_entries JSONB NOT NULL DEFAULT '[]'::jsonb;
+
 CREATE TABLE IF NOT EXISTS public_books (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   publisher_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

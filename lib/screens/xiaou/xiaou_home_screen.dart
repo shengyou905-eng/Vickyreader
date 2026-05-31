@@ -23,11 +23,11 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   List<Map<String, dynamic>> _allItems = [];
   List<String> _allTags = [];
   Map<int, MingtaiInsight> _insights = {};
+  XiaouHomeInsight _homeInsight = XiaouHomeInsight.empty();
   String? _selectedTag;
   int _insightDays = 7;
   bool _insightExpanded = false;
   bool _loading = true;
-  bool _hasLoadedOnce = false;
   bool _refreshing = false;
   bool _loadInFlight = false;
   bool _reloadAfterCurrent = false;
@@ -58,39 +58,57 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     }
     _loadInFlight = true;
     final requestTag = _selectedTag;
-    final firstLoad = !_hasLoadedOnce;
     final cached = BookService.cachedMingtaiOverview(tag: requestTag);
+    final cachedHome = BookService.cachedXiaouHomeInsight();
     setState(() {
-      if (firstLoad && cached != null) {
+      if (cached != null) {
         _items = cached.items;
         _allItems = cached.allItems;
         _allTags = cached.tags;
-        _insights = cached.insights;
-        _hasLoadedOnce = true;
       }
-      _loading = firstLoad && cached == null;
-      _refreshing = !firstLoad || cached != null;
+      if (cachedHome != null) {
+        _homeInsight = cachedHome;
+        _insights = cachedHome.recentFocus;
+        _useInsightSnapshotIfNeeded(cachedHome);
+      } else if (cached != null) {
+        _insights = cached.insights;
+      }
+      _loading = false;
+      _refreshing = true;
     });
+    final insightFuture = BookService.getXiaouHomeInsight(
+      forceRefresh: forceRefresh,
+    ).then<XiaouHomeInsight?>((insight) => insight, onError: (_) => null);
+    final overviewFuture = BookService.getMingtaiOverview(
+      tag: requestTag,
+      forceRefresh: forceRefresh,
+    ).then<MingtaiOverview?>((overview) => overview, onError: (_) => null);
+    final insight = await insightFuture;
+    if (insight != null) {
+      if (mounted) {
+        setState(() {
+          _homeInsight = insight;
+          _insights = insight.recentFocus;
+          _useInsightSnapshotIfNeeded(insight);
+        });
+      }
+    }
+    final overview = await overviewFuture;
     try {
-      final overview = await BookService.getMingtaiOverview(
-        tag: requestTag,
-        forceRefresh: forceRefresh,
-      );
+      if (overview == null) throw Exception('小U记录加载失败');
       if (requestTag != _selectedTag) return;
       if (mounted)
         setState(() {
           _items = overview.items;
           _allItems = overview.allItems;
           _allTags = overview.tags;
-          _insights = overview.insights;
-          _hasLoadedOnce = true;
+          if (_insights.isEmpty) _insights = overview.insights;
           _loading = false;
           _refreshing = false;
         });
     } catch (_) {
       if (mounted) {
         setState(() {
-          _hasLoadedOnce = true;
           _loading = false;
           _refreshing = false;
         });
@@ -102,6 +120,15 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         _load();
       }
     }
+  }
+
+  void _useInsightSnapshotIfNeeded(XiaouHomeInsight insight) {
+    if (_allItems.isNotEmpty) return;
+    final snapshot = BookService.xiaouSnapshotItems(insight);
+    if (snapshot.isEmpty) return;
+    _items = snapshot;
+    _allItems = snapshot;
+    _allTags = insight.longTermTopics;
   }
 
   void _onTagTap(String? tag) {
@@ -165,7 +192,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     }
   }
 
-  Future<void> _askQuestion(_InsightQuestion question) async {
+  Future<void> _askQuestion(XiaouQuickQuestion question) async {
     if (_answeringQuestionId != null) return;
     setState(() => _answeringQuestionId = question.id);
     try {
@@ -216,47 +243,9 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   void _showGuidedQuestions() {
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                '向小U回望',
-                style: TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 19,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                '从一段阅读轨迹开始，不必把它变成一场聊天。',
-                style: TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 13,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 12),
-              for (final question in _insightQuestions)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(question.icon, color: AppTheme.primary),
-                  title: Text(question.title),
-                  trailing: const Icon(Icons.chevron_right, size: 20),
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    _askQuestion(question);
-                  },
-                ),
-            ],
-          ),
-        ),
-      ),
+      builder: (_) => _DeepReflectionSheet(insight: _homeInsight),
     );
   }
 
@@ -469,10 +458,10 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: _insightQuestions.length,
+        itemCount: _homeInsight.quickQuestions.length,
         separatorBuilder: (_, __) => const SizedBox(width: 10),
         itemBuilder: (_, index) {
-          final question = _insightQuestions[index];
+          final question = _homeInsight.quickQuestions[index];
           final loading = _answeringQuestionId == question.id;
           return _InsightQuestionCard(
             question: question,
@@ -485,48 +474,8 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   }
 }
 
-class _InsightQuestion {
-  final String id;
-  final String title;
-  final IconData icon;
-
-  const _InsightQuestion({
-    required this.id,
-    required this.title,
-    required this.icon,
-  });
-}
-
-const _insightQuestions = [
-  _InsightQuestion(
-    id: 'recent_focus',
-    title: '我最近在关注什么？',
-    icon: Icons.lightbulb_outline,
-  ),
-  _InsightQuestion(
-    id: 'freedom_books',
-    title: '我在哪些书里反复提到"自由"？',
-    icon: Icons.menu_book_outlined,
-  ),
-  _InsightQuestion(
-    id: 'weekly_summary',
-    title: '本周阅读摘要',
-    icon: Icons.calendar_today_outlined,
-  ),
-  _InsightQuestion(
-    id: 'top_highlight_themes',
-    title: '我最常划线的主题',
-    icon: Icons.format_quote,
-  ),
-  _InsightQuestion(
-    id: 'touching_recently',
-    title: '最近哪些内容最触动我？',
-    icon: Icons.favorite_border,
-  ),
-];
-
 class _InsightQuestionCard extends StatelessWidget {
-  final _InsightQuestion question;
+  final XiaouQuickQuestion question;
   final bool loading;
   final VoidCallback onTap;
 
@@ -554,7 +503,11 @@ class _InsightQuestionCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(question.icon, size: 18, color: AppTheme.primary),
+                Icon(
+                  _questionIcon(question.id),
+                  size: 18,
+                  color: AppTheme.primary,
+                ),
                 const Spacer(),
                 if (loading)
                   const SizedBox(
@@ -583,6 +536,145 @@ class _InsightQuestionCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+IconData _questionIcon(String questionId) {
+  switch (questionId) {
+    case 'recent_focus':
+      return Icons.lightbulb_outline;
+    case 'recurring_topic':
+    case 'recurring_book':
+      return Icons.menu_book_outlined;
+    case 'weekly_summary':
+      return Icons.calendar_today_outlined;
+    case 'top_highlight_themes':
+      return Icons.format_quote;
+    case 'touching_recently':
+      return Icons.favorite_border;
+    default:
+      return Icons.auto_awesome_outlined;
+  }
+}
+
+class _DeepReflectionSheet extends StatelessWidget {
+  final XiaouHomeInsight insight;
+
+  const _DeepReflectionSheet({required this.insight});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(22, 4, 22, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '向小U回望',
+              style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '不是即时问答，只是把一段时间里反复出现的线索轻轻放在一起。',
+              style: TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 13,
+                height: 1.55,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryLight.withAlpha(18),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppTheme.primaryLight.withAlpha(45)),
+              ),
+              child: Text(
+                insight.deepReflection,
+                style: const TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 16,
+                  height: 1.7,
+                ),
+              ),
+            ),
+            const SizedBox(height: 22),
+            const Text(
+              '这一周',
+              style: TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              insight.weeklySummary,
+              style: const TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: 15,
+                height: 1.6,
+              ),
+            ),
+            if (insight.longTermTopics.isNotEmpty) ...[
+              const SizedBox(height: 22),
+              const Text(
+                '反复出现的线索',
+                style: TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: insight.longTermTopics
+                    .map(
+                      (topic) => Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 11,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryLight.withAlpha(28),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          topic,
+                          style: const TextStyle(
+                            color: AppTheme.primaryDark,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
+            if (insight.authorizedNoteCount > 0) ...[
+              const SizedBox(height: 22),
+              Text(
+                '其中也谨慎参考了你主动交给小U的 ${insight.authorizedNoteCount} 条私人片段。',
+                style: const TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontSize: 12,
+                  height: 1.5,
+                ),
+              ),
+            ],
           ],
         ),
       ),

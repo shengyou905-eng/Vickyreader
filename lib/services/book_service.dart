@@ -67,6 +67,105 @@ class MingtaiInsight {
       summary: '最近还没有新的阅读痕迹，继续读一点，小U会在这里帮你回顾。',
     );
   }
+
+  factory MingtaiInsight.fromRemote(int days, Map<String, dynamic> row) {
+    return MingtaiInsight(
+      days: int.tryParse(row['days']?.toString() ?? '') ?? days,
+      entryCount: int.tryParse(row['entry_count']?.toString() ?? '') ?? 0,
+      topTags: BookService._remoteTags(row['top_tags']),
+      topBooks: BookService._remoteTags(row['top_books']),
+      topSource: row['top_source']?.toString() ?? '',
+      summary: row['summary']?.toString() ?? '最近还没有新的阅读痕迹，继续读一点，小U会在这里帮你回顾。',
+    );
+  }
+}
+
+class XiaouQuickQuestion {
+  final String id;
+  final String title;
+
+  const XiaouQuickQuestion({required this.id, required this.title});
+
+  factory XiaouQuickQuestion.fromRemote(Map<String, dynamic> row) {
+    return XiaouQuickQuestion(
+      id: row['id']?.toString() ?? '',
+      title: row['title']?.toString() ?? '',
+    );
+  }
+}
+
+class XiaouHomeInsight {
+  final Map<int, MingtaiInsight> recentFocus;
+  final String weeklySummary;
+  final List<String> longTermTopics;
+  final List<XiaouQuickQuestion> quickQuestions;
+  final List<Map<String, dynamic>> recentEntries;
+  final String deepReflection;
+  final int authorizedNoteCount;
+  final DateTime? refreshedAt;
+
+  const XiaouHomeInsight({
+    required this.recentFocus,
+    required this.weeklySummary,
+    required this.longTermTopics,
+    required this.quickQuestions,
+    required this.recentEntries,
+    required this.deepReflection,
+    required this.authorizedNoteCount,
+    this.refreshedAt,
+  });
+
+  factory XiaouHomeInsight.empty() {
+    return XiaouHomeInsight(
+      recentFocus: {7: MingtaiInsight.empty(7), 30: MingtaiInsight.empty(30)},
+      weeklySummary: '这一周还很安静。没有关系，阅读不是一场需要赶进度的事。',
+      longTermTopics: const [],
+      quickQuestions: const [
+        XiaouQuickQuestion(id: 'recent_focus', title: '我最近在反复停留什么？'),
+        XiaouQuickQuestion(id: 'weekly_summary', title: '这一周，我留下了什么？'),
+      ],
+      recentEntries: const [],
+      deepReflection: '现在还不必急着给自己的阅读命名。\n\n继续留下真正让你停住的地方。时间久一点，问题会自己浮出来。',
+      authorizedNoteCount: 0,
+    );
+  }
+
+  factory XiaouHomeInsight.fromRemote(Map<String, dynamic> row) {
+    final focus = Map<String, dynamic>.from(row['recent_focus'] ?? {});
+    final questions = (row['high_value_questions'] as List? ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) =>
+              XiaouQuickQuestion.fromRemote(Map<String, dynamic>.from(item)),
+        )
+        .where((item) => item.id.isNotEmpty && item.title.isNotEmpty)
+        .toList();
+    return XiaouHomeInsight(
+      recentFocus: {
+        7: MingtaiInsight.fromRemote(
+          7,
+          Map<String, dynamic>.from(focus['7'] ?? {}),
+        ),
+        30: MingtaiInsight.fromRemote(
+          30,
+          Map<String, dynamic>.from(focus['30'] ?? {}),
+        ),
+      },
+      weeklySummary: row['weekly_summary']?.toString() ?? '',
+      longTermTopics: BookService._remoteTags(row['long_term_topics']),
+      quickQuestions: questions.isEmpty
+          ? XiaouHomeInsight.empty().quickQuestions
+          : questions,
+      recentEntries: (row['recent_entries'] as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(),
+      deepReflection: row['deep_reflection']?.toString() ?? '',
+      authorizedNoteCount:
+          int.tryParse(row['authorized_note_count']?.toString() ?? '') ?? 0,
+      refreshedAt: BookService._tryParseDate(row['refreshed_at']),
+    );
+  }
 }
 
 class MingtaiQuestionAnswer {
@@ -276,9 +375,12 @@ class BookService {
   static final Map<String, Future<String>> _publicBookDownloadTasks = {};
   static MingtaiOverview? _mingtaiOverviewCache;
   static DateTime? _mingtaiOverviewCacheAt;
+  static XiaouHomeInsight? _xiaouHomeInsightCache;
+  static DateTime? _xiaouHomeInsightCacheAt;
   static const Duration _mingtaiBooksCacheTtl = Duration(seconds: 45);
   static const Duration _mingtaiBookDetailCacheTtl = Duration(seconds: 60);
   static const Duration _mingtaiOverviewCacheTtl = Duration(seconds: 30);
+  static const Duration _xiaouHomeInsightCacheTtl = Duration(minutes: 2);
 
   static const Map<String, String> _sourceLabels = {
     'highlight': '划线',
@@ -597,6 +699,7 @@ class BookService {
       content: content,
       createdAt: createdAt,
       updatedAt: now,
+      throwOnFailure: waitForRemote,
     );
     if (waitForRemote) {
       await remoteSync;
@@ -879,11 +982,17 @@ class BookService {
     required String content,
     required String createdAt,
     required String updatedAt,
+    bool throwOnFailure = false,
   }) async {
     try {
       final api = BmobApi.instance;
       await api.init();
-      if (!api.isLoggedIn) return;
+      if (!api.isLoggedIn) {
+        if (throwOnFailure) {
+          throw Exception('请先登录，再把这条随心记交给小U观察');
+        }
+        return;
+      }
       await api.upsertFreeNote(
         id: id,
         title: title,
@@ -891,7 +1000,8 @@ class BookService {
         createdAt: createdAt,
         updatedAt: updatedAt,
       );
-    } catch (_) {
+    } catch (error) {
+      if (throwOnFailure) rethrow;
       // 本地已保存，稍后进入随心记时会再次尝试同步。
     }
   }
@@ -914,7 +1024,7 @@ class BookService {
     final api = BmobApi.instance;
     await api.init();
     if (!api.isLoggedIn) {
-      throw Exception('请先登录，再把这条随心记交给小U思考');
+      throw Exception('请先登录，再把这条随心记交给小U观察');
     }
     await api.setFreeNoteXiaouAuthorization(id, authorized: authorized);
     final db = await DatabaseService.database;
@@ -1107,6 +1217,45 @@ class BookService {
       answer: data['answer']?.toString() ?? '',
       generatedAt: _tryParseDate(data['generated_at']),
     );
+  }
+
+  static XiaouHomeInsight? cachedXiaouHomeInsight() {
+    return _xiaouHomeInsightCache;
+  }
+
+  static Future<XiaouHomeInsight> getXiaouHomeInsight({
+    bool forceRefresh = false,
+  }) async {
+    if (!BmobApi.instance.isLoggedIn) return XiaouHomeInsight.empty();
+    final cached = _xiaouHomeInsightCache;
+    final cacheAt = _xiaouHomeInsightCacheAt;
+    final cacheFresh =
+        cached != null &&
+        cacheAt != null &&
+        DateTime.now().difference(cacheAt) < _xiaouHomeInsightCacheTtl;
+    if (!forceRefresh && cacheFresh) return cached;
+
+    try {
+      final row = await BmobApi.instance.getXiaouHomeInsight();
+      final insight = XiaouHomeInsight.fromRemote(row);
+      _xiaouHomeInsightCache = insight;
+      _xiaouHomeInsightCacheAt = DateTime.now();
+      return insight;
+    } catch (_) {
+      if (cached != null) return cached;
+      rethrow;
+    }
+  }
+
+  static List<Map<String, dynamic>> xiaouSnapshotItems(
+    XiaouHomeInsight insight,
+  ) {
+    return insight.recentEntries
+        .map(_remoteUserEntryToMingtaiItem)
+        .where(
+          (item) => ((item['remote_entry_id'] as String?) ?? '').isNotEmpty,
+        )
+        .toList();
   }
 
   static List<MingtaiPublicBook> cachedMingtaiBooks({int limit = 50}) {
@@ -1908,6 +2057,8 @@ class BookService {
   static void _invalidateMingtaiOverviewCache() {
     _mingtaiOverviewCache = null;
     _mingtaiOverviewCacheAt = null;
+    _xiaouHomeInsightCache = null;
+    _xiaouHomeInsightCacheAt = null;
   }
 
   static Map<String, dynamic> _userEntryToMingtaiItem(UserEntry entry) {

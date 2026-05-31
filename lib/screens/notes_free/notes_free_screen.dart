@@ -420,8 +420,40 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
 
   Future<void> _setXiaouAuthorization() async {
     final content = _controller.text.trim();
-    if (content.isEmpty || _changingAuthorization) return;
+    if (_changingAuthorization) return;
+    final messenger = ScaffoldMessenger.of(context);
+    if (content.isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('先写下一点内容，再交给小U观察'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    final authorized = !_xiaouAuthorized;
     setState(() => _changingAuthorization = true);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        duration: const Duration(minutes: 1),
+        behavior: SnackBarBehavior.floating,
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(authorized ? '正在交给小U观察…' : '正在撤回小U授权…'),
+          ],
+        ),
+      ),
+    );
     try {
       await BookService.saveFreeNote(
         id: _noteId,
@@ -429,22 +461,23 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
         content: content,
         waitForRemote: true,
       );
-      final authorized = !_xiaouAuthorized;
       await BookService.setFreeNoteXiaouAuthorization(
         _noteId,
         authorized: authorized,
       );
       if (!mounted) return;
       setState(() => _xiaouAuthorized = authorized);
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
         SnackBar(
-          content: Text(authorized ? '已交给小U思考，可随时撤回' : '已撤回，小U不会再读取这条随心记'),
+          content: Text(authorized ? '已交给小U观察' : '已撤回小U授权'),
           behavior: SnackBarBehavior.floating,
         ),
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
         SnackBar(
           content: Text('操作失败：$error'),
           behavior: SnackBarBehavior.floating,
@@ -455,14 +488,21 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
     }
   }
 
-  String _resolvedTitle() {
-    final title = _titleController.text.trim();
-    return title.isNotEmpty ? title : _noteTitle(_controller.text);
+  String _shareText() {
+    final title = _shareTitle();
+    return '${title == null ? '' : '$title\n\n'}'
+        '${_controller.text.trim()}\n\n${_shareDate()}\n\n知读';
   }
 
-  String _shareText() {
-    return '${_resolvedTitle()}\n\n${_controller.text.trim()}\n\n'
-        '${_shareDate()}\n\n知读';
+  String? _shareTitle() {
+    final title = _titleController.text.trim();
+    final content = _controller.text.trim();
+    if (title.isEmpty) return null;
+    final firstLine = content
+        .split(RegExp(r'[\r\n]'))
+        .map((line) => line.trim())
+        .firstWhere((line) => line.isNotEmpty, orElse: () => '');
+    return firstLine == title ? null : title;
   }
 
   String _shareDate() {
@@ -477,9 +517,9 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
       context,
       fileName: 'zhidu_free_note_${DateTime.now().millisecondsSinceEpoch}',
       text: _shareText(),
-      card: ZhiDuShareCard(
-        eyebrow: '随心记',
-        title: _resolvedTitle(),
+      backgroundColor: FreeNoteShareCard.backgroundColor,
+      card: FreeNoteShareCard(
+        title: _shareTitle(),
         body: _controller.text.trim(),
         date: _shareDate(),
       ),
@@ -652,21 +692,40 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
                   padding: const EdgeInsets.fromLTRB(22, 8, 22, 18),
                   child: Row(
                     children: [
-                      const Icon(
-                        Icons.lock_outline,
-                        size: 15,
-                        color: AppTheme.textSecondary,
-                      ),
+                      if (_changingAuthorization)
+                        const SizedBox(
+                          width: 15,
+                          height: 15,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      else
+                        Icon(
+                          _xiaouAuthorized
+                              ? Icons.auto_awesome
+                              : Icons.lock_outline,
+                          size: 15,
+                          color: _xiaouAuthorized
+                              ? AppTheme.primary
+                              : AppTheme.textSecondary,
+                        ),
                       const SizedBox(width: 6),
-                      Text(
-                        _autosaving
-                            ? '正在安静保存...'
-                            : _xiaouAuthorized
-                            ? '已主动交给小U思考 · 可随时撤回'
-                            : '仅自己可见',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.textSecondary,
+                      Expanded(
+                        child: Text(
+                          _changingAuthorization
+                              ? _xiaouAuthorized
+                                    ? '正在撤回小U授权…'
+                                    : '正在交给小U观察…'
+                              : _autosaving
+                              ? '正在安静保存...'
+                              : _xiaouAuthorized
+                              ? '✨ 已授权给小U · 可随时撤回'
+                              : '仅自己可见',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _xiaouAuthorized
+                                ? AppTheme.primaryDark
+                                : AppTheme.textSecondary,
+                          ),
                         ),
                       ),
                     ],
