@@ -1,4 +1,4 @@
-const { query } = require('../config/db');
+const { query, withTransaction } = require('../config/db');
 
 function shapeBook(row) {
   return {
@@ -116,11 +116,11 @@ function normalizeMetadata(metadata) {
   return {};
 }
 
-async function upsertPublicBook(userId, payload) {
+async function upsertPublicBook(userId, payload, queryFn = query) {
   const metadata = normalizeMetadata(payload.metadata_json);
   const title = safeTitle(payload.title);
   const author = safeAuthor(payload.author);
-  const result = await query(
+  const result = await queryFn(
     `INSERT INTO public_books (
        publisher_user_id,
        uploader_user_id,
@@ -193,15 +193,20 @@ async function upsertPublicBook(userId, payload) {
   );
 
   const book = shapeBook(result.rows[0]);
-  await syncBookPublicationSideTables(userId, payload, book);
+  await syncBookPublicationSideTables(userId, payload, book, queryFn);
   return book;
 }
 
-async function syncBookPublicationSideTables(userId, payload, publicBook) {
+async function syncBookPublicationSideTables(
+  userId,
+  payload,
+  publicBook,
+  queryFn = query,
+) {
   const metadata = normalizeMetadata(payload.metadata_json);
   const title = safeTitle(payload.title);
   const author = safeAuthor(payload.author);
-  await query(
+  await queryFn(
     `WITH source_book AS (
        INSERT INTO books (
          source_book_id,
@@ -252,34 +257,48 @@ async function syncBookPublicationSideTables(userId, payload, publicBook) {
   );
 }
 
-async function publishBook(userId, payload) {
-  const book = await upsertPublicBook(userId, payload);
-  const entryIds = Array.isArray(payload.entry_ids) ? payload.entry_ids : [];
-  const annotations = entryIds.length > 0
-    ? await publishEntries(userId, entryIds, book.id)
-    : [];
+async function publishBook(userId, payload, chapters = []) {
+  return withTransaction(async (queryFn) => {
+    const book = await upsertPublicBook(userId, payload, queryFn);
+    const cachedBook = await replaceBookChapters(book.id, chapters, queryFn);
+    const entryIds = Array.isArray(payload.entry_ids) ? payload.entry_ids : [];
+    const annotations = entryIds.length > 0
+      ? await publishEntries(userId, entryIds, book.id, queryFn)
+      : [];
 
-  return {
-    book: {
-      ...book,
-      annotation_count: annotations.length,
-    },
-    annotations,
-  };
+    return {
+      book: {
+        ...(cachedBook || book),
+        annotation_count: annotations.length,
+      },
+      annotations,
+    };
+  });
 }
 
-async function replaceBookChapters(publicBookId, chapters) {
+async function replaceBookChapters(publicBookId, chapters, queryFn = query) {
   const normalizedChapters = Array.isArray(chapters) ? chapters : [];
 
-  await query('DELETE FROM book_chapters WHERE public_book_id = $1', [publicBookId]);
+  await queryFn('DELETE FROM book_chapters WHERE public_book_id = $1', [publicBookId]);
 
-  for (const chapter of normalizedChapters) {
+  const chapterRows = normalizedChapters.map((chapter) => {
     const index = Number(chapter.chapter_index || 0);
     const chapterTitle = String(chapter.title || chapter.chapter_title || '').trim() ||
       `第${index + 1}章`;
     const contentHtml = String(chapter.content || chapter.content_html || '');
     const contentText = String(chapter.plain_text || chapter.content_text || '');
-    await query(
+    return {
+      chapter_index: index,
+      chapter_title: chapterTitle,
+      content_html: contentHtml,
+      content_text: contentText,
+      word_count: countWords(contentText),
+      href: String(chapter.href || ''),
+    };
+  });
+
+  if (chapterRows.length > 0) {
+    await queryFn(
       `INSERT INTO book_chapters (
          public_book_id,
          book_id,
@@ -293,7 +312,26 @@ async function replaceBookChapters(publicBookId, chapters) {
          word_count,
          href
        )
-       VALUES ($1, $1, $2, $3, $3, $4, $4, $5, $5, $6, $7)
+       SELECT
+         $1,
+         $1,
+         chapter.chapter_index,
+         chapter.chapter_title,
+         chapter.chapter_title,
+         chapter.content_html,
+         chapter.content_html,
+         chapter.content_text,
+         chapter.content_text,
+         chapter.word_count,
+         chapter.href
+       FROM jsonb_to_recordset($2::jsonb) AS chapter(
+         chapter_index INTEGER,
+         chapter_title TEXT,
+         content_html TEXT,
+         content_text TEXT,
+         word_count INTEGER,
+         href TEXT
+       )
        ON CONFLICT (public_book_id, chapter_index) DO UPDATE SET
          book_id = EXCLUDED.book_id,
          title = EXCLUDED.title,
@@ -305,19 +343,11 @@ async function replaceBookChapters(publicBookId, chapters) {
          word_count = EXCLUDED.word_count,
          href = EXCLUDED.href,
          updated_at = now()`,
-      [
-        publicBookId,
-        index,
-        chapterTitle,
-        contentHtml,
-        contentText,
-        countWords(contentText),
-        String(chapter.href || ''),
-      ],
+      [publicBookId, JSON.stringify(chapterRows)],
     );
   }
 
-  const result = await query(
+  const result = await queryFn(
     `UPDATE public_books
      SET chapter_count = $2,
          updated_at = now()
@@ -363,8 +393,9 @@ async function listBookChapters(publicBookId, { includeContent = false } = {}) {
        ${includeContent
         ? 'COALESCE(content_html, content, \'\') AS content_html, COALESCE(content_html, content, \'\') AS content,'
         : "'' AS content_html, '' AS content,"}
-       COALESCE(content_text, plain_text, '') AS content_text,
-       COALESCE(content_text, plain_text, '') AS plain_text,
+       ${includeContent
+        ? "COALESCE(content_text, plain_text, '') AS content_text, COALESCE(content_text, plain_text, '') AS plain_text,"
+        : "'' AS content_text, '' AS plain_text,"}
        word_count,
        href,
        created_at,
@@ -407,25 +438,8 @@ async function getBookChapter(publicBookId, chapterIndex) {
     : null;
 }
 
-async function getBookStorageInfo(publicBookId) {
-  const result = await query(
-    `SELECT
-       id,
-       storage_path,
-       file_type,
-       title,
-       chapter_count
-     FROM public_books
-     WHERE id = $1
-     LIMIT 1`,
-    [publicBookId],
-  );
-
-  return result.rows[0] || null;
-}
-
-async function publishEntries(userId, entryIds, publicBookId = null) {
-  const result = await query(
+async function publishEntries(userId, entryIds, publicBookId = null, queryFn = query) {
+  const result = await queryFn(
     `INSERT INTO public_annotations (
        entry_id,
        public_book_id,
@@ -1132,7 +1146,6 @@ module.exports = {
   replaceBookChapters,
   listBookChapters,
   getBookChapter,
-  getBookStorageInfo,
   listBooks,
   getHome,
   getBook,

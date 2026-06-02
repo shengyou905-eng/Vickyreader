@@ -651,7 +651,7 @@ class _DeepReflectionSheet extends StatelessWidget {
                         ),
                         child: Text(
                           topic,
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: palette.primaryDark,
                             fontSize: 12,
                           ),

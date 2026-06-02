@@ -31,8 +31,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   bool _hasWebSelection = false;
   String? _loadedChapterKey;
   int _appliedReadingPositionRevision = -1;
-  DateTime _lastChapterBoundaryAt =
-      DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastChapterBoundaryAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -54,10 +53,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
           },
         ),
       )
-      ..addJavaScriptChannel(
-        'FlutterBridge',
-        onMessageReceived: _onJsMessage,
-      );
+      ..addJavaScriptChannel('FlutterBridge', onMessageReceived: _onJsMessage);
   }
 
   void _onPageReady() {
@@ -71,17 +67,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
     final target = reader.scrollToTextTarget;
     if (target != null) {
-      _webViewController.runJavaScript(
-        "scrollToText('${_jsEscape(target)}')",
-      );
+      _webViewController.runJavaScript("scrollToText('${_jsEscape(target)}')");
       reader.setScrollTarget(null);
     }
   }
 
   void _restoreScrollOffset(double offset, SettingsProvider settings) {
     if (offset == 0) return;
-    final horizontal =
-        settings.readerPagingMode == ReaderPagingMode.horizontal;
+    final horizontal = settings.readerPagingMode == ReaderPagingMode.horizontal;
     final axis = horizontal ? 'Left' : 'Top';
     final size = horizontal ? 'Width' : 'Height';
     final target = offset < 0
@@ -99,7 +92,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _applyReaderStyles(SettingsProvider settings) {
-    final css = '''
+    final css =
+        '''
       document.documentElement.style.setProperty('--font-size', '${settings.fontSize}px');
       document.documentElement.style.setProperty('--line-height', '${settings.lineHeight}');
       document.documentElement.style.setProperty('--bg-color', '${_colorToHex(settings.backgroundColor)}');
@@ -109,9 +103,21 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   String _colorToHex(Color color) {
-    final r = (color.r * 255).round().clamp(0, 255).toRadixString(16).padLeft(2, '0');
-    final g = (color.g * 255).round().clamp(0, 255).toRadixString(16).padLeft(2, '0');
-    final b = (color.b * 255).round().clamp(0, 255).toRadixString(16).padLeft(2, '0');
+    final r = (color.r * 255)
+        .round()
+        .clamp(0, 255)
+        .toRadixString(16)
+        .padLeft(2, '0');
+    final g = (color.g * 255)
+        .round()
+        .clamp(0, 255)
+        .toRadixString(16)
+        .padLeft(2, '0');
+    final b = (color.b * 255)
+        .round()
+        .clamp(0, 255)
+        .toRadixString(16)
+        .padLeft(2, '0');
     return '#$r$g$b';
   }
 
@@ -136,7 +142,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
       if (offset > 0) {
         final reader = context.read<ReaderProvider>();
         final newIdx = reader.currentChapterIndex + offset;
-        if (newIdx < reader.chapters.length && newIdx != reader.currentChapterIndex) {
+        if (newIdx < reader.chapters.length &&
+            newIdx != reader.currentChapterIndex) {
           reader.goToChapter(newIdx);
           _loadChapter();
         }
@@ -161,7 +168,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final spine = await EpubService.getSpine(book.id);
     final targetHref = href.split('#').first;
     for (int i = 0; i < spine.length; i++) {
-      if (spine[i].endsWith(targetHref) || targetHref.endsWith(spine[i].split('/').last)) {
+      if (spine[i].endsWith(targetHref) ||
+          targetHref.endsWith(spine[i].split('/').last)) {
         if (i < reader.chapters.length) {
           reader.goToChapter(i);
           _loadChapter();
@@ -195,7 +203,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
       highlights: chapterHighlights,
     );
     final filePath = await EpubService.getChapterFilePath(
-        reader.book!.id, targetIndex);
+      reader.book!.id,
+      targetIndex,
+    );
     if (!mounted ||
         context.read<ReaderProvider>().currentChapterIndex != targetIndex) {
       return;
@@ -240,9 +250,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   String _buildChapterHtml(
-      String title, String content, SettingsProvider settings,
-      {List<Highlight> highlights = const [],
-       List<Map<String, String>> nextChapters = const []}) {
+    String title,
+    String content,
+    SettingsProvider settings, {
+    List<Highlight> highlights = const [],
+    List<Map<String, String>> nextChapters = const [],
+  }) {
     final media = MediaQuery.of(context);
     return ReaderDocumentHtml.build(
       title: title,
@@ -288,10 +301,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       _loadChapter();
     } else if (direction == 'prev' && reader.currentChapterIndex > 0) {
       _lastChapterBoundaryAt = now;
-      reader.goToChapter(
-        reader.currentChapterIndex - 1,
-        scrollOffset: -1,
-      );
+      reader.goToChapter(reader.currentChapterIndex - 1, scrollOffset: -1);
       _loadChapter();
     }
   }
@@ -364,12 +374,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
                       PdfReaderWidget(
                         key: ValueKey(settings.readerPagingMode),
                         scrollDirection:
-                            settings.readerPagingMode == ReaderPagingMode.horizontal
-                                ? Axis.horizontal
-                                : Axis.vertical,
+                            settings.readerPagingMode ==
+                                ReaderPagingMode.horizontal
+                            ? Axis.horizontal
+                            : Axis.vertical,
                       ),
                       Positioned(
-                        top: 0, left: 0, right: 0,
+                        top: 0,
+                        left: 0,
+                        right: 0,
                         height: 48,
                         child: GestureDetector(
                           behavior: HitTestBehavior.translucent,
@@ -383,14 +396,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
                 if (reader.selectedText != null)
                   Positioned(
-                    bottom: 0, left: 0, right: 0,
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
                     child: SelectionMenu(
-                      selectedText: reader.selectedText!,
                       onExplain: () => reader.showAiExplanation(),
                       onHighlight: (color) async {
                         final chapter = reader.currentChapter;
                         if (chapter != null) {
-                          final plainText = EpubService.getPlainText(chapter.content);
+                          final plainText = EpubService.getPlainText(
+                            chapter.content,
+                          );
                           final selectedText = reader.selectedText!;
                           final startIdx = _findSelectedTextOffset(
                             plainText,
@@ -447,7 +463,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
                 if (reader.showAiPanel)
                   Positioned(
-                    bottom: 0, left: 0, right: 0,
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
                     height: MediaQuery.of(context).size.height * 0.4,
                     child: const AiExplanationCard(),
                   ),
@@ -482,7 +500,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (direct >= 0) return direct;
 
     final normalized = _normalizeWithIndexMap(plainText);
-    final normalizedSelected = selectedText.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final normalizedSelected = selectedText
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
     if (normalizedSelected.isEmpty) return -1;
 
     final normalizedIndex = normalized.text.indexOf(normalizedSelected);
@@ -519,7 +539,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void _clearReaderSelection(ReaderProvider reader) {
     reader.clearSelection();
     _hasWebSelection = false;
-    _webViewController.runJavaScript('window.clearSelection && window.clearSelection();');
+    _webViewController.runJavaScript(
+      'window.clearSelection && window.clearSelection();',
+    );
   }
 
   Future<void> _maybePublishPublicAnnotation(
@@ -536,9 +558,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('公开到明台？'),
-        content: const Text(
-          '这条内容会出现在公共书籍的页边笔记里。未公开的记录仍只进入你的小U。',
-        ),
+        content: const Text('这条内容会出现在公共书籍的页边笔记里。未公开的记录仍只进入你的小U。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -565,16 +585,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('已公开到明台'),
-          duration: Duration(seconds: 1),
-        ),
+        const SnackBar(content: Text('已公开到明台'), duration: Duration(seconds: 1)),
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('公开失败：$e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('公开失败：$e')));
     }
   }
 
@@ -594,7 +611,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   Widget _buildTopBar(ReaderProvider reader) {
     return Positioned(
-      top: 0, left: 0, right: 0,
+      top: 0,
+      left: 0,
+      right: 0,
       child: Container(
         padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top),
         color: context.read<SettingsProvider>().backgroundColor.withAlpha(230),
@@ -610,13 +629,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 children: [
                   Text(
                     _bookTitleForDisplay(reader),
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
                     overflow: TextOverflow.ellipsis,
                   ),
                   if (reader.currentChapter != null)
                     Text(
                       reader.currentChapter!.title,
-                      style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppTheme.textSecondary,
+                      ),
                       overflow: TextOverflow.ellipsis,
                     ),
                 ],
@@ -654,7 +679,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   Widget _buildBottomBar(ReaderProvider reader) {
     return Positioned(
-      bottom: 0, left: 0, right: 0,
+      bottom: 0,
+      left: 0,
+      right: 0,
       child: Container(
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(context).padding.bottom + 8,
@@ -670,7 +697,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
             ),
             Text(
               '${reader.currentChapterIndex + 1} / ${reader.chapters.length}',
-              style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppTheme.textSecondary,
+              ),
             ),
             IconButton(
               icon: const Icon(Icons.chevron_right),
@@ -705,7 +735,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
             const SizedBox(height: 8),
             Text(
               message,
-              style: const TextStyle(color: AppTheme.textSecondary, height: 1.4),
+              style: const TextStyle(
+                color: AppTheme.textSecondary,
+                height: 1.4,
+              ),
             ),
             const Spacer(flex: 2),
           ],
@@ -727,10 +760,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
           const SizedBox(height: 14),
           Text(
             message,
-            style: const TextStyle(
-              color: AppTheme.textSecondary,
-              fontSize: 13,
-            ),
+            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
           ),
         ],
       ),
@@ -746,18 +776,26 @@ class _ReaderScreenState extends State<ReaderScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('目录', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+            const Text(
+              '目录',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 12),
             Expanded(
               child: ListView.builder(
                 itemCount: reader.chapters.length,
                 itemBuilder: (_, i) => ListTile(
                   dense: true,
-                  title: Text(reader.chapters[i].title,
+                  title: Text(
+                    reader.chapters[i].title,
                     style: TextStyle(
                       fontSize: 14,
-                      fontWeight: i == reader.currentChapterIndex ? FontWeight.w600 : FontWeight.normal,
-                      color: i == reader.currentChapterIndex ? AppTheme.primary : AppTheme.textPrimary,
+                      fontWeight: i == reader.currentChapterIndex
+                          ? FontWeight.w600
+                          : FontWeight.normal,
+                      color: i == reader.currentChapterIndex
+                          ? AppTheme.primary
+                          : AppTheme.textPrimary,
                     ),
                   ),
                   onTap: () {
@@ -810,7 +848,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 }
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('已由小U整理'), duration: Duration(seconds: 1)),
+                    const SnackBar(
+                      content: Text('已由小U整理'),
+                      duration: Duration(seconds: 1),
+                    ),
                   );
                 }
               }

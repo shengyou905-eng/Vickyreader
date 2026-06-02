@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 
 import '../../config/theme.dart';
+import '../../models/user_entry.dart';
 import '../../services/book_service.dart';
 import '../../services/share_service.dart';
 
@@ -111,10 +113,16 @@ class _NotesFreeScreenState extends State<NotesFreeScreen> {
     if (mounted) await _loadNotes();
   }
 
+  void _openEchoDay(_TodayEcho echo) {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => _EchoDayScreen(day: echo.day)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final notes = _visibleNotes;
-    final keywords = _recentKeywords(_notes);
+    final todayEcho = _todayEcho(_notes);
     final groups = _groupNotes(notes);
 
     return Scaffold(
@@ -165,11 +173,14 @@ class _NotesFreeScreenState extends State<NotesFreeScreen> {
                 ),
               ),
             ),
-            if (keywords.isNotEmpty && _query.trim().isEmpty)
+            if (todayEcho != null && _query.trim().isEmpty)
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(18, 24, 18, 2),
                 sliver: SliverToBoxAdapter(
-                  child: _RecentWords(words: keywords),
+                  child: _TodayEchoCard(
+                    echo: todayEcho,
+                    onTap: () => _openEchoDay(todayEcho),
+                  ),
                 ),
               ),
             if (_loading)
@@ -269,18 +280,19 @@ class _FreeNotesSearch extends StatelessWidget {
   }
 }
 
-class _RecentWords extends StatelessWidget {
-  final List<String> words;
+class _TodayEchoCard extends StatelessWidget {
+  final _TodayEcho echo;
+  final VoidCallback onTap;
 
-  const _RecentWords({required this.words});
+  const _TodayEchoCard({required this.echo, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
       decoration: BoxDecoration(
-        color: palette.primaryLight.withAlpha(78),
+        color: palette.card.withAlpha(224),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: palette.divider),
       ),
@@ -289,41 +301,299 @@ class _RecentWords extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.auto_awesome_outlined, size: 16, color: palette.icon),
+              Text(
+                '✦',
+                style: TextStyle(
+                  color: palette.primaryDark,
+                  fontSize: 17,
+                  height: 1,
+                ),
+              ),
               const SizedBox(width: 7),
               Text(
-                '最近落下的词',
+                '今日回响',
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: palette.textSecondary,
+                  color: palette.textPrimary,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 11),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final word in words)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: palette.card.withAlpha(182),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    word,
-                    style: TextStyle(fontSize: 12, color: palette.primaryDark),
-                  ),
+          const SizedBox(height: 18),
+          Text(
+            _formatEchoDate(echo.day),
+            style: TextStyle(color: palette.textSecondary, fontSize: 11),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            echo.excerpt,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: palette.textPrimary,
+              fontSize: 15,
+              height: 1.7,
+            ),
+          ),
+          const SizedBox(height: 13),
+          InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Text(
+                '回到那一天  →',
+                style: TextStyle(
+                  color: palette.primaryDark,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
                 ),
-            ],
+              ),
+            ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _EchoDayScreen extends StatefulWidget {
+  final DateTime day;
+
+  const _EchoDayScreen({required this.day});
+
+  @override
+  State<_EchoDayScreen> createState() => _EchoDayScreenState();
+}
+
+class _EchoDayScreenState extends State<_EchoDayScreen> {
+  late final Future<_EchoDayData> _data = _loadData();
+
+  Future<_EchoDayData> _loadData() async {
+    final day = _dateOnly(widget.day);
+    final nextDay = day.add(const Duration(days: 1));
+    final results = await Future.wait([
+      BookService.getFreeNotes(),
+      BookService.getUserEntries(
+        createdAtFrom: day.toUtc(),
+        createdAtTo: nextDay.subtract(const Duration(microseconds: 1)).toUtc(),
+      ),
+    ]);
+    final notes = (results[0] as List<Map<String, dynamic>>)
+        .where((note) => _isSameDay(_freeNoteDate(note), day))
+        .toList();
+    final entries = (results[1] as List<UserEntry>)
+        .where((entry) => _isSameDay(entry.createdAt.toLocal(), day))
+        .toList();
+    return _EchoDayData(notes: notes, entries: entries);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Scaffold(
+      appBar: AppBar(title: const Text('那一天')),
+      body: FutureBuilder<_EchoDayData>(
+        future: _data,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return _EchoDayEmpty(message: '那一天的记录暂时没有打开。');
+          }
+          final data = snapshot.data!;
+          final highlights = data.entries
+              .where((entry) => entry.source == 'highlight')
+              .toList();
+          final thoughts = data.entries
+              .where((entry) => entry.source == 'thought')
+              .toList();
+          final readingTraces = data.entries
+              .where(
+                (entry) =>
+                    entry.source != 'highlight' && entry.source != 'thought',
+              )
+              .toList();
+          final isEmpty =
+              data.notes.isEmpty &&
+              highlights.isEmpty &&
+              thoughts.isEmpty &&
+              readingTraces.isEmpty;
+          if (isEmpty) {
+            return const _EchoDayEmpty(message: '那一天没有留下更多记录。');
+          }
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 36),
+            children: [
+              Text(
+                _formatEchoDate(widget.day),
+                style: TextStyle(color: palette.textSecondary, fontSize: 13),
+              ),
+              const SizedBox(height: 7),
+              Text(
+                '回到这一天',
+                style: TextStyle(
+                  color: palette.textPrimary,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 24),
+              if (data.notes.isNotEmpty)
+                _EchoSection(
+                  title: '随心记',
+                  children: [
+                    for (final note in data.notes)
+                      _EchoTextCard(
+                        text: note['content']?.toString() ?? '',
+                        time: _formatClock(_freeNoteDate(note)),
+                      ),
+                  ],
+                ),
+              if (highlights.isNotEmpty)
+                _EchoSection(
+                  title: '划线',
+                  children: [
+                    for (final entry in highlights)
+                      _EchoEntryCard(entry: entry),
+                  ],
+                ),
+              if (thoughts.isNotEmpty)
+                _EchoSection(
+                  title: '想法',
+                  children: [
+                    for (final entry in thoughts) _EchoEntryCard(entry: entry),
+                  ],
+                ),
+              if (readingTraces.isNotEmpty)
+                _EchoSection(
+                  title: '阅读记录',
+                  children: [
+                    for (final entry in readingTraces)
+                      _EchoEntryCard(entry: entry),
+                  ],
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _EchoSection extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+
+  const _EchoSection({required this.title, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color: palette.textSecondary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 9),
+          ...children,
+        ],
+      ),
+    );
+  }
+}
+
+class _EchoTextCard extends StatelessWidget {
+  final String text;
+  final String time;
+  final String? source;
+
+  const _EchoTextCard({required this.text, required this.time, this.source});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: palette.card.withAlpha(224),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: palette.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (source?.isNotEmpty == true) ...[
+            Text(
+              source!,
+              style: TextStyle(color: palette.textSecondary, fontSize: 11),
+            ),
+            const SizedBox(height: 7),
+          ],
+          Text(
+            text,
+            style: TextStyle(
+              color: palette.textPrimary,
+              fontSize: 14,
+              height: 1.65,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            time,
+            style: TextStyle(color: palette.textSecondary, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EchoEntryCard extends StatelessWidget {
+  final UserEntry entry;
+
+  const _EchoEntryCard({required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = entry.source == 'thought'
+        ? entry.userInput
+        : entry.originalText.isNotEmpty
+        ? entry.originalText
+        : entry.aiExplanation;
+    return _EchoTextCard(
+      text: text,
+      time: _formatClock(entry.createdAt),
+      source: entry.bookTitle.isEmpty ? null : '《${entry.bookTitle}》',
+    );
+  }
+}
+
+class _EchoDayEmpty extends StatelessWidget {
+  final String message;
+
+  const _EchoDayEmpty({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Center(
+      child: Text(
+        message,
+        style: TextStyle(color: palette.textSecondary, fontSize: 14),
       ),
     );
   }
@@ -907,6 +1177,20 @@ class _NoteGroup {
   const _NoteGroup(this.label, this.notes);
 }
 
+class _TodayEcho {
+  final DateTime day;
+  final String excerpt;
+
+  const _TodayEcho({required this.day, required this.excerpt});
+}
+
+class _EchoDayData {
+  final List<Map<String, dynamic>> notes;
+  final List<UserEntry> entries;
+
+  const _EchoDayData({required this.notes, required this.entries});
+}
+
 List<_NoteGroup> _groupNotes(List<Map<String, dynamic>> notes) {
   final groups = <String, List<Map<String, dynamic>>>{};
   for (final note in notes) {
@@ -953,58 +1237,84 @@ String _formatTime(String value) {
   return '${two(time.month)}月${two(time.day)}日  ${two(time.hour)}:${two(time.minute)}';
 }
 
-List<String> _recentKeywords(List<Map<String, dynamic>> notes) {
-  final counts = <String, int>{};
-  final ignored = <String>{
-    '这个',
-    '那个',
-    '一些',
-    '一个',
-    '一种',
-    '什么',
-    '自己',
-    '因为',
-    '所以',
-    '但是',
-    '还是',
-    '不是',
-    '没有',
-    '可以',
-    '已经',
-    '觉得',
-    '时候',
-    '可能',
-    '我们',
-    '他们',
-    '然后',
-    '其实',
-    '如果',
-    '只是',
-    'the',
-    'and',
-    'that',
-    'with',
-    'this',
-    'have',
-    'from',
-  };
-
-  for (final note in notes.take(24)) {
-    final content = note['content']?.toString().toLowerCase() ?? '';
-    for (final match in RegExp(
-      r'[\u4e00-\u9fff]{2,4}|[a-z]{3,}',
-    ).allMatches(content)) {
-      final word = match.group(0) ?? '';
-      if (word.isEmpty || ignored.contains(word)) continue;
-      counts[word] = (counts[word] ?? 0) + 1;
-    }
+_TodayEcho? _todayEcho(List<Map<String, dynamic>> notes) {
+  final today = _dateOnly(DateTime.now());
+  final candidates = <Map<String, dynamic>>[];
+  final seenExcerpts = <String>{};
+  for (final note in notes) {
+    final noteDate = _freeNoteDate(note);
+    if (noteDate == null) continue;
+    final day = _dateOnly(noteDate);
+    if (today.difference(day).inDays < 6) continue;
+    final excerpt = _echoExcerpt(note['content']?.toString() ?? '');
+    if (excerpt.isEmpty || !seenExcerpts.add(excerpt)) continue;
+    candidates.add({...note, '_echo_day': day, '_echo_excerpt': excerpt});
   }
+  if (candidates.isEmpty) return null;
 
-  final entries = counts.entries.toList()
-    ..sort((a, b) {
-      final byCount = b.value.compareTo(a.value);
-      if (byCount != 0) return byCount;
-      return b.key.length.compareTo(a.key.length);
-    });
-  return entries.take(6).map((entry) => entry.key).toList();
+  final seed = today.millisecondsSinceEpoch ~/ Duration.millisecondsPerDay;
+  final random = Random(seed);
+  const weightedTargets = [7, 7, 7, 30, 30, 90, 180];
+  final target = weightedTargets[random.nextInt(weightedTargets.length)];
+  candidates.sort((a, b) {
+    final aAge = today.difference(a['_echo_day'] as DateTime).inDays;
+    final bAge = today.difference(b['_echo_day'] as DateTime).inDays;
+    final byTarget = (aAge - target).abs().compareTo((bAge - target).abs());
+    if (byTarget != 0) return byTarget;
+    return aAge.compareTo(bAge);
+  });
+
+  final nearestDistance =
+      (today.difference(candidates.first['_echo_day'] as DateTime).inDays -
+              target)
+          .abs();
+  final nearest = candidates.where((note) {
+    final age = today.difference(note['_echo_day'] as DateTime).inDays;
+    return (age - target).abs() == nearestDistance;
+  }).toList();
+  final selected = nearest[random.nextInt(nearest.length)];
+  return _TodayEcho(
+    day: selected['_echo_day'] as DateTime,
+    excerpt: selected['_echo_excerpt'] as String,
+  );
+}
+
+DateTime? _freeNoteDate(Map<String, dynamic> note) {
+  final raw = note['created_at']?.toString() ?? '';
+  return DateTime.tryParse(raw)?.toLocal();
+}
+
+DateTime _dateOnly(DateTime date) {
+  final local = date.toLocal();
+  return DateTime(local.year, local.month, local.day);
+}
+
+bool _isSameDay(DateTime? left, DateTime right) {
+  if (left == null) return false;
+  return left.year == right.year &&
+      left.month == right.month &&
+      left.day == right.day;
+}
+
+String _echoExcerpt(String content) {
+  final normalized = content.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (normalized.isEmpty) return '';
+  final sentence = normalized
+      .split(RegExp(r'[。！？!?]+'))
+      .firstWhere((part) => part.trim().isNotEmpty, orElse: () => normalized)
+      .trim();
+  if (sentence.length <= 72) return sentence;
+  return '${sentence.substring(0, 72)}…';
+}
+
+String _formatEchoDate(DateTime value) {
+  final time = value.toLocal();
+  return '${time.year}年${time.month}月${time.day}日';
+}
+
+String _formatClock(DateTime? value) {
+  if (value == null) return '';
+  final time = value.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${two(time.hour)}:${two(time.minute)}';
 }

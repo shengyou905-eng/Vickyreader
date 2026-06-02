@@ -37,6 +37,44 @@ class EpubMetadata {
 }
 
 class EpubService {
+  static Future<EpubMetadata?> readMetadata(String filePath) async {
+    try {
+      final bytes = await File(filePath).readAsBytes();
+      final archive = ZipDecoder().decodeBytes(bytes);
+      final containerFile = _findContainerFile(archive);
+      if (containerFile == null) return null;
+
+      final containerRoot = _containerRootFor(containerFile.name);
+      final containerXml = XmlDocument.parse(
+        utf8.decode(containerFile.content as List<int>),
+      );
+      final rootfiles = containerXml.findAllElements('rootfile').toList();
+      if (rootfiles.isEmpty) return null;
+      final rootfile = rootfiles.firstWhere(
+        (element) =>
+            element.getAttribute('media-type') ==
+            'application/oebps-package+xml',
+        orElse: () => rootfiles.first,
+      );
+      final rawOpfPath = rootfile.getAttribute('full-path') ?? '';
+      if (rawOpfPath.isEmpty) return null;
+
+      var opfPath = _normalizeArchivePath(rawOpfPath);
+      var opfFile = _findArchiveFile(archive, opfPath);
+      if (opfFile == null && containerRoot.isNotEmpty) {
+        opfPath = _joinArchivePath(containerRoot, rawOpfPath);
+        opfFile = _findArchiveFile(archive, opfPath);
+      }
+      if (opfFile == null) return null;
+
+      return _parseMetadata(
+        XmlDocument.parse(utf8.decode(opfFile.content as List<int>)),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<Book> importEpub(
     String filePath, {
     String? bookId,
@@ -79,9 +117,7 @@ class EpubService {
     if (opfFile == null) throw Exception('Invalid EPUB: missing content.opf');
 
     final opfDir = p.dirname(opfPath);
-    final opfXml = XmlDocument.parse(
-      utf8.decode(opfFile.content as List<int>),
-    );
+    final opfXml = XmlDocument.parse(utf8.decode(opfFile.content as List<int>));
 
     final metadata = _parseMetadata(opfXml);
     final fileTitle = p.basenameWithoutExtension(filePath).trim();
@@ -90,12 +126,12 @@ class EpubService {
     final bookTitle = titleOverride.isNotEmpty
         ? titleOverride
         : _cleanMetadataValue(metadata.title).isNotEmpty
-            ? _cleanMetadataValue(metadata.title)
-            : (fileTitle.isNotEmpty ? fileTitle : '未命名文档');
+        ? _cleanMetadataValue(metadata.title)
+        : (fileTitle.isNotEmpty ? fileTitle : '未命名文档');
     final bookAuthor = authorOverride.isNotEmpty
         ? authorOverride
         : _cleanMetadataValue(metadata.author).isNotEmpty
-            ? _cleanMetadataValue(metadata.author)
+        ? _cleanMetadataValue(metadata.author)
         : '佚名';
     final manifest = _parseManifest(opfXml);
     final spine = _parseSpine(opfXml);
@@ -118,11 +154,21 @@ class EpubService {
     String? coverPath;
     // Strategy 1: metadata coverHref
     if (metadata.coverHref != null) {
-      coverPath = await _extractCoverByHref(archive, opfDir, metadata.coverHref!, appDir);
+      coverPath = await _extractCoverByHref(
+        archive,
+        opfDir,
+        metadata.coverHref!,
+        appDir,
+      );
     }
     // Strategy 2: guide cover reference
     if (coverPath == null && guide.coverHref != null) {
-      coverPath = await _extractCoverByHref(archive, opfDir, guide.coverHref!, appDir);
+      coverPath = await _extractCoverByHref(
+        archive,
+        opfDir,
+        guide.coverHref!,
+        appDir,
+      );
     }
     // Strategy 3: manifest item with "cover" in id
     coverPath ??= await _extractCoverById(archive, opfDir, manifest, appDir);
@@ -142,23 +188,25 @@ class EpubService {
         final cleanContent = _cleanHtml(rawHtml, archive, opfDir);
         final contentWithImages = _rewriteImagePaths(cleanContent, imageMap);
         final title = _extractChapterTitle(rawHtml) ?? '第${i + 1}章';
-        chapters.add(EpubChapter(
-          title: title,
-          content: contentWithImages,
-          index: i,
-        ));
+        chapters.add(
+          EpubChapter(title: title, content: contentWithImages, index: i),
+        );
       }
     }
 
     // Save chapter files
     for (final chapter in chapters) {
-      final chapterFile = File(p.join(bookChapterDir, 'ch_${chapter.index}.html'));
+      final chapterFile = File(
+        p.join(bookChapterDir, 'ch_${chapter.index}.html'),
+      );
       await chapterFile.writeAsString(chapter.content);
     }
 
     // Save metadata
     final titlesFile = File(p.join(bookChapterDir, 'titles.json'));
-    await titlesFile.writeAsString(jsonEncode(chapters.map((c) => c.title).toList()));
+    await titlesFile.writeAsString(
+      jsonEncode(chapters.map((c) => c.title).toList()),
+    );
 
     final spineFile = File(p.join(bookChapterDir, 'spine.json'));
     await spineFile.writeAsString(jsonEncode(spine));
@@ -183,18 +231,21 @@ class EpubService {
 
     List<String> titles = [];
     if (await titlesFile.exists()) {
-      titles = (jsonDecode(await titlesFile.readAsString()) as List).cast<String>();
+      titles = (jsonDecode(await titlesFile.readAsString()) as List)
+          .cast<String>();
     }
 
     final chapters = <EpubChapter>[];
     for (int i = 0; i < titles.length; i++) {
       final chapterFile = File(p.join(bookChapterDir, 'ch_$i.html'));
       if (await chapterFile.exists()) {
-        chapters.add(EpubChapter(
-          title: titles[i],
-          content: await chapterFile.readAsString(),
-          index: i,
-        ));
+        chapters.add(
+          EpubChapter(
+            title: titles[i],
+            content: await chapterFile.readAsString(),
+            index: i,
+          ),
+        );
       }
     }
     return chapters;
@@ -221,7 +272,8 @@ class EpubService {
     final titlesFile = File(p.join(bookChapterDir, 'titles.json'));
     if (!await titlesFile.exists()) return const [];
     try {
-      return (jsonDecode(await titlesFile.readAsString()) as List).cast<String>();
+      return (jsonDecode(await titlesFile.readAsString()) as List)
+          .cast<String>();
     } catch (_) {
       return const [];
     }
@@ -245,9 +297,12 @@ class EpubService {
 
   static Future<List<String>> getSpine(String bookId) async {
     final appDir = await getApplicationDocumentsDirectory();
-    final spineFile = File(p.join(appDir.path, AppConstants.booksDir, bookId, 'spine.json'));
+    final spineFile = File(
+      p.join(appDir.path, AppConstants.booksDir, bookId, 'spine.json'),
+    );
     if (await spineFile.exists()) {
-      return (jsonDecode(await spineFile.readAsString()) as List).cast<String>();
+      return (jsonDecode(await spineFile.readAsString()) as List)
+          .cast<String>();
     }
     return [];
   }
@@ -258,7 +313,10 @@ class EpubService {
   }
 
   static ({String before, String after}) getContext(
-      String htmlContent, String selectedText, int charCount) {
+    String htmlContent,
+    String selectedText,
+    int charCount,
+  ) {
     final plainText = getPlainText(htmlContent);
     final idx = plainText.indexOf(selectedText);
     if (idx == -1) return (before: '', after: '');
@@ -330,25 +388,19 @@ class EpubService {
 
   static EpubMetadata _parseMetadata(XmlDocument opf) {
     final metadataNode = opf.findAllElements('metadata').first;
-    final dc = 'http://purl.org/dc/elements/1.1/';
-    final dcterms = 'http://purl.org/dc/terms/';
 
     String title = '';
     String author = '';
     String? description;
     String? coverHref;
 
-    final titleNode = metadataNode.findElements('${dc}title').firstOrNull ??
-        metadataNode.findElements('title').firstOrNull;
+    final titleNode = _metadataElement(metadataNode, 'title');
     title = titleNode?.innerText.trim() ?? '';
 
-    final creatorNode = metadataNode.findElements('${dc}creator').firstOrNull ??
-        metadataNode.findElements('creator').firstOrNull;
+    final creatorNode = _metadataElement(metadataNode, 'creator');
     author = creatorNode?.innerText.trim() ?? '';
 
-    final descNode = metadataNode.findElements('${dc}description').firstOrNull ??
-        metadataNode.findElements('${dcterms}description').firstOrNull ??
-        metadataNode.findElements('description').firstOrNull;
+    final descNode = _metadataElement(metadataNode, 'description');
     description = descNode?.innerText;
 
     // EPUB 2: <meta name="cover" content="cover-id"/>
@@ -385,6 +437,14 @@ class EpubService {
       description: description,
       coverHref: coverHref,
     );
+  }
+
+  static XmlElement? _metadataElement(XmlElement metadata, String localName) {
+    final normalized = localName.toLowerCase();
+    for (final node in metadata.descendants.whereType<XmlElement>()) {
+      if (node.name.local.toLowerCase() == normalized) return node;
+    }
+    return null;
   }
 
   static String _cleanMetadataValue(String value) {
@@ -444,7 +504,9 @@ class EpubService {
     var written = 0;
     for (final file in archive.files) {
       if (file.isFile && _isImageFile(file.name)) {
-        final ext = p.extension(file.name).isNotEmpty ? p.extension(file.name) : '.jpg';
+        final ext = p.extension(file.name).isNotEmpty
+            ? p.extension(file.name)
+            : '.jpg';
         final localName = '${_hashFilename(file.name)}$ext';
         final localPath = p.join(imageDir, localName);
         try {
@@ -481,8 +543,14 @@ class EpubService {
       // Replace exact match
       result = result.replaceAll(entry.key, fileUri.toString());
       // Replace basename match (common in flat EPUBs)
-      result = result.replaceAll('src="$basename"', 'src="${fileUri.toString()}"');
-      result = result.replaceAll("src='$basename'", "src='${fileUri.toString()}'");
+      result = result.replaceAll(
+        'src="$basename"',
+        'src="${fileUri.toString()}"',
+      );
+      result = result.replaceAll(
+        "src='$basename'",
+        "src='${fileUri.toString()}'",
+      );
       // Replace URL-decoded versions
       final decoded = Uri.decodeFull(entry.key);
       if (decoded != entry.key) {
@@ -495,7 +563,11 @@ class EpubService {
   // ---- Cover extraction strategies ----
 
   static Future<String?> _extractCoverByHref(
-      Archive archive, String opfDir, String coverHref, String appDir) async {
+    Archive archive,
+    String opfDir,
+    String coverHref,
+    String appDir,
+  ) async {
     try {
       final resolvedPath = _resolvePath(opfDir, coverHref);
       var file = _findArchiveFile(archive, resolvedPath);
@@ -507,8 +579,7 @@ class EpubService {
       if (file == null) {
         final basename = p.basename(resolvedPath);
         file = archive.files
-            .where((f) =>
-                f.name.endsWith(basename) && _isImageFile(f.name))
+            .where((f) => f.name.endsWith(basename) && _isImageFile(f.name))
             .firstOrNull;
       }
       if (file != null) {
@@ -519,12 +590,16 @@ class EpubService {
   }
 
   static Future<String?> _extractCoverById(
-      Archive archive, String opfDir,
-      Map<String, String> manifest, String appDir) async {
+    Archive archive,
+    String opfDir,
+    Map<String, String> manifest,
+    String appDir,
+  ) async {
     try {
       // Look for manifest items with "cover" in their id
       for (final entry in manifest.entries) {
-        if (entry.key.toLowerCase().contains('cover') && _isImageFile(entry.value)) {
+        if (entry.key.toLowerCase().contains('cover') &&
+            _isImageFile(entry.value)) {
           final resolvedPath = _resolvePath(opfDir, entry.value);
           final file = _findArchiveFile(archive, resolvedPath);
           if (file != null) return await _saveCoverFile(file, appDir);
@@ -537,7 +612,9 @@ class EpubService {
   static Future<String> _saveCoverFile(ArchiveFile file, String appDir) async {
     final coversDir = p.join(appDir, 'covers');
     await Directory(coversDir).create(recursive: true);
-    final ext = p.extension(file.name).isNotEmpty ? p.extension(file.name) : '.jpg';
+    final ext = p.extension(file.name).isNotEmpty
+        ? p.extension(file.name)
+        : '.jpg';
     final coverFile = File(p.join(coversDir, '${const Uuid().v4()}$ext'));
     await coverFile.writeAsBytes(file.content as List<int>);
     return coverFile.path;
@@ -557,7 +634,10 @@ class EpubService {
     // Remove scripts (security)
     var cleaned = rawHtml
         .replaceAll(RegExp(r'<script[^>]*>.*?</script>', dotAll: true), '')
-        .replaceAll(RegExp(r'<img[^>]*src="kindle:[^"]*"[^>]*/?>', caseSensitive: false), '');
+        .replaceAll(
+          RegExp(r'<img[^>]*src="kindle:[^"]*"[^>]*/?>', caseSensitive: false),
+          '',
+        );
 
     // Inline CSS from <link rel="stylesheet"> before removing link tags
     final cssLinkRe = RegExp(
@@ -577,22 +657,32 @@ class EpubService {
     });
 
     // Remove remaining <link> tags
-    cleaned = cleaned.replaceAll(RegExp(r'<link[^>]*/?>', caseSensitive: false), '');
+    cleaned = cleaned.replaceAll(
+      RegExp(r'<link[^>]*/?>', caseSensitive: false),
+      '',
+    );
 
     // Fix self-closing tags that might confuse the parser
-    cleaned = cleaned.replaceAll(RegExp(r'<br\s*/>', caseSensitive: false), '<br>');
+    cleaned = cleaned.replaceAll(
+      RegExp(r'<br\s*/>', caseSensitive: false),
+      '<br>',
+    );
 
     return cleaned;
   }
 
   static String? _extractChapterTitle(String html) {
-    final hMatch =
-        RegExp(r'<h[1-6][^>]*>(.*?)</h[1-6]>', caseSensitive: false).firstMatch(html);
+    final hMatch = RegExp(
+      r'<h[1-6][^>]*>(.*?)</h[1-6]>',
+      caseSensitive: false,
+    ).firstMatch(html);
     if (hMatch != null) {
       return html_parser.parseFragment(hMatch.group(1)!).text?.trim();
     }
-    final titleMatch =
-        RegExp(r'<title[^>]*>(.*?)</title>', caseSensitive: false).firstMatch(html);
+    final titleMatch = RegExp(
+      r'<title[^>]*>(.*?)</title>',
+      caseSensitive: false,
+    ).firstMatch(html);
     if (titleMatch != null) {
       return html_parser.parseFragment(titleMatch.group(1)!).text?.trim();
     }

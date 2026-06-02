@@ -1,9 +1,12 @@
 const mingtaiRepository = require('../repositories/mingtai.repository');
 const crypto = require('crypto');
-const fs = require('fs/promises');
 const { publicBaseUrl } = require('../config/env');
 const httpError = require('../utils/httpError');
-const { absoluteStoragePath, savePublicBookFile } = require('../utils/publicBookStorage');
+const {
+  deletePublicBookFile,
+  savePublicBookCover,
+  savePublicBookFile,
+} = require('../utils/publicBookStorage');
 const { parsePublicBookChapters } = require('../utils/publicBookParser');
 
 const uuidPattern =
@@ -45,16 +48,17 @@ function requestField(req, key, fallback = '') {
 function parseMultipartBody(req) {
   const contentType = String(req.headers['content-type'] || '');
   if (!contentType.toLowerCase().startsWith('multipart/form-data')) {
-    return { fields: {}, file: null };
+    return { fields: {}, file: null, files: {} };
   }
 
   const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
   const boundary = boundaryMatch?.[1] || boundaryMatch?.[2];
   if (!boundary || !Buffer.isBuffer(req.body)) {
-    return { fields: {}, file: null };
+    return { fields: {}, file: null, files: {} };
   }
 
   const fields = {};
+  const files = {};
   let file = null;
   const body = req.body.toString('latin1');
   const parts = body.split(`--${boundary}`);
@@ -84,17 +88,27 @@ function parseMultipartBody(req) {
 
     const valueBuffer = Buffer.from(rawValue, 'latin1');
     if (filename !== undefined) {
-      file = {
+      const partContentType = rawHeaders
+        .split('\r\n')
+        .find((line) => line.toLowerCase().startsWith('content-type'))
+        ?.split(':')
+        .slice(1)
+        .join(':')
+        .trim();
+      const uploadedFile = {
         fieldName: name,
         filename,
+        contentType: partContentType,
         buffer: valueBuffer,
       };
+      files[name] = uploadedFile;
+      if (name === 'file' || !file) file = uploadedFile;
     } else {
       fields[name] = valueBuffer.toString('utf8');
     }
   }
 
-  return { fields, file };
+  return { fields, file, files };
 }
 
 function assertUuid(id, label) {
@@ -177,7 +191,7 @@ function sanitizedPublishBookBody(req) {
   return body;
 }
 
-async function parseAndSaveBookChapters(publicBookId, buffer, { fileType, title }) {
+function parseBookChapters(buffer, { fileType, title }) {
   const type = String(fileType || '').toLowerCase().replace('.', '').trim();
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) return [];
   if (type !== 'epub' && type !== 'txt') return [];
@@ -186,28 +200,6 @@ async function parseAndSaveBookChapters(publicBookId, buffer, { fileType, title 
   if (chapters.length === 0) {
     throw httpError(400, 'No readable chapters found in public book file');
   }
-  await mingtaiRepository.replaceBookChapters(publicBookId, chapters);
-  return chapters;
-}
-
-async function ensureBookChapters(publicBookId) {
-  let chapters = await mingtaiRepository.listBookChapters(publicBookId);
-  if (chapters.length > 0) return chapters;
-
-  const book = await mingtaiRepository.getBookStorageInfo(publicBookId);
-  if (!book) throw httpError(404, 'Public book not found');
-
-  const type = String(book.file_type || '').toLowerCase().replace('.', '').trim();
-  if (type !== 'epub' && type !== 'txt') return [];
-  if (!book.storage_path) return [];
-
-  const absolutePath = absoluteStoragePath(book.storage_path);
-  const buffer = await fs.readFile(absolutePath);
-  await parseAndSaveBookChapters(publicBookId, buffer, {
-    fileType: type,
-    title: book.title,
-  });
-  chapters = await mingtaiRepository.listBookChapters(publicBookId);
   return chapters;
 }
 
@@ -249,7 +241,11 @@ async function publishBook(req, res, next) {
     const rawTitle = String(requestField(req, 'title')).trim();
     const fileType = String(requestField(req, 'file_type')).trim();
     const copyrightStatus = String(requestField(req, 'copyright_status')).trim();
-    const entryIds = normalizeEntryIds(Buffer.isBuffer(req.body) ? req.query : req.body);
+    const entryIds = normalizeEntryIds({
+      ...(Buffer.isBuffer(req.body) ? {} : req.body),
+      ...req.query,
+      ...multipart.fields,
+    });
 
     if (!sourceBookId) {
       sourceBookId = fallbackSourceBookId(req, { rawTitle, fileType });
@@ -304,31 +300,58 @@ async function publishBook(req, res, next) {
       });
     }
 
-    const providedFileUrl = String(requestField(req, 'file_url')).trim();
-    if (!storedFile && !providedFileUrl) {
-      throw httpError(400, 'book file is required');
+    if (!storedFile) {
+      throw httpError(400, 'uploaded book file is required');
     }
 
-    const result = await mingtaiRepository.publishBook(req.user.id, {
-      source_book_id: sourceBookId,
-      title,
-      author: safeAuthor(requestField(req, 'author')),
-      cover_url: requestField(req, 'cover_url'),
-      description: requestField(req, 'description'),
-      copyright_status: copyrightStatus,
-      metadata_json: Buffer.isBuffer(req.body) ? {} : req.body.metadata_json,
-      file_url: storedFile ? publicUrlFor(req, storedFile.public_path) : providedFileUrl,
-      storage_path: storedFile?.storage_path || requestField(req, 'storage_path'),
-      file_type: storedFile?.file_type || fileType,
-      file_size: storedFile?.file_size || Number(requestField(req, 'file_size')) || 0,
-      entry_ids: entryIds,
-    });
-    const chapters = await parseAndSaveBookChapters(result.book.id, fileBufferForParsing, {
-      fileType: result.book.file_type || fileType,
-      title,
-    });
-    if (chapters.length > 0) {
-      result.book.chapter_count = chapters.length;
+    let storedCover = null;
+    try {
+      if (multipart.files.cover?.buffer?.length > 0) {
+        storedCover = await savePublicBookCover(multipart.files.cover.buffer, {
+          fileName: multipart.files.cover.filename,
+          mimeType: multipart.files.cover.contentType,
+        });
+      }
+    } catch (error) {
+      await deletePublicBookFile(storedFile.storage_path);
+      throw error;
+    }
+
+    let chapters = [];
+    try {
+      chapters = parseBookChapters(fileBufferForParsing, {
+        fileType: storedFile.file_type,
+        title,
+      });
+    } catch (error) {
+      await deletePublicBookFile(storedFile.storage_path);
+      await deletePublicBookFile(storedCover?.storage_path);
+      throw error;
+    }
+
+    let result;
+    try {
+      result = await mingtaiRepository.publishBook(req.user.id, {
+        source_book_id: sourceBookId,
+        title,
+        author: safeAuthor(requestField(req, 'author')),
+        cover_url: storedCover
+          ? publicUrlFor(req, storedCover.public_path)
+          : requestField(req, 'cover_url'),
+        description: requestField(req, 'description'),
+        copyright_status: copyrightStatus,
+        metadata_json: Buffer.isBuffer(req.body) ? {} : req.body.metadata_json,
+        file_url: publicUrlFor(req, storedFile.public_path),
+        storage_path: storedFile.storage_path,
+        file_type: storedFile.file_type,
+        file_size: storedFile.file_size,
+        chapter_count: chapters.length,
+        entry_ids: entryIds,
+      }, chapters);
+    } catch (error) {
+      await deletePublicBookFile(storedFile.storage_path);
+      await deletePublicBookFile(storedCover?.storage_path);
+      throw error;
     }
 
     return res.status(201).json({
@@ -344,10 +367,9 @@ async function listBookChapters(req, res, next) {
   try {
     assertUuid(req.params.id, 'book id');
     const includeContent = String(req.query.include_content || '').toLowerCase() === 'true';
-    const repair = String(req.query.repair || '').toLowerCase() === 'true';
-    const chapters = repair
-      ? await ensureBookChapters(req.params.id)
-      : await mingtaiRepository.listBookChapters(req.params.id, { includeContent });
+    const chapters = await mingtaiRepository.listBookChapters(req.params.id, {
+      includeContent,
+    });
     return res.json({ chapters });
   } catch (error) {
     return next(error);
@@ -362,12 +384,7 @@ async function getBookChapter(req, res, next) {
       throw httpError(400, 'Invalid chapter index');
     }
 
-    let chapter = await mingtaiRepository.getBookChapter(req.params.id, chapterIndex);
-    const repair = String(req.query.repair || '').toLowerCase() === 'true';
-    if (!chapter && repair) {
-      await ensureBookChapters(req.params.id);
-      chapter = await mingtaiRepository.getBookChapter(req.params.id, chapterIndex);
-    }
+    const chapter = await mingtaiRepository.getBookChapter(req.params.id, chapterIndex);
     if (!chapter) throw httpError(404, 'Book chapter not found');
 
     return res.json({ chapter });

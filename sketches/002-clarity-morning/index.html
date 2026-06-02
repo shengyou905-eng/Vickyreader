@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>知读 · 朝日明晰</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #eae6df;
+    display: flex; justify-content: center; align-items: center;
+    min-height: 100vh; padding: 40px 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .phone {
+    width: 375px; height: 740px;
+    background: #fcfcf9;
+    border-radius: 24px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06);
+  }
+
+  .status-bar {
+    height: 44px; padding: 12px 24px 0;
+    display: flex; justify-content: space-between;
+    font-size: 12px; color: #999;
+  }
+
+  /* ── Header ── */
+  .header {
+    padding: 24px 24px 8px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .header h1 {
+    font-size: 22px; font-weight: 700;
+    color: #1a1a1a; letter-spacing: 0.01em;
+  }
+  .header .count {
+    font-size: 13px; color: #888;
+  }
+
+  /* ── Screen ── */
+  .screen { flex: 1; overflow-y: auto; padding: 0 20px 16px; }
+  .screen::-webkit-scrollbar { width: 0; }
+
+  /* ── Section chip ── */
+  .section-chip {
+    display: inline-block; font-size: 11px; font-weight: 600;
+    color: #888; background: #f0ede7;
+    padding: 4px 12px; border-radius: 20px;
+    margin: 12px 0 10px;
+    letter-spacing: 0.04em;
+  }
+
+  /* ── Book cards (row style) ── */
+  .book-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 16px; margin: 4px 0;
+    background: #fff; border: 1px solid #eeeae0;
+    border-radius: 14px; cursor: pointer;
+    transition: box-shadow 0.15s, transform 0.15s;
+  }
+  .book-row:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+  .book-row:active { transform: scale(0.985); }
+
+  .book-cover {
+    width: 50px; height: 68px; border-radius: 6px;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: rgba(255,255,255,0.9);
+    font-weight: 700; letter-spacing: 0.06em;
+  }
+
+  .book-info { flex: 1; min-width: 0; }
+  .book-title {
+    font-size: 15px; font-weight: 600; color: #1a1a1a;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .book-author {
+    font-size: 12px; color: #999; margin-top: 2px;
+  }
+  .book-meta {
+    display: flex; align-items: center; gap: 10px; margin-top: 5px;
+  }
+  .progress-ring {
+    width: 36px; height: 36px;
+    flex-shrink: 0;
+  }
+  .progress-text {
+    font-size: 11px; color: #b0a590; font-weight: 500;
+  }
+  .badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 10px;
+    font-weight: 600;
+  }
+  .badge-notes { background: #fff3e0; color: #e69a3a; }
+  .badge-done { background: #e8f5e9; color: #5d9b5f; }
+
+  /* ── 小U tab ── */
+  .xiaou-card {
+    background: #fff; border: 1px solid #eeeae0;
+    border-radius: 16px; padding: 20px; margin-top: 12px;
+    line-height: 1.65; font-size: 14px; color: #333;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+  }
+  .xiaou-card .accent {
+    color: #e69a3a; font-weight: 600;
+  }
+  .xiaou-card .source {
+    font-size: 11px; color: #bbb; margin-top: 12px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .source-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: #e69a3a;
+  }
+
+  /* ── 随心记 tab ── */
+  .note-card {
+    background: #fffefb; border: 1px solid #eeeae0;
+    border-radius: 14px; padding: 18px; margin-top: 10px;
+    font-size: 14px; color: #444; line-height: 1.7;
+    position: relative;
+  }
+  .note-card .date {
+    font-size: 11px; color: #bbb; margin-bottom: 8px;
+    font-weight: 500;
+  }
+  .fab {
+    position: absolute; bottom: 80px; right: 20px;
+    width: 48px; height: 48px; background: #1a1a1a;
+    border-radius: 50%; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    transition: transform 0.2s;
+    z-index: 10;
+  }
+  .fab:active { transform: scale(0.9); }
+
+  /* ── 明台 tab ── */
+  .mingtai-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 16px; margin: 4px 0;
+    background: #fff; border: 1px solid #eeeae0;
+    border-radius: 14px; cursor: pointer;
+  }
+  .mingtai-row:active { opacity: 0.7; }
+  .mingtai-row .reader {
+    font-size: 11px; color: #aaa; display: flex; align-items: center; gap: 4px;
+  }
+  .reader-avatar {
+    width: 16px; height: 16px; border-radius: 50%; background: #e0d5c8;
+    display: inline-block;
+  }
+
+  /* ── Tab bar ── */
+  .tab-bar {
+    height: 62px; padding: 4px 12px 12px;
+    display: flex; align-items: center; gap: 2px;
+    border-top: 1px solid #eeeae0;
+    background: #fcfcf9;
+  }
+  .tab {
+    flex: 1; text-align: center; cursor: pointer;
+    padding: 6px 0; border-radius: 10px; transition: background 0.2s;
+  }
+  .tab .icon {
+    font-size: 18px; display: block; margin-bottom: 2px;
+    transition: transform 0.2s;
+  }
+  .tab .label {
+    font-size: 10px; color: #bbb; font-weight: 500;
+    transition: color 0.2s;
+  }
+  .tab.active { background: #f5f1e8; }
+  .tab.active .label { color: #1a1a1a; font-weight: 700; }
+  .tab:hover:not(.active) .label { color: #888; }
+
+  .hidden { display: none !important; }
+
+  /* SVG ring */
+  .ring-bg { stroke: #eeeae0; fill: none; stroke-width: 3; }
+  .ring-fg { fill: none; stroke-width: 3; stroke-linecap: round; }
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <div class="status-bar">
+    <span>9:41</span><span>知读</span><span>🔋</span>
+  </div>
+
+  <div class="header">
+    <h1>书架</h1>
+    <span class="count">4 册</span>
+  </div>
+
+  <!-- ── 书架 ── -->
+  <div class="screen" id="screen-bookshelf">
+    <div class="section-chip">正在阅读</div>
+
+    <div class="book-row" onclick="alert('打开：挪威的森林')">
+      <div class="book-cover" style="background:#4a6741;">挪</div>
+      <div class="book-info">
+        <div class="book-title">挪威的森林</div>
+        <div class="book-author">村上春树</div>
+        <div class="book-meta">
+          <span class="badge badge-notes">3 条痕迹</span>
+          <span class="progress-text">67%</span>
+        </div>
+      </div>
+      <svg class="progress-ring" viewBox="0 0 36 36">
+        <circle class="ring-bg" cx="18" cy="18" r="14"/><circle class="ring-fg" stroke="#e69a3a" cx="18" cy="18" r="14" stroke-dasharray="88" stroke-dashoffset="29" transform="rotate(-90 18 18)"/>
+      </svg>
+    </div>
+
+    <div class="book-row" onclick="alert('打开：活着')">
+      <div class="book-cover" style="background:#8b4513;">活</div>
+      <div class="book-info">
+        <div class="book-title">活着</div>
+        <div class="book-author">余华</div>
+        <div class="book-meta">
+          <span class="progress-text">23%</span>
+        </div>
+      </div>
+      <svg class="progress-ring" viewBox="0 0 36 36">
+        <circle class="ring-bg" cx="18" cy="18" r="14"/><circle class="ring-fg" stroke="#e69a3a" cx="18" cy="18" r="14" stroke-dasharray="88" stroke-dashoffset="68" transform="rotate(-90 18 18)"/>
+      </svg>
+    </div>
+
+    <div class="section-chip">已读完</div>
+
+    <div class="book-row" onclick="alert('打开：雪国')">
+      <div class="book-cover" style="background:#5b7f95;">雪</div>
+      <div class="book-info">
+        <div class="book-title">雪国</div>
+        <div class="book-author">川端康成</div>
+        <div class="book-meta">
+          <span class="badge badge-done">已读完</span>
+          <span class="badge badge-notes">12 条笔记</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-chip">待读</div>
+
+    <div class="book-row" onclick="alert('打开：百年孤独')">
+      <div class="book-cover" style="background:#6d597a;">百</div>
+      <div class="book-info">
+        <div class="book-title">百年孤独</div>
+        <div class="book-author">加西亚·马尔克斯</div>
+        <div class="book-meta">
+          <span class="progress-text">未开始</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 小U ── -->
+  <div class="screen hidden" id="screen-xiaou">
+    <div class="xiaou-card">
+      你在《挪威的森林》第 3 章标注了<span class="accent">「死不是生的对立面」</span>——这句话在全书中出现了两次。村上用这个重复暗示：渡边在第一次读到它时，只是理解；第二次，他才真正<em>懂得</em>。
+      <div class="source"><div class="source-dot"></div>小U · 基于你的 3 条阅读痕迹</div>
+    </div>
+    <div class="xiaou-card">
+      你在《活着》中频繁标注了关于<span class="accent">「忍耐」</span>的段落——与《挪威的森林》中渡边的生存姿态形成对照。要不要把这两本书的阅读痕迹放在一起看看？
+      <div class="source"><div class="source-dot"></div>小U · 跨书关联发现</div>
+    </div>
+  </div>
+
+  <!-- ── 随心记 ── -->
+  <div class="screen hidden" id="screen-suixinji">
+    <div class="note-card">
+      <div class="date">5月28日 · 凌晨</div>
+      读《雪国》的时候一直在想，驹子为什么要在那种处境里仍然保持一种近乎偏执的洁净。也许是她的抵抗方式吧。不是逃跑，而是在泥泞里把自己擦干净。<br><br>突然觉得这很像妈妈。
+    </div>
+    <div class="note-card">
+      <div class="date">5月19日 · 傍晚</div>
+      今天的晚霞是淡紫色的。想起《挪威的森林》里直子说的「完美的黄昏」。坐在阳台上读了二十分钟，什么也没标注。
+    </div>
+    <div class="fab" onclick="alert('新建随心记')">+</div>
+  </div>
+
+  <!-- ── 明台 ── -->
+  <div class="screen hidden" id="screen-mingtai">
+    <div class="mingtai-row" onclick="alert('打开：雪国 · 小林阳葵批注本')">
+      <div class="book-cover" style="background:#5b7f95; width:42px; height:56px; font-size:10px;">雪</div>
+      <div class="book-info">
+        <div class="book-title">雪国</div>
+        <div class="book-author">川端康成</div>
+        <div class="reader"><span class="reader-avatar"></span>小林阳葵 · 12 条公开痕迹</div>
+      </div>
+    </div>
+    <div class="mingtai-row" onclick="alert('打开：局外人 · 山月批注本')">
+      <div class="book-cover" style="background:#3a3a3a; width:42px; height:56px; font-size:10px;">局</div>
+      <div class="book-info">
+        <div class="book-title">局外人</div>
+        <div class="book-author">阿尔贝·加缪</div>
+        <div class="reader"><span class="reader-avatar" style="background:#c8b8a0;"></span>山月 · 9 条公开痕迹</div>
+      </div>
+    </div>
+    <div class="mingtai-row" onclick="alert('打开：海边卡夫卡 · 南风批注本')">
+      <div class="book-cover" style="background:#2d5a4b; width:42px; height:56px; font-size:10px;">海</div>
+      <div class="book-info">
+        <div class="book-title">海边的卡夫卡</div>
+        <div class="book-author">村上春树</div>
+        <div class="reader"><span class="reader-avatar" style="background:#d0c0b0;"></span>南风 · 21 条公开痕迹</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Tab bar ── -->
+  <div class="tab-bar">
+    <div class="tab active" data-tab="bookshelf" onclick="switchTab('bookshelf')">
+      <span class="icon">📚</span><span class="label">书架</span>
+    </div>
+    <div class="tab" data-tab="xiaou" onclick="switchTab('xiaou')">
+      <span class="icon">✨</span><span class="label">小U</span>
+    </div>
+    <div class="tab" data-tab="suixinji" onclick="switchTab('suixinji')">
+      <span class="icon">📝</span><span class="label">随心记</span>
+    </div>
+    <div class="tab" data-tab="mingtai" onclick="switchTab('mingtai')">
+      <span class="icon">🏛</span><span class="label">明台</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  function switchTab(name) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('screen-' + name).classList.remove('hidden');
+    document.querySelector('[data-tab="' + name + '"]').classList.add('active');
+
+    const titles = { bookshelf: '书架', xiaou: '小U', suixinji: '随心记', mingtai: '明台' };
+    const counts = { bookshelf: '4 册', xiaou: '2 条新回顾', suixinji: '3 篇', mingtai: '3 本公开' };
+    document.querySelector('.header h1').textContent = titles[name];
+    document.querySelector('.header .count').textContent = counts[name];
+
+    // show/hide FAB (only on suixinji)
+    const fab = document.querySelector('.fab');
+    if (fab) fab.style.display = name === 'suixinji' ? 'flex' : 'none';
+  }
+</script>
+
+</body>
+</html>

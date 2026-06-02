@@ -379,7 +379,7 @@ class BmobApi {
     required String filePath,
     required String fileType,
     String? author,
-    String? coverUrl,
+    String? coverPath,
     String? description,
     List<String> entryIds = const [],
   }) async {
@@ -399,38 +399,57 @@ class BmobApi {
     final resolvedSourceBookId = sourceBookId.trim().isNotEmpty
         ? sourceBookId.trim()
         : _fallbackSourceBookId(filePath: filePath, title: title);
-    final fileBytes = await file.readAsBytes();
+    final localCoverPath = coverPath?.trim() ?? '';
+    final localCover = localCoverPath.isNotEmpty ? File(localCoverPath) : null;
+    final hasLocalCover = localCover != null && await localCover.exists();
     final fields = <String, String>{
       'source_book_id': resolvedSourceBookId,
       'title': title,
       'author': author ?? '',
-      'cover_url': _publicUrlOrEmpty(coverUrl),
+      'cover_url': _publicUrlOrEmpty(coverPath),
       'description': description ?? '',
       'copyright_status': copyrightStatus,
       'file_type': fileType,
       'file_name': p.basename(filePath),
-      'file_size': fileBytes.length.toString(),
+      'file_size': (await file.length()).toString(),
       if (entryIds.isNotEmpty) 'entry_ids': entryIds.join(','),
     };
-    final uri = Uri.parse(
-      '${AppConstants.apiBaseUrl}/api/mingtai/books',
-    ).replace(queryParameters: fields);
+    final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books');
 
     debugPrint('[MingtaiPublishBook] POST $uri');
     debugPrint(
-      '[MingtaiPublishBook] request.body=${jsonEncode({...fields, 'binary_file_bytes': fileBytes.length})}',
+      '[MingtaiPublishBook] request.body=${jsonEncode({...fields, 'cover_file': hasLocalCover ? p.basename(localCoverPath) : ''})}',
     );
     debugPrint('[MingtaiPublishBook] source_book_id=$resolvedSourceBookId');
 
-    final headers = _authHeaders(contentType: _fileContentType(fileType))
-      ..addAll({
+    final request = http.MultipartRequest('POST', uri)
+      ..headers.addAll(_authHeaders(contentType: ''))
+      ..headers.addAll({
         'x-source-book-id': resolvedSourceBookId,
         'x-file-type': fileType,
         'x-copyright-status': copyrightStatus,
-      });
-    final res = await http
-        .post(uri, headers: headers, body: fileBytes)
-        .timeout(const Duration(minutes: 3));
+      })
+      ..fields.addAll(fields)
+      ..files.add(
+        await http.MultipartFile.fromPath(
+          'file',
+          filePath,
+          filename: p.basename(filePath),
+        ),
+      );
+    if (hasLocalCover) {
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'cover',
+          localCoverPath,
+          filename: p.basename(localCoverPath),
+        ),
+      );
+    }
+    final streamed = await request.send().timeout(const Duration(minutes: 3));
+    final res = await http.Response.fromStream(
+      streamed,
+    ).timeout(const Duration(minutes: 3));
 
     debugPrint('[MingtaiPublishBook] statusCode=${res.statusCode}');
     debugPrint('[MingtaiPublishBook] response.body=${res.body}');
@@ -453,6 +472,12 @@ class BmobApi {
     final fileUrl = book['file_url']?.toString().trim() ?? '';
     if (fileUrl.isEmpty) {
       throw Exception('服务器没有保存书籍文件：public_books.file_url 为空。请先部署最新后端后重新发布。');
+    }
+    final fileType = book['file_type']?.toString().trim().toLowerCase() ?? '';
+    final chapterCount =
+        int.tryParse(book['chapter_count']?.toString() ?? '') ?? 0;
+    if ((fileType == 'epub' || fileType == 'txt') && chapterCount <= 0) {
+      throw Exception('服务器没有生成章节缓存，请先部署最新后端后重新发布。');
     }
   }
 
@@ -834,19 +859,6 @@ class BmobApi {
         ? filePath.trim()
         : '${title.trim()}:${DateTime.now().millisecondsSinceEpoch}';
     return 'local_${md5.convert(utf8.encode(seed))}';
-  }
-
-  String _fileContentType(String fileType) {
-    switch (fileType.toLowerCase().replaceAll('.', '')) {
-      case 'epub':
-        return 'application/epub+zip';
-      case 'pdf':
-        return 'application/pdf';
-      case 'txt':
-        return 'text/plain; charset=utf-8';
-      default:
-        return 'application/octet-stream';
-    }
   }
 
   String _tryDecodeError(String body, int statusCode) {

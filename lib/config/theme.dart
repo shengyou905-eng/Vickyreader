@@ -131,18 +131,18 @@ class AppTheme {
   );
 
   static const AppPalette babyBlue = AppPalette(
-    background: Color(0xFFF4F8FA),
-    surface: Color(0xFFFBFDFD),
-    card: Color(0xFFFBFDFD),
-    primaryLight: Color(0xFFCFE0E8),
-    primary: Color(0xFF789AAF),
-    primaryDark: Color(0xFF5E7E91),
-    icon: Color(0xFF698B9D),
-    illustration: Color(0xFFB8D4DF),
-    textPrimary: Color(0xFF2D3439),
-    textSecondary: Color(0xFF6E797F),
-    divider: Color(0xFFE1E9EC),
-    buttonForeground: Color(0xFFF8FBFC),
+    background: Color(0xFFF3FAFE),
+    surface: Color(0xFFFCFEFF),
+    card: Color(0xFFFAFDFF),
+    primaryLight: Color(0xFFD6F0FC),
+    primary: Color(0xFF89CFF0),
+    primaryDark: Color(0xFF5FA9D0),
+    icon: Color(0xFF6DB6DC),
+    illustration: Color(0xFFBDE8FA),
+    textPrimary: Color(0xFF303944),
+    textSecondary: Color(0xFF73818E),
+    divider: Color(0xFFDCEFF8),
+    buttonForeground: Color(0xFFFCFEFF),
   );
 
   static const AppPalette paper = AppPalette(

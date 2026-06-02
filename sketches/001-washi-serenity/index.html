@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>知读 · 静寂和紙</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #e8e0d5;
+    display: flex; justify-content: center; align-items: center;
+    min-height: 100vh; padding: 40px 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .phone {
+    width: 375px; height: 740px;
+    background: #faf6f0;
+    border-radius: 24px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06);
+  }
+
+  /* ── Status bar ── */
+  .status-bar {
+    height: 44px; padding: 12px 24px 0;
+    display: flex; justify-content: space-between;
+    font-size: 12px; color: #5c4a3a; opacity: 0.5;
+  }
+
+  /* ── Header ── */
+  .header {
+    padding: 20px 24px 12px;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .header h1 {
+    font-size: 26px; font-weight: 600;
+    color: #3a2e24; letter-spacing: 0.02em;
+  }
+  .header .subtle {
+    font-size: 13px; color: #9b8c7c;
+  }
+
+  /* ── Screen area ── */
+  .screen { flex: 1; overflow-y: auto; padding: 0 24px 16px; }
+  .screen::-webkit-scrollbar { width: 0; }
+
+  /* ── Bookshelf ── */
+  .section-label {
+    font-size: 11px; letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #b8a898; margin: 16px 0 10px;
+  }
+
+  .book-card {
+    display: flex; gap: 14px; padding: 14px 0;
+    border-bottom: 1px solid #eee4d8;
+    cursor: pointer; transition: opacity 0.2s;
+    align-items: center;
+    position: relative;
+  }
+  .book-card:active { opacity: 0.6; }
+  .book-card:first-of-type { padding-top: 0; }
+
+  .book-cover {
+    width: 48px; height: 66px; border-radius: 4px;
+    flex-shrink: 0;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; color: rgba(255,255,255,0.85);
+    font-weight: 600; letter-spacing: 0.04em;
+  }
+
+  .book-info { flex: 1; min-width: 0; }
+  .book-title {
+    font-size: 15px; font-weight: 600; color: #3a2e24;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .book-author {
+    font-size: 12px; color: #9b8c7c; margin-top: 2px;
+  }
+  .book-meta {
+    display: flex; align-items: center; gap: 8px; margin-top: 4px;
+  }
+  .progress-bar {
+    width: 80px; height: 3px; background: #e8ddd0; border-radius: 2px; overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%; background: #c75b4a; border-radius: 2px;
+    transition: width 0.4s ease;
+  }
+  .progress-text {
+    font-size: 11px; color: #b8a898;
+  }
+
+  .trace-dot {
+    width: 6px; height: 6px; background: #c75b4a; border-radius: 50%;
+    position: absolute; right: 0; top: 20px;
+    opacity: 0.6;
+  }
+
+  /* ── 小U tab ── */
+  .xiaou-bubble {
+    background: #fffaf5; border: 1px solid #efe4d6;
+    border-radius: 14px; padding: 18px; margin-top: 12px;
+    line-height: 1.6; font-size: 14px; color: #4a3f35;
+  }
+  .xiaou-bubble .highlight {
+    color: #c75b4a; font-weight: 500;
+  }
+  .xiaou-subtitle {
+    font-size: 11px; color: #b8a898; margin-top: 10px;
+  }
+
+  /* ── 随心记 tab ── */
+  .empty-state {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    flex: 1; min-height: 300px;
+    color: #ccbfb0;
+  }
+  .empty-state .icon { font-size: 40px; margin-bottom: 12px; }
+  .empty-state .msg { font-size: 15px; }
+
+  .note-preview {
+    background: #fffdf8; border: 1px solid #efe4d6;
+    border-radius: 10px; padding: 16px; margin-top: 12px;
+    font-size: 14px; color: #4a3f35; line-height: 1.7;
+  }
+  .note-preview .date {
+    font-size: 11px; color: #b8a898; margin-bottom: 6px;
+  }
+
+  /* ── 明台 tab ── */
+  .mingtai-card {
+    background: #fffdf8; border: 1px solid #efe4d6;
+    border-radius: 12px; padding: 16px; margin-top: 12px;
+    cursor: pointer;
+  }
+  .mingtai-card:active { opacity: 0.7; }
+  .mingtai-card .reader-name {
+    font-size: 12px; color: #9b8c7c;
+  }
+
+  /* ── Tab bar ── */
+  .tab-bar {
+    height: 56px; padding: 0 8px 8px;
+    display: flex; align-items: center;
+    border-top: 1px solid #efe4d6;
+    background: #faf6f0;
+  }
+  .tab {
+    flex: 1; text-align: center; cursor: pointer;
+    font-size: 11px; color: #b8a898; letter-spacing: 0.04em;
+    padding: 8px 0; transition: color 0.2s;
+    position: relative;
+  }
+  .tab.active { color: #5c4a3a; font-weight: 600; }
+  .tab.active::after {
+    content: ''; position: absolute; bottom: -2px; left: 50%;
+    transform: translateX(-50%);
+    width: 3px; height: 3px; background: #c75b4a; border-radius: 50%;
+  }
+  .tab:hover { color: #7a6a5a; }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <div class="status-bar">
+    <span>9:41</span><span>知读</span><span>🔋</span>
+  </div>
+
+  <div class="header">
+    <h1>书架</h1>
+    <span class="subtle">4 册在读</span>
+  </div>
+
+  <!-- ── 书架 tab ── -->
+  <div class="screen" id="screen-bookshelf">
+    <div class="section-label">正在阅读</div>
+
+    <div class="book-card" onclick="alert('打开：挪威的森林')">
+      <div class="book-cover" style="background: #4a6741;">挪</div>
+      <div class="book-info">
+        <div class="book-title">挪威的森林</div>
+        <div class="book-author">村上春树</div>
+        <div class="book-meta">
+          <div class="progress-bar"><div class="progress-fill" style="width:67%"></div></div>
+          <span class="progress-text">67%</span>
+        </div>
+      </div>
+      <div class="trace-dot"></div>
+    </div>
+
+    <div class="book-card" onclick="alert('打开：活着')">
+      <div class="book-cover" style="background: #8b4513;">活</div>
+      <div class="book-info">
+        <div class="book-title">活着</div>
+        <div class="book-author">余华</div>
+        <div class="book-meta">
+          <div class="progress-bar"><div class="progress-fill" style="width:23%"></div></div>
+          <span class="progress-text">23%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-label">已读完</div>
+
+    <div class="book-card" onclick="alert('打开：雪国')">
+      <div class="book-cover" style="background: #5b7f95;">雪</div>
+      <div class="book-info">
+        <div class="book-title">雪国</div>
+        <div class="book-author">川端康成</div>
+        <div class="book-meta">
+          <span class="progress-text">已读完 · 12 条笔记</span>
+        </div>
+      </div>
+      <div class="trace-dot" style="top:30px; right:4px;"></div>
+      <div class="trace-dot" style="top:30px; right:16px;"></div>
+    </div>
+
+    <div class="section-label">待读</div>
+
+    <div class="book-card" onclick="alert('打开：百年孤独')">
+      <div class="book-cover" style="background: #6d597a;">百</div>
+      <div class="book-info">
+        <div class="book-title">百年孤独</div>
+        <div class="book-author">加西亚·马尔克斯</div>
+        <div class="book-meta">
+          <span class="progress-text">未开始</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 小U tab ── -->
+  <div class="screen hidden" id="screen-xiaou">
+    <div class="xiaou-bubble">
+      你在《挪威的森林》第 3 章标注了<span class="highlight">「死不是生的对立面，而是作为生的一部分永存」</span>——这句话在全书中出现了两次。第一次在第二章开头，第二次在渡边收到直子死讯时。村上用这个重复暗示：渡边在第一次读到它时，只是理解；第二次，他才真正<em>懂得</em>。
+    </div>
+    <div class="xiaou-subtitle">小U · 基于你的 3 条阅读痕迹</div>
+
+    <div class="xiaou-bubble" style="margin-top:16px;">
+      你在《活着》中频繁标注了关于<span class="highlight">「忍耐」</span>的段落——这与《挪威的森林》中渡边的生存姿态形成了一种对照。一个是被动的承受，一个是主动的穿越。要不要我帮你把这两本书的阅读痕迹放在一起看看？
+    </div>
+    <div class="xiaou-subtitle">小U · 跨书关联发现</div>
+  </div>
+
+  <!-- ── 随心记 tab ── -->
+  <div class="screen hidden" id="screen-suixinji">
+    <div class="note-preview">
+      <div class="date">5 月 28 日 · 凌晨</div>
+      读《雪国》的时候一直在想，驹子为什么要在那种处境里仍然保持一种近乎偏执的洁净。也许是她的抵抗方式吧。不是逃跑，而是在泥泞里把自己擦干净。<br><br>
+      突然觉得这很像妈妈。
+    </div>
+    <div class="note-preview" style="margin-top:12px;">
+      <div class="date">5 月 19 日 · 傍晚</div>
+      今天的晚霞是淡紫色的。想起《挪威的森林》里直子说的「完美的黄昏」。坐在阳台上读了二十分钟，什么也没标注。
+    </div>
+    <div style="text-align:center; margin-top:24px;">
+      <span style="color:#b8a898; font-size:13px; cursor:pointer;">+ 写新的随心记</span>
+    </div>
+  </div>
+
+  <!-- ── 明台 tab ── -->
+  <div class="screen hidden" id="screen-mingtai">
+    <div class="mingtai-card">
+      <div class="book-title" style="margin-bottom:4px;">雪国</div>
+      <div class="book-author">川端康成</div>
+      <div class="reader-name" style="margin-top:4px;">小林阳葵 的批注本 · 12 条公开痕迹</div>
+    </div>
+    <div class="mingtai-card">
+      <div class="book-title" style="margin-bottom:4px;">局外人</div>
+      <div class="book-author">阿尔贝·加缪</div>
+      <div class="reader-name" style="margin-top:4px;">山月 的批注本 · 9 条公开痕迹</div>
+    </div>
+    <div class="mingtai-card">
+      <div class="book-title" style="margin-bottom:4px;">海边的卡夫卡</div>
+      <div class="book-author">村上春树</div>
+      <div class="reader-name" style="margin-top:4px;">南风 的批注本 · 21 条公开痕迹</div>
+    </div>
+  </div>
+
+  <!-- ── Tab bar ── -->
+  <div class="tab-bar">
+    <div class="tab active" data-tab="bookshelf" onclick="switchTab('bookshelf')">书架</div>
+    <div class="tab" data-tab="xiaou" onclick="switchTab('xiaou')">小U</div>
+    <div class="tab" data-tab="suixinji" onclick="switchTab('suixinji')">随心记</div>
+    <div class="tab" data-tab="mingtai" onclick="switchTab('mingtai')">明台</div>
+  </div>
+</div>
+
+<script>
+  function switchTab(name) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('screen-' + name).classList.remove('hidden');
+    document.querySelector('[data-tab="' + name + '"]').classList.add('active');
+
+    const titles = { bookshelf: '书架', xiaou: '小U', suixinji: '随心记', mingtai: '明台' };
+    const subs = { bookshelf: '4 册在读', xiaou: '阅读意识层', suixinji: '绝对私密', mingtai: '公共书库' };
+    document.querySelector('.header h1').textContent = titles[name];
+    document.querySelector('.header .subtle').textContent = subs[name];
+  }
+</script>
+
+</body>
+</html>

@@ -1,10 +1,10 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+
 import '../../../config/theme.dart';
 
 class SelectionMenu extends StatelessWidget {
-  final String selectedText;
   final VoidCallback onExplain;
   final Function(String color) onHighlight;
   final VoidCallback onNote;
@@ -12,7 +12,6 @@ class SelectionMenu extends StatelessWidget {
 
   const SelectionMenu({
     super.key,
-    required this.selectedText,
     required this.onExplain,
     required this.onHighlight,
     required this.onNote,
@@ -21,112 +20,78 @@ class SelectionMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    final primary = Theme.of(context).colorScheme.primary;
+    final glassColor = Color.alphaBlend(
+      primary.withAlpha(14),
+      Colors.white.withAlpha(174),
+    );
+
     return SafeArea(
       top: false,
-      minimum: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(30),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(112),
-              borderRadius: BorderRadius.circular(30),
-              border: Border.all(color: Colors.white.withAlpha(145)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withAlpha(16),
-                  blurRadius: 14,
-                  offset: const Offset(0, 6),
-                ),
-              ],
+      minimum: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+      child: Container(
+        height: 56,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: [
+            BoxShadow(
+              color: primary.withAlpha(22),
+              blurRadius: 26,
+              spreadRadius: 2,
+              offset: const Offset(0, 8),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 7, 8, 0),
-                  child: Row(
-                    children: [
-                      const Expanded(child: SizedBox.shrink()),
-                      Container(
-                        width: 34,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withAlpha(125),
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                      Expanded(
-                        child: Align(
-                          alignment: Alignment.centerRight,
-                          child: InkWell(
-                            onTap: onDismiss,
-                            borderRadius: BorderRadius.circular(14),
-                            child: Padding(
-                              padding: const EdgeInsets.all(4),
-                              child: Icon(
-                                Icons.close,
-                                size: 16,
-                                color: AppTheme.textSecondary.withAlpha(170),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(28),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+            child: Container(
+              decoration: BoxDecoration(
+                color: glassColor,
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(
+                  color: Colors.white.withAlpha(190),
+                  width: 0.5,
                 ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 4, 14, 0),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(52),
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: AppTheme.primaryLight.withAlpha(50)),
-                    ),
-                    child: Text(
-                      selectedText,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.textPrimary,
-                        fontStyle: FontStyle.italic,
-                        height: 1.25,
-                      ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _CapsuleAction(
+                      icon: Icons.auto_awesome_rounded,
+                      label: '小U解读',
+                      color: primary,
+                      emphasized: true,
+                      onTap: onExplain,
                     ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 6, 10, 9),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _ActionChip(
-                        icon: Icons.auto_awesome,
-                        label: '小U解释',
-                        color: AppTheme.primaryDark,
-                        onTap: onExplain,
-                      ),
-                      _ActionChip(
-                        icon: Icons.format_quote,
-                        label: '划线',
-                        color: AppTheme.primary,
-                        onTap: () => onHighlight('#B39DDB'),
-                      ),
-                      _ActionChip(
-                        icon: Icons.edit_note,
-                        label: '想法',
-                        color: AppTheme.primaryLight,
-                        onTap: onNote,
-                      ),
-                    ],
+                  _GlassDivider(color: palette.divider),
+                  Expanded(
+                    child: _CapsuleAction(
+                      icon: Icons.chat_bubble_outline_rounded,
+                      label: '写想法',
+                      color: palette.icon,
+                      onTap: onNote,
+                    ),
                   ),
-                ),
-              ],
+                  _GlassDivider(color: palette.divider),
+                  _CapsuleIconAction(
+                    tooltip: '保存划线',
+                    icon: Icons.bookmark_border_rounded,
+                    color: palette.icon,
+                    onTap: () => onHighlight(_colorToHex(palette.primaryLight)),
+                  ),
+                  _CapsuleIconAction(
+                    tooltip: '取消',
+                    icon: Icons.close_rounded,
+                    color: palette.textSecondary,
+                    onTap: onDismiss,
+                  ),
+                  const SizedBox(width: 4),
+                ],
+              ),
             ),
           ),
         ),
@@ -135,53 +100,44 @@ class SelectionMenu extends StatelessWidget {
   }
 }
 
-class _ActionChip extends StatelessWidget {
+class _CapsuleAction extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color color;
+  final bool emphasized;
   final VoidCallback onTap;
 
-  const _ActionChip({
+  const _CapsuleAction({
     required this.icon,
     required this.label,
     required this.color,
     required this.onTap,
+    this.emphasized = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
+
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: AppTheme.primaryLight.withAlpha(44),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: Colors.white.withAlpha(105)),
-                boxShadow: [
-                  BoxShadow(
-                    color: color.withAlpha(12),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: Icon(icon, color: color, size: 20),
-            ),
-            const SizedBox(height: 5),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                color: color,
-                fontWeight: FontWeight.w500,
+            Icon(icon, size: 17, color: color),
+            const SizedBox(width: 7),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: emphasized ? color : palette.textPrimary,
+                  fontSize: 13,
+                  fontWeight: emphasized ? FontWeight.w600 : FontWeight.w500,
+                ),
               ),
             ),
           ],
@@ -189,4 +145,49 @@ class _ActionChip extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CapsuleIconAction extends StatelessWidget {
+  final String tooltip;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _CapsuleIconAction({
+    required this.tooltip,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: SizedBox(
+          width: 40,
+          height: 56,
+          child: Icon(icon, size: 17, color: color.withAlpha(190)),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlassDivider extends StatelessWidget {
+  final Color color;
+
+  const _GlassDivider({required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(width: 0.5, height: 22, color: color.withAlpha(118));
+  }
+}
+
+String _colorToHex(Color color) {
+  return '#${(color.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
 }

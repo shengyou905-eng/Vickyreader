@@ -39,6 +39,7 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
       _refreshing = _home != null || canShowCache;
       _error = null;
     });
+    if (canShowCache) _prefetchVisibleBooks(cached);
 
     try {
       final home = await BookService.getMingtaiHome(forceRefresh: forceRefresh);
@@ -48,6 +49,7 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
         _loading = false;
         _refreshing = false;
       });
+      _prefetchVisibleBooks(home);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -55,6 +57,18 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
         _loading = false;
         _refreshing = false;
       });
+    }
+  }
+
+  void _prefetchVisibleBooks(MingtaiHomeData home) {
+    final prefetchedIds = <String>{};
+    for (final book in [...home.readingNow, ...home.latestBooks]) {
+      if (!BookService.canReadMingtaiBook(book) ||
+          !prefetchedIds.add(book.id)) {
+        continue;
+      }
+      unawaited(BookService.prefetchMingtaiBookChapters(book));
+      if (prefetchedIds.length >= 3) return;
     }
   }
 
@@ -70,7 +84,22 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
   }
 
   void _openBook(MingtaiPublicBook book) {
-    _openBookById(book.id, initialBook: book);
+    if (!BookService.canReadMingtaiBook(book)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('这本明台书尚未生成章节缓存，请重新发布后再阅读'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    unawaited(BookService.recordMingtaiBookRead(book.id));
+    final readerBook = BookService.readableBookFromMingtai(book);
+    unawaited(context.read<ReaderProvider>().openBook(readerBook));
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const ReaderScreen()));
   }
 
   void _openBookById(String bookId, {MingtaiPublicBook? initialBook}) {
@@ -219,7 +248,7 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
     if (initialBook != null) {
       _detail = MingtaiBookDetail(book: initialBook, annotations: const []);
       _loading = false;
-      unawaited(BookService.prefetchMingtaiBookFile(initialBook));
+      unawaited(BookService.prefetchMingtaiBookChapters(initialBook));
     }
     _load();
   }
@@ -239,7 +268,7 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
         _detail = detail;
         _loading = false;
       });
-      unawaited(BookService.prefetchMingtaiBookFile(detail.book));
+      unawaited(BookService.prefetchMingtaiBookChapters(detail.book));
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -276,7 +305,7 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
   Future<void> _startReading() async {
     final book = _detail?.book;
     if (book == null || _startingReading) return;
-    if (book.fileUrl.isEmpty && book.chapterCount <= 0) {
+    if (!BookService.canReadMingtaiBook(book)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('这本明台书缺少可阅读内容，请从书架重新发布覆盖'),
@@ -915,7 +944,6 @@ class _DiscussionPreviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.appPalette;
     return InkWell(
       borderRadius: BorderRadius.circular(16),
       onTap: onTap,
@@ -1054,6 +1082,7 @@ class _PublicBookCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return InkWell(
       borderRadius: BorderRadius.circular(18),
       onTap: onTap,
@@ -1257,8 +1286,9 @@ class _BookDetailHeader extends StatelessWidget {
                 const SizedBox(height: 14),
                 Builder(
                   builder: (context) {
-                    final hasReadableContent =
-                        book.fileUrl.isNotEmpty || book.chapterCount > 0;
+                    final hasReadableContent = BookService.canReadMingtaiBook(
+                      book,
+                    );
                     return Column(
                       children: [
                         SizedBox(
@@ -1582,7 +1612,6 @@ class _QuietEmpty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.appPalette;
     return Container(
       height: 260,
       alignment: Alignment.center,
@@ -1646,6 +1675,7 @@ class _QuietError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(

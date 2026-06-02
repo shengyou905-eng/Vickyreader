@@ -3,8 +3,16 @@ const fs = require('fs/promises');
 const path = require('path');
 
 const uploadDir = path.resolve(__dirname, '..', '..', 'uploads', 'public_books');
+const coverUploadDir = path.resolve(
+  __dirname,
+  '..',
+  '..',
+  'uploads',
+  'public_book_covers',
+);
 const backendRoot = path.resolve(__dirname, '..', '..');
 const supportedExtensions = new Set(['epub', 'txt', 'pdf']);
+const supportedCoverExtensions = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp']);
 const mimeByType = {
   epub: 'application/epub+zip',
   txt: 'text/plain',
@@ -46,6 +54,17 @@ function normalizeFileType({ fileType, fileName, mimeType }) {
   return type;
 }
 
+function normalizeCoverType({ fileName, mimeType }) {
+  const fileType = path.extname(String(fileName || '')).replace('.', '').toLowerCase();
+  if (supportedCoverExtensions.has(fileType)) return fileType;
+
+  const contentType = String(mimeType || '').toLowerCase();
+  for (const type of supportedCoverExtensions) {
+    if (contentType.includes(type)) return type;
+  }
+  return 'jpg';
+}
+
 async function savePublicBookFile(buffer, { fileName, fileType, mimeType }) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
     throw Object.assign(new Error('book file is required'), {
@@ -77,6 +96,30 @@ async function savePublicBookFile(buffer, { fileName, fileType, mimeType }) {
   };
 }
 
+async function savePublicBookCover(buffer, { fileName, mimeType }) {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) return null;
+
+  const type = normalizeCoverType({ fileName, mimeType });
+  await fs.mkdir(coverUploadDir, { recursive: true });
+  const storedName = `${Date.now()}-${crypto.randomUUID()}.${type}`;
+  const absolutePath = path.join(coverUploadDir, storedName);
+  await fs.writeFile(absolutePath, buffer);
+
+  const storagePath = path.posix.join('uploads', 'public_book_covers', storedName);
+  return {
+    storage_path: storagePath,
+    public_path: `/${storagePath}`,
+  };
+}
+
+async function deletePublicBookFile(storagePath) {
+  const absolutePath = absoluteStoragePath(storagePath);
+  if (!absolutePath) return;
+  await fs.unlink(absolutePath).catch((error) => {
+    if (error.code !== 'ENOENT') throw error;
+  });
+}
+
 function absoluteStoragePath(storagePath) {
   const normalized = String(storagePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
   if (!normalized) return '';
@@ -92,5 +135,7 @@ function absoluteStoragePath(storagePath) {
 
 module.exports = {
   absoluteStoragePath,
+  deletePublicBookFile,
+  savePublicBookCover,
   savePublicBookFile,
 };
