@@ -52,7 +52,7 @@ function parseMultipartBody(req) {
   }
 
   const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
-  const boundary = boundaryMatch?.[1] || boundaryMatch?.[2];
+  const boundary = (boundaryMatch?.[1] || boundaryMatch?.[2] || '').trim();
   if (!boundary || !Buffer.isBuffer(req.body)) {
     return { fields: {}, file: null, files: {} };
   }
@@ -60,22 +60,33 @@ function parseMultipartBody(req) {
   const fields = {};
   const files = {};
   let file = null;
-  const body = req.body.toString('latin1');
-  const parts = body.split(`--${boundary}`);
+  const delimiter = Buffer.from(`--${boundary}`);
+  const headerSeparator = Buffer.from('\r\n\r\n');
+  let boundaryOffset = req.body.indexOf(delimiter);
 
-  for (const rawPart of parts) {
-    let part = rawPart;
-    if (!part || part === '--\r\n' || part === '--') continue;
-    if (part.startsWith('\r\n')) part = part.slice(2);
-    if (part.endsWith('\r\n')) part = part.slice(0, -2);
-    if (part.endsWith('--')) part = part.slice(0, -2);
+  while (boundaryOffset >= 0) {
+    let partStart = boundaryOffset + delimiter.length;
+    if (req.body.subarray(partStart, partStart + 2).equals(Buffer.from('--'))) {
+      break;
+    }
+    if (req.body.subarray(partStart, partStart + 2).equals(Buffer.from('\r\n'))) {
+      partStart += 2;
+    }
 
-    const splitIndex = part.indexOf('\r\n\r\n');
+    const nextBoundary = req.body.indexOf(delimiter, partStart);
+    if (nextBoundary < 0) break;
+    boundaryOffset = nextBoundary;
+    let partEnd = nextBoundary;
+    if (req.body.subarray(partEnd - 2, partEnd).equals(Buffer.from('\r\n'))) {
+      partEnd -= 2;
+    }
+
+    const part = req.body.subarray(partStart, partEnd);
+    const splitIndex = part.indexOf(headerSeparator);
     if (splitIndex < 0) continue;
 
-    const rawHeaders = part.slice(0, splitIndex);
-    let rawValue = part.slice(splitIndex + 4);
-    if (rawValue.endsWith('\r\n')) rawValue = rawValue.slice(0, -2);
+    const rawHeaders = part.subarray(0, splitIndex).toString('utf8');
+    const valueBuffer = part.subarray(splitIndex + headerSeparator.length);
 
     const disposition = rawHeaders
       .split('\r\n')
@@ -86,7 +97,6 @@ function parseMultipartBody(req) {
     const filename = disposition.match(/filename="([^"]*)"/)?.[1];
     if (!name) continue;
 
-    const valueBuffer = Buffer.from(rawValue, 'latin1');
     if (filename !== undefined) {
       const partContentType = rawHeaders
         .split('\r\n')
@@ -528,6 +538,7 @@ async function createResonance(req, res, next) {
 }
 
 module.exports = {
+  _parseMultipartBody: parseMultipartBody,
   publish,
   publishBook,
   listBookChapters,
