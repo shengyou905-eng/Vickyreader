@@ -19,8 +19,8 @@ class MingtaiScreen extends StatefulWidget {
 
 class _MingtaiScreenState extends State<MingtaiScreen> {
   MingtaiHomeData? _home;
-  bool _loading = true;
-  bool _refreshing = false;
+  bool _loading = false;
+  bool _refreshing = true;
   String? _error;
 
   @override
@@ -30,13 +30,20 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
   }
 
   Future<void> _load({bool forceRefresh = false}) async {
-    final cached = BookService.cachedMingtaiHome();
+    if (forceRefresh) {
+      await BookService.clearMingtaiHomeCache();
+    }
+    final cached = forceRefresh
+        ? null
+        : BookService.cachedMingtaiHome() ??
+              await BookService.restoreCachedMingtaiHome();
     final canShowCache = _home == null && cached != null;
     if (!mounted) return;
     setState(() {
+      if (forceRefresh) _home = null;
       if (canShowCache) _home = cached;
-      _loading = _home == null && !canShowCache;
-      _refreshing = _home != null || canShowCache;
+      _loading = false;
+      _refreshing = true;
       _error = null;
     });
     if (canShowCache) _prefetchVisibleBooks(cached);

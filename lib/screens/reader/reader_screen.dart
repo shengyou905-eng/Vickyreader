@@ -165,8 +165,25 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final book = reader.book;
     if (book == null) return;
 
-    final spine = await EpubService.getSpine(book.id);
+    final matchedIndex = _chapterIndexForHref(reader, href);
+    if (matchedIndex >= 0) {
+      reader.goToChapter(matchedIndex);
+      _loadChapter();
+      return;
+    }
+
     final targetHref = href.split('#').first;
+    if (targetHref.trim().isEmpty) {
+      final anchor = href.contains('#') ? href.split('#').last : '';
+      if (anchor.trim().isNotEmpty) {
+        _webViewController.runJavaScript(
+          "scrollToAnchor('${_jsEscape(anchor)}')",
+        );
+      }
+      return;
+    }
+
+    final spine = await EpubService.getSpine(book.id);
     for (int i = 0; i < spine.length; i++) {
       if (spine[i].endsWith(targetHref) ||
           targetHref.endsWith(spine[i].split('/').last)) {
@@ -177,6 +194,47 @@ class _ReaderScreenState extends State<ReaderScreen> {
         return;
       }
     }
+  }
+
+  int _chapterIndexForHref(ReaderProvider reader, String rawHref) {
+    final target = _normalizeNavHref(rawHref);
+    if (target.isEmpty) return -1;
+
+    final targetBase = _hrefBaseName(target);
+    for (var i = 0; i < reader.chapters.length; i++) {
+      final chapterHref = _normalizeNavHref(reader.chapters[i].href);
+      if (chapterHref.isEmpty) continue;
+      final chapterBase = _hrefBaseName(chapterHref);
+      if (chapterHref == target ||
+          chapterHref.endsWith('/$target') ||
+          target.endsWith('/$chapterHref') ||
+          (targetBase.isNotEmpty && targetBase == chapterBase)) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  String _normalizeNavHref(String href) {
+    var value = href.trim();
+    if (value.isEmpty) return '';
+    try {
+      value = Uri.decodeComponent(value);
+    } catch (_) {
+      // Some EPUB files contain non-encoded percent characters in hrefs.
+    }
+    value = value.split('#').first.split('?').first.replaceAll('\\', '/');
+    while (value.startsWith('./')) {
+      value = value.substring(2);
+    }
+    while (value.startsWith('/')) {
+      value = value.substring(1);
+    }
+    return value.toLowerCase();
+  }
+
+  String _hrefBaseName(String href) {
+    return p.basename(_normalizeNavHref(href)).toLowerCase();
   }
 
   Future<void> _loadChapter() async {

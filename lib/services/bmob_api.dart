@@ -392,9 +392,22 @@ class BmobApi {
     _token = token;
 
     final file = File(filePath);
+    debugPrint('[MingtaiPublishBook] file.path=${file.path}');
+    debugPrint('[MingtaiPublishBook] file.existsSync=${file.existsSync()}');
     if (!await file.exists()) {
       throw Exception('发布失败：找不到本地书籍文件');
     }
+    final fileLen = await file.length();
+    final ext = p.extension(filePath).toLowerCase();
+    // Check file header (EPUB is ZIP, should start with PK)
+    final header = await file
+        .openRead(0, 2)
+        .toList()
+        .then((l) => l.isNotEmpty ? String.fromCharCodes(l[0]) : '');
+    final isZip = header.startsWith('PK');
+    debugPrint(
+      '[MingtaiPublishBook] file.length=$fileLen extension=$ext isZip=$isZip',
+    );
 
     final resolvedSourceBookId = sourceBookId.trim().isNotEmpty
         ? sourceBookId.trim()
@@ -437,6 +450,9 @@ class BmobApi {
           filename: p.basename(filePath),
         ),
       );
+    debugPrint(
+      '[MingtaiPublishBook] multipart file field=file filename=${p.basename(filePath)} path=$filePath size=$fileLen extension=$ext',
+    );
     if (hasLocalCover) {
       request.files.add(
         await http.MultipartFile.fromPath(
@@ -464,6 +480,21 @@ class BmobApi {
       throw Exception('登录已过期，请重新登录后再发布到明台');
     }
     throw Exception('发布书籍到明台失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>> deleteMyMingtaiBooks() async {
+    await init();
+    final res = await http
+        .delete(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books'),
+          headers: _authHeaders(),
+        )
+        .timeout(_mingtaiTimeout);
+
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    throw Exception('清理明台书籍失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
   void _assertPublishedBookReadable(Map<String, dynamic> data) {

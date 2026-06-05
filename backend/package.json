@@ -7,8 +7,10 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "db:init": "node src/db/init.js",
+    "mingtai:audit": "node src/db/clearMingtai.js --audit",
+    "mingtai:clear": "node src/db/clearMingtai.js --yes",
     "check:mingtai-parser": "node src/utils/publicBookParser.smoke.js",
-    "check": "node --check server.js && node --check src/server.js && node --check src/app.js && node --check src/controllers/ai.controller.js && node --check src/routes/ai.routes.js && node --check src/controllers/freeNotes.controller.js && node --check src/routes/freeNotes.routes.js && node --check src/repositories/freeNote.repository.js && node --check src/controllers/insights.controller.js && node --check src/routes/insights.routes.js && node --check src/repositories/insight.repository.js && node --check src/services/insightRefresh.service.js && node --check src/controllers/mingtai.controller.js && node --check src/routes/mingtai.routes.js && node --check src/repositories/mingtai.repository.js && node --check src/utils/publicBookStorage.js && node --check src/utils/publicBookParser.js && node --check src/utils/publicBookParser.smoke.js && node --check src/utils/httpError.js && node --check src/middleware/errorHandler.js"
+    "check": "node --check server.js && node --check src/server.js && node --check src/app.js && node --check src/controllers/ai.controller.js && node --check src/routes/ai.routes.js && node --check src/controllers/freeNotes.controller.js && node --check src/routes/freeNotes.routes.js && node --check src/repositories/freeNote.repository.js && node --check src/controllers/insights.controller.js && node --check src/routes/insights.routes.js && node --check src/repositories/insight.repository.js && node --check src/services/insightRefresh.service.js && node --check src/controllers/mingtai.controller.js && node --check src/routes/mingtai.routes.js && node --check src/repositories/mingtai.repository.js && node --check src/db/clearMingtai.js && node --check src/utils/publicBookStorage.js && node --check src/utils/publicBookParser.js && node --check src/utils/publicBookParser.smoke.js && node --check src/utils/httpError.js && node --check src/middleware/errorHandler.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

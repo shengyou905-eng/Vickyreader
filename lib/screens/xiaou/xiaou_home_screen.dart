@@ -3,6 +3,7 @@ import '../../config/theme.dart';
 import '../../services/book_service.dart';
 import 'topic_screen.dart';
 import 'widgets/xiaou_card.dart';
+import 'widgets/xiaou_presence_orb.dart';
 
 class XiaouHomeScreen extends StatefulWidget {
   final int refreshSignal;
@@ -27,11 +28,12 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   String? _selectedTag;
   int _insightDays = 7;
   bool _insightExpanded = false;
-  bool _loading = true;
-  bool _refreshing = false;
+  bool _loading = false;
+  bool _refreshing = true;
   bool _loadInFlight = false;
   bool _reloadAfterCurrent = false;
   String? _answeringQuestionId;
+  int _presencePulseKey = 0;
   final Set<String> _deletingIds = {};
   final Set<String> _publishingIds = {};
 
@@ -58,8 +60,16 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     }
     _loadInFlight = true;
     final requestTag = _selectedTag;
-    final cached = BookService.cachedMingtaiOverview(tag: requestTag);
-    final cachedHome = BookService.cachedXiaouHomeInsight();
+    final cached =
+        BookService.cachedMingtaiOverview(tag: requestTag) ??
+        await BookService.restoreCachedMingtaiOverview(tag: requestTag);
+    final cachedHome =
+        BookService.cachedXiaouHomeInsight() ??
+        await BookService.restoreCachedXiaouHomeInsight();
+    if (!mounted) {
+      _loadInFlight = false;
+      return;
+    }
     setState(() {
       if (cached != null) {
         _items = cached.items;
@@ -76,36 +86,40 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
       _loading = false;
       _refreshing = true;
     });
-    final insightFuture = BookService.getXiaouHomeInsight(
-      forceRefresh: forceRefresh,
-    ).then<XiaouHomeInsight?>((insight) => insight, onError: (_) => null);
-    final overviewFuture = BookService.getMingtaiOverview(
-      tag: requestTag,
-      forceRefresh: forceRefresh,
-    ).then<MingtaiOverview?>((overview) => overview, onError: (_) => null);
-    final insight = await insightFuture;
-    if (insight != null) {
-      if (mounted) {
-        setState(() {
-          _homeInsight = insight;
-          _insights = insight.recentFocus;
-          _useInsightSnapshotIfNeeded(insight);
-        });
-      }
-    }
-    final overview = await overviewFuture;
+
+    final waiters = <Future<void>>[
+      BookService.getXiaouHomeInsight(forceRefresh: forceRefresh)
+          .then((insight) {
+            if (!mounted) return;
+            setState(() {
+              if (_shouldPulseForNewInsight(_homeInsight, insight)) {
+                _presencePulseKey++;
+              }
+              _homeInsight = insight;
+              _insights = insight.recentFocus;
+              _useInsightSnapshotIfNeeded(insight);
+            });
+          })
+          .catchError((_) {}),
+      BookService.getMingtaiOverview(
+            tag: requestTag,
+            forceRefresh: forceRefresh,
+          )
+          .then((overview) {
+            if (!mounted || requestTag != _selectedTag) return;
+            setState(() {
+              _items = overview.items;
+              _allItems = overview.allItems;
+              _allTags = overview.tags;
+              if (_insights.isEmpty) _insights = overview.insights;
+              _loading = false;
+            });
+          })
+          .catchError((_) {}),
+    ];
+
     try {
-      if (overview == null) throw Exception('小U记录加载失败');
-      if (requestTag != _selectedTag) return;
-      if (mounted)
-        setState(() {
-          _items = overview.items;
-          _allItems = overview.allItems;
-          _allTags = overview.tags;
-          if (_insights.isEmpty) _insights = overview.insights;
-          _loading = false;
-          _refreshing = false;
-        });
+      await Future.wait(waiters);
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -114,6 +128,12 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         });
       }
     } finally {
+      if (mounted && requestTag == _selectedTag) {
+        setState(() {
+          _loading = false;
+          _refreshing = false;
+        });
+      }
       _loadInFlight = false;
       if (_reloadAfterCurrent && mounted) {
         _reloadAfterCurrent = false;
@@ -129,6 +149,19 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     _items = snapshot;
     _allItems = snapshot;
     _allTags = insight.longTermTopics;
+  }
+
+  bool _shouldPulseForNewInsight(
+    XiaouHomeInsight previous,
+    XiaouHomeInsight next,
+  ) {
+    final previousText = '${previous.deepReflection}|${previous.weeklySummary}';
+    final nextText = '${next.deepReflection}|${next.weeklySummary}';
+    if (nextText.trim().isEmpty || previousText == nextText) return false;
+    final hasReadingTrace = next.recentFocus.values.any(
+      (insight) => insight.entryCount > 0,
+    );
+    return hasReadingTrace || next.longTermTopics.isNotEmpty;
   }
 
   void _onTagTap(String? tag) {
@@ -219,25 +252,55 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.appPalette;
     return Scaffold(
       appBar: AppBar(title: const Text('小U'), centerTitle: true),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
+      body: Stack(
+        children: [
+          if (_loading)
+            const Center(child: CircularProgressIndicator())
+          else
+            Column(
               children: [
                 if (_refreshing) const LinearProgressIndicator(minHeight: 2),
                 Expanded(child: _buildContent()),
               ],
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showGuidedQuestions,
-        icon: const Icon(Icons.auto_awesome_outlined),
-        label: const Text('向小U回望'),
-        backgroundColor: palette.primary,
-        foregroundColor: palette.buttonForeground,
+          Positioned(
+            right: 36,
+            bottom: 88 + MediaQuery.of(context).padding.bottom,
+            child: XiaouPresenceOrb(
+              isThinking: _answeringQuestionId != null,
+              pulseKey: _presencePulseKey,
+              onTap: _showPresencePanel,
+            ),
+          ),
+        ],
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+    );
+  }
+
+  void _showPresencePanel() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _XiaouPresencePanel(
+        insight: _homeInsight,
+        answeringQuestionId: _answeringQuestionId,
+        onQuestion: _askQuestion,
+        onRecentInsight: () {
+          setState(() => _insightExpanded = true);
+        },
+        onDeepReflection: _showGuidedQuestions,
+        onFutureMap: () {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('思想地图还在生长中。'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -672,6 +735,311 @@ class _DeepReflectionSheet extends StatelessWidget {
                 ),
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _XiaouPresencePanel extends StatelessWidget {
+  final XiaouHomeInsight insight;
+  final String? answeringQuestionId;
+  final ValueChanged<XiaouQuickQuestion> onQuestion;
+  final VoidCallback onRecentInsight;
+  final VoidCallback onDeepReflection;
+  final VoidCallback onFutureMap;
+
+  const _XiaouPresencePanel({
+    required this.insight,
+    required this.answeringQuestionId,
+    required this.onQuestion,
+    required this.onRecentInsight,
+    required this.onDeepReflection,
+    required this.onFutureMap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    final questions = insight.quickQuestions.take(3).toList();
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(22, 4, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: palette.primary.withAlpha(22),
+                    boxShadow: [
+                      BoxShadow(
+                        color: palette.primary.withAlpha(44),
+                        blurRadius: 18,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Container(
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: palette.primary.withAlpha(145),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    '小U在这里',
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '它不急着回答，只是在你的阅读痕迹里慢慢观察。',
+              style: TextStyle(
+                color: palette.textSecondary,
+                fontSize: 13,
+                height: 1.55,
+              ),
+            ),
+            const SizedBox(height: 22),
+            _PresenceActionRow(
+              icon: Icons.auto_awesome_outlined,
+              title: '最近洞察',
+              subtitle: '回到首页上方的最近回顾',
+              onTap: () => _closeThen(context, onRecentInsight),
+            ),
+            _PresenceActionRow(
+              icon: Icons.nights_stay_outlined,
+              title: '深层回望',
+              subtitle: '看见更长一点的精神线索',
+              onTap: () => _closeThen(context, onDeepReflection),
+            ),
+            _PresenceActionRow(
+              icon: Icons.hub_outlined,
+              title: '思想地图',
+              subtitle: '未来会把主题与来源慢慢连起来',
+              trailing: const Text(
+                '未来',
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+              ),
+              onTap: () => _closeThen(context, onFutureMap),
+            ),
+            _PresenceActionRow(
+              icon: Icons.question_answer_outlined,
+              title: '向小U提问',
+              subtitle: questions.isEmpty ? '等你留下更多阅读痕迹' : '从最近的问题里选一个',
+              enabled: questions.isNotEmpty,
+              onTap: questions.isEmpty
+                  ? null
+                  : () => _showQuestionPicker(context, questions),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showQuestionPicker(
+    BuildContext context,
+    List<XiaouQuickQuestion> questions,
+  ) {
+    final palette = context.appPalette;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '向小U提问',
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '先从这些问题开始，不进入自由聊天。',
+                style: TextStyle(color: palette.textSecondary, fontSize: 13),
+              ),
+              const SizedBox(height: 14),
+              ...questions.map(
+                (question) => _QuestionChoiceTile(
+                  question: question,
+                  loading: answeringQuestionId == question.id,
+                  onTap: answeringQuestionId == null
+                      ? () {
+                          Navigator.pop(sheetContext);
+                          Navigator.pop(context);
+                          onQuestion(question);
+                        }
+                      : null,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _closeThen(BuildContext context, VoidCallback callback) {
+    Navigator.pop(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) => callback());
+  }
+}
+
+class _PresenceActionRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+  final bool enabled;
+
+  const _PresenceActionRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.trailing,
+    this.enabled = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Opacity(
+      opacity: enabled ? 1 : 0.48,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: enabled ? onTap : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: palette.primaryLight.withAlpha(58),
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: Icon(icon, size: 18, color: palette.icon),
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: palette.textPrimary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: palette.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (trailing != null) ...[const SizedBox(width: 10), trailing!],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QuestionChoiceTile extends StatelessWidget {
+  final XiaouQuickQuestion question;
+  final bool loading;
+  final VoidCallback? onTap;
+
+  const _QuestionChoiceTile({
+    required this.question,
+    required this.loading,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        decoration: BoxDecoration(
+          color: palette.primaryLight.withAlpha(46),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                question.title,
+                style: TextStyle(
+                  color: palette.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  height: 1.35,
+                ),
+              ),
+            ),
+            if (loading)
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: palette.primary,
+                ),
+              )
+            else
+              Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 13,
+                color: palette.textSecondary,
+              ),
           ],
         ),
       ),

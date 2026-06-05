@@ -156,6 +156,16 @@ function publicUrlFor(req, publicPath) {
   return `${origin}${publicPath}`;
 }
 
+function storagePathFromPublicUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    return new URL(raw).pathname;
+  } catch (_) {
+    return raw;
+  }
+}
+
 function requireFields(fields) {
   const missing = Object.entries(fields)
     .filter(([, value]) => String(value || '').trim().length === 0)
@@ -448,6 +458,22 @@ async function borrowBook(req, res, next) {
   }
 }
 
+async function deleteMyBooks(req, res, next) {
+  try {
+    const deletedBooks = await mingtaiRepository.deletePublishedBooks(req.user.id);
+    for (const book of deletedBooks) {
+      await deletePublicBookFile(book.storage_path);
+      await deletePublicBookFile(storagePathFromPublicUrl(book.cover_url));
+    }
+    return res.json({
+      deleted_count: deletedBooks.length,
+      deleted_ids: deletedBooks.map((book) => book.id),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function recordBookRead(req, res, next) {
   try {
     assertUuid(req.params.id, 'book id');
@@ -546,6 +572,7 @@ module.exports = {
   listBooks,
   getHome,
   getBook,
+  deleteMyBooks,
   borrowBook,
   recordBookRead,
   createBookAnnotation,

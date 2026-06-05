@@ -475,6 +475,9 @@ class MingtaiFeedItem {
 class BookService {
   static final Uuid _uuid = Uuid();
   static const String _freeNotesBackupKey = 'free_notes_local_backup_v1';
+  static const String _xiaouHomeDiskCacheKey = 'xiaou_home_cache_v1';
+  static const String _xiaouOverviewDiskCacheKey = 'xiaou_overview_cache_v1';
+  static const String _mingtaiHomeDiskCacheKey = 'mingtai_home_cache_v1';
   static List<MingtaiPublicBook>? _mingtaiBooksCache;
   static DateTime? _mingtaiBooksCacheAt;
   static MingtaiHomeData? _mingtaiHomeCache;
@@ -482,6 +485,8 @@ class BookService {
   static final Map<String, MingtaiBookDetail> _mingtaiBookDetailCache = {};
   static final Map<String, DateTime> _mingtaiBookDetailCacheAt = {};
   static final Map<String, Future<String>> _publicBookDownloadTasks = {};
+  static final Map<String, Future<String>> _mingtaiChapterContentTasks = {};
+  static final Map<String, Future<void>> _mingtaiOpeningPrefetchTasks = {};
   static MingtaiOverview? _mingtaiOverviewCache;
   static DateTime? _mingtaiOverviewCacheAt;
   static XiaouHomeInsight? _xiaouHomeInsightCache;
@@ -1332,6 +1337,18 @@ class BookService {
     return _xiaouHomeInsightCache;
   }
 
+  static Future<XiaouHomeInsight?> restoreCachedXiaouHomeInsight() async {
+    final memory = _xiaouHomeInsightCache;
+    if (memory != null) return memory;
+
+    final row = await _readDiskMap(_xiaouHomeDiskCacheKey);
+    if (row == null) return null;
+    final insight = XiaouHomeInsight.fromRemote(row);
+    _xiaouHomeInsightCache = insight;
+    _xiaouHomeInsightCacheAt = DateTime.now();
+    return insight;
+  }
+
   static Future<XiaouHomeInsight> getXiaouHomeInsight({
     bool forceRefresh = false,
   }) async {
@@ -1349,9 +1366,12 @@ class BookService {
       final insight = XiaouHomeInsight.fromRemote(row);
       _xiaouHomeInsightCache = insight;
       _xiaouHomeInsightCacheAt = DateTime.now();
+      unawaited(_writeDiskMap(_xiaouHomeDiskCacheKey, row));
       return insight;
     } catch (_) {
       if (cached != null) return cached;
+      final disk = await restoreCachedXiaouHomeInsight();
+      if (disk != null) return disk;
       rethrow;
     }
   }
@@ -1376,6 +1396,37 @@ class BookService {
     return _mingtaiHomeCache;
   }
 
+  static Future<void> clearMingtaiHomeCache() async {
+    _mingtaiHomeCache = null;
+    _mingtaiHomeCacheAt = null;
+    _mingtaiBooksCache = null;
+    _mingtaiBooksCacheAt = null;
+    _mingtaiBookDetailCache.clear();
+    _mingtaiBookDetailCacheAt.clear();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_mingtaiHomeDiskCacheKey);
+    } catch (_) {}
+  }
+
+  static Future<int> deleteMyMingtaiBooks() async {
+    final data = await BmobApi.instance.deleteMyMingtaiBooks();
+    await clearMingtaiHomeCache();
+    return int.tryParse(data['deleted_count']?.toString() ?? '') ?? 0;
+  }
+
+  static Future<MingtaiHomeData?> restoreCachedMingtaiHome() async {
+    final memory = _mingtaiHomeCache;
+    if (memory != null) return memory;
+
+    final row = await _readDiskMap(_mingtaiHomeDiskCacheKey);
+    if (row == null) return null;
+    final home = MingtaiHomeData.fromRemote(row);
+    _mingtaiHomeCache = home;
+    _mingtaiHomeCacheAt = DateTime.now();
+    return home;
+  }
+
   static Future<MingtaiHomeData> getMingtaiHome({
     bool forceRefresh = false,
   }) async {
@@ -1392,9 +1443,14 @@ class BookService {
       final home = MingtaiHomeData.fromRemote(data);
       _mingtaiHomeCache = home;
       _mingtaiHomeCacheAt = DateTime.now();
+      unawaited(_writeDiskMap(_mingtaiHomeDiskCacheKey, data));
       return home;
     } catch (_) {
-      if (cached != null) return cached;
+      if (!forceRefresh) {
+        if (cached != null) return cached;
+        final disk = await restoreCachedMingtaiHome();
+        if (disk != null) return disk;
+      }
       rethrow;
     }
   }
@@ -1479,11 +1535,12 @@ class BookService {
       book.author,
       metadataAuthor: epubMetadata?.author,
     );
+    final coverPath = await _coverPathForMingtaiPublish(book, fileType);
     await api.publishMingtaiBook(
       sourceBookId: sourceBookId,
       title: title,
       author: author,
-      coverPath: book.coverPath,
+      coverPath: coverPath,
       description: book.description,
       copyrightStatus: copyrightStatus,
       filePath: book.filePath,
@@ -1491,6 +1548,20 @@ class BookService {
       entryIds: entryIds,
     );
     _invalidateMingtaiBooksCache();
+  }
+
+  static Future<String?> _coverPathForMingtaiPublish(
+    Book book,
+    String fileType,
+  ) async {
+    final existingPath = book.coverPath?.trim() ?? '';
+    if (existingPath.isNotEmpty && await File(existingPath).exists()) {
+      return existingPath;
+    }
+    if (fileType == 'epub') {
+      return EpubService.extractCover(book.filePath);
+    }
+    return null;
   }
 
   static String _sourceBookIdForPublish(Book book) {
@@ -1637,9 +1708,31 @@ class BookService {
   static Future<void> prefetchMingtaiBookChapters(
     MingtaiPublicBook publicBook,
   ) async {
-    await getMingtaiChapterShells(
-      publicShelfBookId(publicBook.id),
+    final shelfBookId = publicShelfBookId(publicBook.id);
+    final runningTask = _mingtaiOpeningPrefetchTasks[shelfBookId];
+    if (runningTask != null) return runningTask;
+
+    late final Future<void> task;
+    task = _prefetchMingtaiBookOpening(shelfBookId).whenComplete(() {
+      if (identical(_mingtaiOpeningPrefetchTasks[shelfBookId], task)) {
+        _mingtaiOpeningPrefetchTasks.remove(shelfBookId);
+      }
+    });
+    _mingtaiOpeningPrefetchTasks[shelfBookId] = task;
+    return task;
+  }
+
+  static Future<void> _prefetchMingtaiBookOpening(String shelfBookId) async {
+    final shells = await getMingtaiChapterShells(
+      shelfBookId,
     ).catchError((_) => const <EpubChapter>[]);
+    if (shells.isEmpty) return;
+
+    final firstIndexes = shells.take(2).map((chapter) => chapter.index).toSet();
+    await Future.wait([
+      for (final index in firstIndexes)
+        getMingtaiChapterContent(shelfBookId, index).catchError((_) => ''),
+    ]);
   }
 
   static Future<Book> prepareBookForReading(Book book) async {
@@ -1656,10 +1749,12 @@ class BookService {
         throw Exception('这本明台书尚未生成章节缓存，请重新发布后再阅读');
       }
       final titles = shells.map((chapter) => chapter.title).toList();
-      await _refreshCachedPublicBookMetadata(
-        book,
-        format: format,
-        chapterTitles: titles,
+      unawaited(
+        _refreshCachedPublicBookMetadata(
+          book,
+          format: format,
+          chapterTitles: titles,
+        ),
       );
       return book.copyWith(format: format, chapterTitles: titles);
     }
@@ -1708,16 +1803,21 @@ class BookService {
   static Future<List<EpubChapter>> getMingtaiChapterShells(
     String bookId,
   ) async {
-    final titles = await EpubService.getChapterTitles(bookId);
-    if (titles.isNotEmpty) {
+    final cachedShells = await _readCachedMingtaiChapterShells(bookId);
+    if (cachedShells.isNotEmpty) return cachedShells;
+
+    final publicBookId = publicBookIdFromShelfId(bookId);
+    late final List<Map<String, dynamic>> rows;
+    try {
+      rows = await BmobApi.instance.listMingtaiBookChapters(publicBookId);
+    } catch (_) {
+      final titles = await EpubService.getChapterTitles(bookId);
       return [
         for (var i = 0; i < titles.length; i++)
           EpubChapter(title: titles[i], content: '', index: i),
       ];
     }
 
-    final publicBookId = publicBookIdFromShelfId(bookId);
-    final rows = await BmobApi.instance.listMingtaiBookChapters(publicBookId);
     final shells =
         rows
             .map(
@@ -1729,16 +1829,14 @@ class BookService {
                 content: '',
                 index:
                     int.tryParse(row['chapter_index']?.toString() ?? '') ?? 0,
+                href: row['href']?.toString() ?? '',
               ),
             )
             .toList()
           ..sort((a, b) => a.index.compareTo(b.index));
 
     if (shells.isNotEmpty) {
-      await _cacheMingtaiChapterTitles(
-        bookId,
-        shells.map((chapter) => chapter.title).toList(),
-      );
+      await _cacheMingtaiChapterShells(bookId, shells);
     }
     return shells;
   }
@@ -1753,6 +1851,30 @@ class BookService {
       return file.readAsString();
     }
 
+    final cacheKey = '$bookId:$index';
+    final runningTask = _mingtaiChapterContentTasks[cacheKey];
+    if (runningTask != null) return runningTask;
+
+    late final Future<String> task;
+    task =
+        _fetchAndCacheMingtaiChapterContent(
+          bookId: bookId,
+          index: index,
+          file: file,
+        ).whenComplete(() {
+          if (identical(_mingtaiChapterContentTasks[cacheKey], task)) {
+            _mingtaiChapterContentTasks.remove(cacheKey);
+          }
+        });
+    _mingtaiChapterContentTasks[cacheKey] = task;
+    return task;
+  }
+
+  static Future<String> _fetchAndCacheMingtaiChapterContent({
+    required String bookId,
+    required int index,
+    required File file,
+  }) async {
     final publicBookId = publicBookIdFromShelfId(bookId);
     final row = await BmobApi.instance.getMingtaiBookChapter(
       publicBookId,
@@ -1767,17 +1889,66 @@ class BookService {
     return content;
   }
 
-  static Future<void> _cacheMingtaiChapterTitles(
+  static Future<List<EpubChapter>> _readCachedMingtaiChapterShells(
     String bookId,
-    List<String> titles,
+  ) async {
+    final appDir = await getApplicationDocumentsDirectory();
+    final chapterDir = Directory(
+      p.join(appDir.path, AppConstants.booksDir, bookId),
+    );
+    final shellFile = File(p.join(chapterDir.path, 'chapter_shells.json'));
+    if (!await shellFile.exists()) return const [];
+
+    try {
+      final rows = (jsonDecode(await shellFile.readAsString()) as List)
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList();
+      final shells =
+          rows
+              .map(
+                (row) => EpubChapter(
+                  title: row['title']?.toString() ?? '',
+                  content: '',
+                  index: int.tryParse(row['index']?.toString() ?? '') ?? 0,
+                  href: row['href']?.toString() ?? '',
+                ),
+              )
+              .where((chapter) => chapter.title.trim().isNotEmpty)
+              .toList()
+            ..sort((a, b) => a.index.compareTo(b.index));
+      return shells;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static Future<void> _cacheMingtaiChapterShells(
+    String bookId,
+    List<EpubChapter> shells,
   ) async {
     final appDir = await getApplicationDocumentsDirectory();
     final chapterDir = Directory(
       p.join(appDir.path, AppConstants.booksDir, bookId),
     );
     await chapterDir.create(recursive: true);
+
+    final shellFile = File(p.join(chapterDir.path, 'chapter_shells.json'));
+    await shellFile.writeAsString(
+      jsonEncode([
+        for (final chapter in shells)
+          {
+            'index': chapter.index,
+            'title': chapter.title,
+            'href': chapter.href,
+          },
+      ]),
+    );
+
     final titlesFile = File(p.join(chapterDir.path, 'titles.json'));
-    await titlesFile.writeAsString(jsonEncode(titles));
+    await titlesFile.writeAsString(
+      jsonEncode(shells.map((chapter) => chapter.title).toList()),
+    );
   }
 
   static Future<void> _refreshCachedPublicBookMetadata(
@@ -2107,6 +2278,20 @@ class BookService {
     return _filterMingtaiOverview(cached, tag);
   }
 
+  static Future<MingtaiOverview?> restoreCachedMingtaiOverview({
+    String? tag,
+  }) async {
+    final memory = _mingtaiOverviewCache;
+    if (memory != null) return _filterMingtaiOverview(memory, tag);
+
+    final rows = await _readDiskMapList(_xiaouOverviewDiskCacheKey);
+    if (rows == null) return null;
+    final overview = _buildMingtaiOverviewFromRows(rows);
+    _mingtaiOverviewCache = overview;
+    _mingtaiOverviewCacheAt = DateTime.now();
+    return _filterMingtaiOverview(overview, tag);
+  }
+
   static Future<MingtaiOverview> getMingtaiOverview({
     String? tag,
     bool forceRefresh = false,
@@ -2138,8 +2323,21 @@ class BookService {
       if (cached != null) {
         return _filterMingtaiOverview(cached, tag);
       }
+      final disk = await restoreCachedMingtaiOverview(tag: tag);
+      if (disk != null) return disk;
       rethrow;
     }
+    unawaited(_writeDiskMapList(_xiaouOverviewDiskCacheKey, rows));
+
+    final overview = _buildMingtaiOverviewFromRows(rows);
+    _mingtaiOverviewCache = overview;
+    _mingtaiOverviewCacheAt = DateTime.now();
+    return _filterMingtaiOverview(overview, tag);
+  }
+
+  static MingtaiOverview _buildMingtaiOverviewFromRows(
+    List<Map<String, dynamic>> rows,
+  ) {
     final tags = <String>{};
     final allItems = <Map<String, dynamic>>[];
 
@@ -2154,7 +2352,7 @@ class BookService {
       allItems.add(item);
     }
 
-    final overview = MingtaiOverview(
+    return MingtaiOverview(
       items: allItems,
       allItems: allItems,
       tags: tags.where(_isInsightTag).toList()..sort(),
@@ -2163,9 +2361,6 @@ class BookService {
         30: _buildMingtaiInsight(allItems, 30),
       },
     );
-    _mingtaiOverviewCache = overview;
-    _mingtaiOverviewCacheAt = DateTime.now();
-    return _filterMingtaiOverview(overview, tag);
   }
 
   static MingtaiOverview _filterMingtaiOverview(
@@ -2658,5 +2853,54 @@ class BookService {
         )
         .where((tag) => tag.isNotEmpty)
         .toList();
+  }
+
+  static Future<Map<String, dynamic>?> _readDiskMap(String key) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(key);
+      if (raw == null || raw.trim().isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {}
+    return null;
+  }
+
+  static Future<List<Map<String, dynamic>>?> _readDiskMapList(
+    String key,
+  ) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(key);
+      if (raw == null || raw.trim().isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static Future<void> _writeDiskMap(
+    String key,
+    Map<String, dynamic> value,
+  ) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(key, jsonEncode(value));
+    } catch (_) {}
+  }
+
+  static Future<void> _writeDiskMapList(
+    String key,
+    List<Map<String, dynamic>> value,
+  ) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(key, jsonEncode(value));
+    } catch (_) {}
   }
 }

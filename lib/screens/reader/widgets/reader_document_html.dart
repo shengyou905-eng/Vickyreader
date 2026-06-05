@@ -26,9 +26,13 @@ class ReaderDocumentHtml {
     final nextBuf = StringBuffer();
     for (int i = 0; i < nextChapters.length; i++) {
       final nc = nextChapters[i];
-      nextBuf.write('<div class="chapter-section-title" data-chapter="${i + 1}">');
+      nextBuf.write(
+        '<div class="chapter-section-title" data-chapter="${i + 1}">',
+      );
       nextBuf.write('${_escapeHtml(nc['title'] ?? '')}</div>');
-      nextBuf.write('<div class="chapter-body">${_chapterBodyHtml(nc['content'] ?? '')}</div>');
+      nextBuf.write(
+        '<div class="chapter-body">${_chapterBodyHtml(nc['content'] ?? '')}</div>',
+      );
     }
 
     return '''
@@ -370,6 +374,23 @@ class ReaderDocumentHtml {
         }
       };
 
+      window.scrollToAnchor = function(anchor) {
+        if (!s || !anchor) return;
+        var id = anchor;
+        try { id = decodeURIComponent(anchor); } catch (e) {}
+        var target = document.getElementById(id);
+        if (!target && window.CSS && CSS.escape) {
+          target = document.querySelector('[name="' + CSS.escape(id) + '"]');
+        }
+        if (!target) return;
+        var tr = target.getBoundingClientRect(), sr = s.getBoundingClientRect();
+        if (isHorizontal()) {
+          s.scrollLeft += (tr.left - sr.left - 24);
+        } else {
+          s.scrollTop += (tr.top - sr.top - 48);
+        }
+      };
+
       window.wrapSelection = function(color) {
         var sel = window.getSelection();
         if (!sel || !sel.rangeCount) return;
@@ -408,7 +429,8 @@ class ReaderDocumentHtml {
     if (t.startsWith(RegExp(r'<!DOCTYPE', caseSensitive: false)) ||
         RegExp(r'<html[\s>]', caseSensitive: false).hasMatch(t)) {
       final doc = html_parser.parse(content);
-      final chapterBody = doc.querySelector('#readSurface > .chapter-body') ??
+      final chapterBody =
+          doc.querySelector('#readSurface > .chapter-body') ??
           doc.querySelector('.chapter-body');
       var body = (chapterBody?.innerHtml ?? doc.body?.innerHtml ?? '').trim();
       // Fall back to raw content if body is empty after parsing
@@ -440,7 +462,9 @@ class ReaderDocumentHtml {
       final buf = StringBuffer();
       var pos = 0;
       for (final m in tagRe.allMatches(result)) {
-        buf.write(result.substring(pos, m.start).replaceAll(search, replacement));
+        buf.write(
+          result.substring(pos, m.start).replaceAll(search, replacement),
+        );
         buf.write(m.group(0));
         pos = m.end;
       }
@@ -459,9 +483,21 @@ class ReaderDocumentHtml {
   }
 
   static String _colorToHex(Color color) {
-    final r = (color.r * 255).round().clamp(0, 255).toRadixString(16).padLeft(2, '0');
-    final g = (color.g * 255).round().clamp(0, 255).toRadixString(16).padLeft(2, '0');
-    final b = (color.b * 255).round().clamp(0, 255).toRadixString(16).padLeft(2, '0');
+    final r = (color.r * 255)
+        .round()
+        .clamp(0, 255)
+        .toRadixString(16)
+        .padLeft(2, '0');
+    final g = (color.g * 255)
+        .round()
+        .clamp(0, 255)
+        .toRadixString(16)
+        .padLeft(2, '0');
+    final b = (color.b * 255)
+        .round()
+        .clamp(0, 255)
+        .toRadixString(16)
+        .padLeft(2, '0');
     return '#$r$g$b';
   }
 }

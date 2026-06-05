@@ -32,10 +32,9 @@ class ReaderProvider extends ChangeNotifier {
 
   Book? get book => _book;
   List<EpubChapter> get chapters => _chapters;
-  EpubChapter? get currentChapter =>
-      _currentChapterIndex < _chapters.length
-          ? _chapters[_currentChapterIndex]
-          : null;
+  EpubChapter? get currentChapter => _currentChapterIndex < _chapters.length
+      ? _chapters[_currentChapterIndex]
+      : null;
   int get currentChapterIndex => _currentChapterIndex;
   double get scrollOffset => _scrollOffset;
   List<Highlight> get highlights => _highlights;
@@ -56,6 +55,7 @@ class ReaderProvider extends ChangeNotifier {
   void setScrollOffset(double offset) {
     _scrollOffset = offset;
   }
+
   double get progress =>
       _chapters.isNotEmpty ? _currentChapterIndex / _chapters.length : 0.0;
 
@@ -88,8 +88,8 @@ class ReaderProvider extends ChangeNotifier {
       final chaptersFuture = readableBook.format == 'pdf'
           ? Future.value([EpubChapter(title: 'PDF 文档', content: '', index: 0)])
           : BookService.isMingtaiShelfBook(readableBook)
-              ? BookService.getMingtaiChapterShells(readableBook.id)
-              : EpubService.getChapterShells(readableBook.id);
+          ? BookService.getMingtaiChapterShells(readableBook.id)
+          : EpubService.getChapterShells(readableBook.id);
       final highlightsFuture = BookService.getHighlights(readableBook.id);
       final bookmarksFuture = BookService.getBookmarks(readableBook.id);
       final progressFuture = BookService.getReadingProgress(readableBook.id);
@@ -119,12 +119,14 @@ class ReaderProvider extends ChangeNotifier {
       notifyListeners();
 
       unawaited(_preloadAdjacentChapters(token, restored.chapterIndex));
-      unawaited(_refreshRemoteReadingProgress(
-        readableBook.id,
-        token,
-        baseChapterIndex: restored.chapterIndex,
-        baseScrollOffset: restored.scrollOffset,
-      ));
+      unawaited(
+        _refreshRemoteReadingProgress(
+          readableBook.id,
+          token,
+          baseChapterIndex: restored.chapterIndex,
+          baseScrollOffset: restored.scrollOffset,
+        ),
+      );
     } catch (e) {
       if (token != _openBookToken || _disposed) return;
       _isLoading = false;
@@ -165,6 +167,7 @@ class ReaderProvider extends ChangeNotifier {
       title: current.title,
       content: content,
       index: current.index,
+      href: current.href,
     );
     _chapters[index] = loaded;
     _loadedChapterIndexes.add(index);
@@ -180,7 +183,8 @@ class ReaderProvider extends ChangeNotifier {
   }
 
   String _initialLoadingMessage(Book book) {
-    final isRemoteMingtai = BookService.isMingtaiShelfBook(book) &&
+    final isRemoteMingtai =
+        BookService.isMingtaiShelfBook(book) &&
         (book.filePath.startsWith('http://') ||
             book.filePath.startsWith('https://'));
     return isRemoteMingtai ? '正在准备明台书籍…' : '正在打开书籍…';
@@ -211,8 +215,9 @@ class ReaderProvider extends ChangeNotifier {
     required int baseChapterIndex,
     required double baseScrollOffset,
   }) async {
-    final progress = await BookService.refreshRemoteReadingProgress(bookId)
-        .catchError((_) => null);
+    final progress = await BookService.refreshRemoteReadingProgress(
+      bookId,
+    ).catchError((_) => null);
     if (progress == null ||
         token != _openBookToken ||
         _disposed ||
@@ -220,7 +225,8 @@ class ReaderProvider extends ChangeNotifier {
       return;
     }
 
-    final userHasNotMoved = _currentChapterIndex == baseChapterIndex &&
+    final userHasNotMoved =
+        _currentChapterIndex == baseChapterIndex &&
         (_scrollOffset - baseScrollOffset).abs() < 0.5;
     if (!userHasNotMoved) return;
 
@@ -255,7 +261,9 @@ class ReaderProvider extends ChangeNotifier {
 
     if (_isBookmarked) {
       // Remove bookmark
-      final existing = _bookmarks.where((b) => b.chapterIndex == chapterIdx).toList();
+      final existing = _bookmarks
+          .where((b) => b.chapterIndex == chapterIdx)
+          .toList();
       for (final bm in existing) {
         await BookService.deleteBookmark(bm.id);
         _bookmarks.remove(bm);
@@ -264,7 +272,9 @@ class ReaderProvider extends ChangeNotifier {
     } else {
       // Add bookmark
       final plainText = EpubService.getPlainText(chapter.content);
-      final snippet = plainText.length > 30 ? plainText.substring(0, 30) : plainText;
+      final snippet = plainText.length > 30
+          ? plainText.substring(0, 30)
+          : plainText;
       final bm = Bookmark(
         id: const Uuid().v4(),
         userId: _getUserId(),

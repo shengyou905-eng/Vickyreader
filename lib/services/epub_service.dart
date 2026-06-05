@@ -14,11 +14,13 @@ class EpubChapter {
   final String title;
   final String content; // raw HTML content with resolved image paths
   final int index;
+  final String href;
 
   EpubChapter({
     required this.title,
     required this.content,
     required this.index,
+    this.href = '',
   });
 }
 
@@ -70,6 +72,75 @@ class EpubService {
       return _parseMetadata(
         XmlDocument.parse(utf8.decode(opfFile.content as List<int>)),
       );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<String?> extractCover(String filePath) async {
+    try {
+      final bytes = await File(filePath).readAsBytes();
+      final archive = ZipDecoder().decodeBytes(bytes);
+      final containerFile = _findContainerFile(archive);
+      if (containerFile == null) return null;
+
+      final containerRoot = _containerRootFor(containerFile.name);
+      final containerXml = XmlDocument.parse(
+        utf8.decode(containerFile.content as List<int>),
+      );
+      final rootfiles = containerXml.findAllElements('rootfile').toList();
+      if (rootfiles.isEmpty) return null;
+      final rootfile = rootfiles.firstWhere(
+        (element) =>
+            element.getAttribute('media-type') ==
+            'application/oebps-package+xml',
+        orElse: () => rootfiles.first,
+      );
+      final rawOpfPath = rootfile.getAttribute('full-path') ?? '';
+      if (rawOpfPath.isEmpty) return null;
+
+      var opfPath = _normalizeArchivePath(rawOpfPath);
+      var opfFile = _findArchiveFile(archive, opfPath);
+      if (opfFile == null && containerRoot.isNotEmpty) {
+        opfPath = _joinArchivePath(containerRoot, rawOpfPath);
+        opfFile = _findArchiveFile(archive, opfPath);
+      }
+      if (opfFile == null) return null;
+
+      final opfDir = p.dirname(opfPath);
+      final opfXml = XmlDocument.parse(
+        utf8.decode(opfFile.content as List<int>),
+      );
+      final metadata = _parseMetadata(opfXml);
+      final manifest = _parseManifest(opfXml);
+      final guide = _parseGuide(opfXml);
+      final appDir = (await getApplicationDocumentsDirectory()).path;
+
+      if (metadata.coverHref != null) {
+        final cover = await _extractCoverByHref(
+          archive,
+          opfDir,
+          metadata.coverHref!,
+          appDir,
+        );
+        if (cover != null) return cover;
+      }
+      if (guide.coverHref != null) {
+        final cover = await _extractCoverByHref(
+          archive,
+          opfDir,
+          guide.coverHref!,
+          appDir,
+        );
+        if (cover != null) return cover;
+      }
+      final byId = await _extractCoverById(archive, opfDir, manifest, appDir);
+      if (byId != null) return byId;
+
+      final firstImage = archive.files
+          .where((file) => _isImageFile(file.name))
+          .firstOrNull;
+      return firstImage == null ? null : _saveCoverFile(firstImage, appDir);
     } catch (_) {
       return null;
     }
@@ -189,7 +260,12 @@ class EpubService {
         final contentWithImages = _rewriteImagePaths(cleanContent, imageMap);
         final title = _extractChapterTitle(rawHtml) ?? '第${i + 1}章';
         chapters.add(
-          EpubChapter(title: title, content: contentWithImages, index: i),
+          EpubChapter(
+            title: title,
+            content: contentWithImages,
+            index: i,
+            href: fullPath,
+          ),
         );
       }
     }
@@ -228,10 +304,16 @@ class EpubService {
     final appDir = await getApplicationDocumentsDirectory();
     final bookChapterDir = p.join(appDir.path, AppConstants.booksDir, bookId);
     final titlesFile = File(p.join(bookChapterDir, 'titles.json'));
+    final spineFile = File(p.join(bookChapterDir, 'spine.json'));
 
     List<String> titles = [];
     if (await titlesFile.exists()) {
       titles = (jsonDecode(await titlesFile.readAsString()) as List)
+          .cast<String>();
+    }
+    List<String> spine = [];
+    if (await spineFile.exists()) {
+      spine = (jsonDecode(await spineFile.readAsString()) as List)
           .cast<String>();
     }
 
@@ -244,6 +326,7 @@ class EpubService {
             title: titles[i],
             content: await chapterFile.readAsString(),
             index: i,
+            href: i < spine.length ? spine[i] : '',
           ),
         );
       }
@@ -253,9 +336,15 @@ class EpubService {
 
   static Future<List<EpubChapter>> getChapterShells(String bookId) async {
     final titles = await getChapterTitles(bookId);
+    final spine = await getSpine(bookId);
     return [
       for (var i = 0; i < titles.length; i++)
-        EpubChapter(title: titles[i], content: '', index: i),
+        EpubChapter(
+          title: titles[i],
+          content: '',
+          index: i,
+          href: i < spine.length ? spine[i] : '',
+        ),
     ];
   }
 

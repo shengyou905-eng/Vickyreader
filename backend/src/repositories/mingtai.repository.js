@@ -1140,6 +1140,21 @@ async function recordBookRead(publicBookId) {
   return shapeBook(result.rows[0]);
 }
 
+async function deletePublishedBooks(userId) {
+  const result = await query(
+    `DELETE FROM public_books
+     WHERE publisher_user_id = $1
+     RETURNING id, storage_path, cover_url`,
+    [userId],
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    storage_path: row.storage_path || '',
+    cover_url: row.cover_url || '',
+  }));
+}
+
 module.exports = {
   publishBook,
   publishEntries,
@@ -1154,4 +1169,5 @@ module.exports = {
   createResonance,
   borrowBook,
   recordBookRead,
+  deletePublishedBooks,
 };

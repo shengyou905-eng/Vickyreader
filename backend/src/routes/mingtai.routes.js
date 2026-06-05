@@ -21,6 +21,7 @@ const publicBookUpload = express.raw({
 router.get('/books', mingtaiController.listBooks);
 router.get('/home', mingtaiController.getHome);
 router.post('/books', auth, publicBookUpload, mingtaiController.publishBook);
+router.delete('/books', auth, mingtaiController.deleteMyBooks);
 router.get('/books/:id/chapters', mingtaiController.listBookChapters);
 router.get('/books/:id/chapters/:chapterIndex', mingtaiController.getBookChapter);
 router.get('/books/:id', mingtaiController.getBook);
