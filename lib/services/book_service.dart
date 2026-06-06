@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
@@ -491,9 +493,9 @@ class BookService {
   static DateTime? _mingtaiOverviewCacheAt;
   static XiaouHomeInsight? _xiaouHomeInsightCache;
   static DateTime? _xiaouHomeInsightCacheAt;
-  static const Duration _mingtaiBooksCacheTtl = Duration(seconds: 45);
+  static const Duration _mingtaiBooksCacheTtl = Duration(seconds: 90);
   static const Duration _mingtaiBookDetailCacheTtl = Duration(seconds: 60);
-  static const Duration _mingtaiOverviewCacheTtl = Duration(seconds: 30);
+  static const Duration _mingtaiOverviewCacheTtl = Duration(seconds: 60);
   static const Duration _xiaouHomeInsightCacheTtl = Duration(minutes: 2);
 
   static const Map<String, String> _sourceLabels = {
@@ -1556,12 +1558,51 @@ class BookService {
   ) async {
     final existingPath = book.coverPath?.trim() ?? '';
     if (existingPath.isNotEmpty && await File(existingPath).exists()) {
-      return existingPath;
+      return _optimizedCoverPathForMingtaiPublish(existingPath);
     }
     if (fileType == 'epub') {
-      return EpubService.extractCover(book.filePath);
+      final extractedPath = await EpubService.extractCover(book.filePath);
+      if (extractedPath == null || extractedPath.trim().isEmpty) return null;
+      return _optimizedCoverPathForMingtaiPublish(extractedPath);
     }
     return null;
+  }
+
+  static Future<String> _optimizedCoverPathForMingtaiPublish(
+    String coverPath,
+  ) async {
+    const maxUsefulBytes = 220 * 1024;
+    const targetWidth = 420;
+
+    try {
+      final source = File(coverPath);
+      final bytes = await source.readAsBytes();
+      if (bytes.length <= maxUsefulBytes) return coverPath;
+
+      final codec = await ui.instantiateImageCodec(
+        bytes,
+        targetWidth: targetWidth,
+      );
+      final frame = await codec.getNextFrame();
+      final byteData = await frame.image.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
+      frame.image.dispose();
+      if (byteData == null) return coverPath;
+
+      final optimizedBytes = byteData.buffer.asUint8List();
+      if (optimizedBytes.length >= bytes.length) return coverPath;
+
+      final tempDir = await getTemporaryDirectory();
+      final outputDir = Directory(p.join(tempDir.path, 'mingtai_cover_uploads'));
+      await outputDir.create(recursive: true);
+      final digest = md5.convert(bytes).toString().substring(0, 12);
+      final output = File(p.join(outputDir.path, 'cover_$digest.png'));
+      await output.writeAsBytes(Uint8List.fromList(optimizedBytes), flush: true);
+      return output.path;
+    } catch (_) {
+      return coverPath;
+    }
   }
 
   static String _sourceBookIdForPublish(Book book) {
@@ -1728,7 +1769,7 @@ class BookService {
     ).catchError((_) => const <EpubChapter>[]);
     if (shells.isEmpty) return;
 
-    final firstIndexes = shells.take(2).map((chapter) => chapter.index).toSet();
+    final firstIndexes = shells.take(1).map((chapter) => chapter.index).toSet();
     await Future.wait([
       for (final index in firstIndexes)
         getMingtaiChapterContent(shelfBookId, index).catchError((_) => ''),

@@ -32,6 +32,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   bool _refreshing = true;
   bool _loadInFlight = false;
   bool _reloadAfterCurrent = false;
+  DateTime? _lastLoadCompletedAt;
   String? _answeringQuestionId;
   int _presencePulseKey = 0;
   final Set<String> _deletingIds = {};
@@ -54,6 +55,9 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   }
 
   Future<void> _load({bool forceRefresh = false}) async {
+    if (!forceRefresh && _recentlyLoadedWithContent()) {
+      return;
+    }
     if (_loadInFlight) {
       _reloadAfterCurrent = true;
       return;
@@ -70,6 +74,14 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
       _loadInFlight = false;
       return;
     }
+    final hasVisibleContent =
+        cached != null ||
+        cachedHome != null ||
+        _items.isNotEmpty ||
+        _allItems.isNotEmpty ||
+        _homeInsight.refreshedAt != null ||
+        _homeInsight.recentEntries.isNotEmpty ||
+        _homeInsight.longTermTopics.isNotEmpty;
     setState(() {
       if (cached != null) {
         _items = cached.items;
@@ -83,8 +95,8 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
       } else if (cached != null) {
         _insights = cached.insights;
       }
-      _loading = false;
-      _refreshing = true;
+      _loading = !hasVisibleContent;
+      _refreshing = hasVisibleContent;
     });
 
     final waiters = <Future<void>>[
@@ -129,6 +141,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
       }
     } finally {
       if (mounted && requestTag == _selectedTag) {
+        _lastLoadCompletedAt = DateTime.now();
         setState(() {
           _loading = false;
           _refreshing = false;
@@ -140,6 +153,19 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         _load();
       }
     }
+  }
+
+  bool _recentlyLoadedWithContent() {
+    final lastLoadedAt = _lastLoadCompletedAt;
+    if (lastLoadedAt == null) return false;
+    if (DateTime.now().difference(lastLoadedAt) > const Duration(seconds: 20)) {
+      return false;
+    }
+    return _items.isNotEmpty ||
+        _allItems.isNotEmpty ||
+        _homeInsight.refreshedAt != null ||
+        _homeInsight.recentEntries.isNotEmpty ||
+        _homeInsight.longTermTopics.isNotEmpty;
   }
 
   void _useInsightSnapshotIfNeeded(XiaouHomeInsight insight) {
@@ -268,10 +294,12 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
           Positioned(
             right: 36,
             bottom: 88 + MediaQuery.of(context).padding.bottom,
-            child: XiaouPresenceOrb(
-              isThinking: _answeringQuestionId != null,
-              pulseKey: _presencePulseKey,
-              onTap: _showPresencePanel,
+            child: RepaintBoundary(
+              child: XiaouPresenceOrb(
+                isThinking: _answeringQuestionId != null,
+                pulseKey: _presencePulseKey,
+                onTap: _showPresencePanel,
+              ),
             ),
           ),
         ],

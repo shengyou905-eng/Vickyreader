@@ -4,8 +4,6 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
-import '../../../config/theme.dart';
-
 class XiaouPresenceOrb extends StatefulWidget {
   final bool isThinking;
   final int pulseKey;
@@ -65,8 +63,6 @@ class _XiaouPresenceOrbState extends State<XiaouPresenceOrb>
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.appPalette;
-
     return Semantics(
       button: true,
       label: '意识入口',
@@ -89,14 +85,14 @@ class _XiaouPresenceOrbState extends State<XiaouPresenceOrb>
             final thinking = widget.isThinking ? 1.0 : 0.0;
             final scale = 1 + breath * (0.04 + thinking * 0.012) + pulse;
             final opacity =
-                0.5 + breath * 0.14 + dwell * 0.08 + thinking * 0.12;
-            final blue = const Color(0xFFD8E9FF);
-            final babyBlue = const Color(0xFF89CFF0);
-            final lavender = const Color(0xFFEBDDFF);
-            final pink = const Color(0xFFFFDFF1);
+                0.58 + breath * 0.16 + dwell * 0.08 + thinking * 0.14;
+            final blue = const Color(0xFFAEDFFF);
+            final babyBlue = const Color(0xFF62BFEA);
+            final lavender = const Color(0xFFD9C2FF);
+            final pink = const Color(0xFFF8C3E0);
 
             return Opacity(
-              opacity: opacity.clamp(0.0, 0.82).toDouble(),
+              opacity: opacity.clamp(0.0, 0.9).toDouble(),
               child: Transform.scale(
                 scale: scale,
                 child: SizedBox(
@@ -108,7 +104,7 @@ class _XiaouPresenceOrbState extends State<XiaouPresenceOrb>
                       _DiffuseGlow(
                         size: 132 + breath * 18 + pulse * 28,
                         color: blue,
-                        alpha: (88 + breath * 26 + dwell * 18 + thinking * 30)
+                        alpha: (112 + breath * 30 + dwell * 18 + thinking * 34)
                             .round(),
                         blur: 34,
                         offset: const Offset(-8, -9),
@@ -116,7 +112,7 @@ class _XiaouPresenceOrbState extends State<XiaouPresenceOrb>
                       _DiffuseGlow(
                         size: 112 + breath * 16 + pulse * 24,
                         color: lavender,
-                        alpha: (62 + breath * 20 + dwell * 14 + thinking * 24)
+                        alpha: (78 + breath * 22 + dwell * 14 + thinking * 26)
                             .round(),
                         blur: 31,
                         offset: const Offset(9, 5),
@@ -124,7 +120,7 @@ class _XiaouPresenceOrbState extends State<XiaouPresenceOrb>
                       _DiffuseGlow(
                         size: 88 + breath * 12 + pulse * 18,
                         color: pink,
-                        alpha: (44 + breath * 16 + dwell * 12 + thinking * 18)
+                        alpha: (58 + breath * 18 + dwell * 12 + thinking * 20)
                             .round(),
                         blur: 30,
                         offset: const Offset(14, 13),
@@ -132,24 +128,24 @@ class _XiaouPresenceOrbState extends State<XiaouPresenceOrb>
                       _DiffuseGlow(
                         size: 52 + breath * 7 + pulse * 12,
                         color: Colors.white,
-                        alpha: (76 + breath * 22 + thinking * 28).round(),
+                        alpha: (96 + breath * 24 + thinking * 30).round(),
                         blur: 16,
                         offset: const Offset(-7, -10),
                       ),
                       _DiffuseGlow(
                         size: 70 + breath * 10 + pulse * 18,
                         color: babyBlue,
-                        alpha: (54 + breath * 18 + dwell * 12 + thinking * 22)
+                        alpha: (86 + breath * 24 + dwell * 14 + thinking * 28)
                             .round(),
                         blur: 24,
                         offset: const Offset(-2, 2),
                       ),
-                      ClipOval(
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                      ImageFiltered(
+                        imageFilter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                        child: ClipOval(
                           child: Container(
-                            width: 48 + breath * 2 + thinking * 3,
-                            height: 48 + breath * 2 + thinking * 3,
+                            width: 50 + breath * 2 + thinking * 3,
+                            height: 50 + breath * 2 + thinking * 3,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               gradient: RadialGradient(
@@ -157,18 +153,27 @@ class _XiaouPresenceOrbState extends State<XiaouPresenceOrb>
                                 radius: 0.96,
                                 colors: [
                                   Colors.white.withAlpha(
-                                    (138 + breath * 18 + thinking * 24).round(),
+                                    (150 + breath * 18 + thinking * 24).round(),
                                   ),
                                   blue.withAlpha(
-                                    (98 + breath * 22 + thinking * 30 + dwell * 10)
+                                    (136 +
+                                            breath * 24 +
+                                            thinking * 34 +
+                                            dwell * 12)
                                         .round(),
                                   ),
                                   lavender.withAlpha(
-                                    (74 + breath * 16 + thinking * 22 + dwell * 8)
+                                    (94 +
+                                            breath * 18 +
+                                            thinking * 24 +
+                                            dwell * 8)
                                         .round(),
                                   ),
                                   pink.withAlpha(
-                                    (58 + breath * 12 + thinking * 16 + dwell * 6)
+                                    (74 +
+                                            breath * 14 +
+                                            thinking * 18 +
+                                            dwell * 6)
                                         .round(),
                                   ),
                                   Colors.transparent,

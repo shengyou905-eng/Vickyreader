@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../config/theme.dart';
@@ -19,6 +20,7 @@ class MingtaiScreen extends StatefulWidget {
 
 class _MingtaiScreenState extends State<MingtaiScreen> {
   MingtaiHomeData? _home;
+  Timer? _prefetchTimer;
   bool _loading = false;
   bool _refreshing = true;
   String? _error;
@@ -39,14 +41,14 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
               await BookService.restoreCachedMingtaiHome();
     final canShowCache = _home == null && cached != null;
     if (!mounted) return;
+    final hasVisibleHome = _home != null || canShowCache;
     setState(() {
-      if (forceRefresh) _home = null;
       if (canShowCache) _home = cached;
-      _loading = false;
-      _refreshing = true;
+      _loading = !hasVisibleHome;
+      _refreshing = hasVisibleHome;
       _error = null;
     });
-    if (canShowCache) _prefetchVisibleBooks(cached);
+    if (canShowCache) _schedulePrefetchVisibleBooks(cached);
 
     try {
       final home = await BookService.getMingtaiHome(forceRefresh: forceRefresh);
@@ -56,7 +58,7 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
         _loading = false;
         _refreshing = false;
       });
-      _prefetchVisibleBooks(home);
+      _schedulePrefetchVisibleBooks(home);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -67,6 +69,14 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
     }
   }
 
+  void _schedulePrefetchVisibleBooks(MingtaiHomeData home) {
+    _prefetchTimer?.cancel();
+    _prefetchTimer = Timer(const Duration(milliseconds: 900), () {
+      if (!mounted) return;
+      _prefetchVisibleBooks(home);
+    });
+  }
+
   void _prefetchVisibleBooks(MingtaiHomeData home) {
     final prefetchedIds = <String>{};
     for (final book in [...home.readingNow, ...home.latestBooks]) {
@@ -75,8 +85,14 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
         continue;
       }
       unawaited(BookService.prefetchMingtaiBookChapters(book));
-      if (prefetchedIds.length >= 3) return;
+      if (prefetchedIds.length >= 1) return;
     }
+  }
+
+  @override
+  void dispose() {
+    _prefetchTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _openPublishSheet() async {
@@ -135,10 +151,7 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
   }
 
   List<MingtaiPublicBook> _latestBooks(MingtaiHomeData home) {
-    final readingIds = home.readingNow.map((book) => book.id).toSet();
-    return home.latestBooks
-        .where((book) => !readingIds.contains(book.id))
-        .toList();
+    return home.latestBooks;
   }
 
   bool _isQuiet(MingtaiHomeData home) {
@@ -959,7 +972,11 @@ class _DiscussionPreviewCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _BookCover(imageUrl: item.book.coverUrl),
+            _BookCover(
+              imageUrl: item.book.coverUrl,
+              title: item.book.title,
+              author: item.book.author,
+            ),
             const SizedBox(width: 13),
             Expanded(
               child: Column(
@@ -1024,7 +1041,12 @@ class _ReadingNowSection extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _BookCover(imageUrl: book.coverUrl, large: true),
+                      _BookCover(
+                        imageUrl: book.coverUrl,
+                        title: book.title,
+                        author: book.author,
+                        large: true,
+                      ),
                       const SizedBox(height: 8),
                       Text(
                         book.title,
@@ -1104,7 +1126,11 @@ class _PublicBookCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _BookCover(imageUrl: book.coverUrl),
+            _BookCover(
+              imageUrl: book.coverUrl,
+              title: book.title,
+              author: book.author,
+            ),
             const SizedBox(width: 13),
             Expanded(
               child: Column(
@@ -1258,7 +1284,12 @@ class _BookDetailHeader extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _BookCover(imageUrl: book.coverUrl, large: true),
+          _BookCover(
+            imageUrl: book.coverUrl,
+            title: book.title,
+            author: book.author,
+            large: true,
+          ),
           const SizedBox(width: 15),
           Expanded(
             child: Column(
@@ -1472,9 +1503,16 @@ class _AnnotationCard extends StatelessWidget {
 
 class _BookCover extends StatelessWidget {
   final String imageUrl;
+  final String title;
+  final String author;
   final bool large;
 
-  const _BookCover({required this.imageUrl, this.large = false});
+  const _BookCover({
+    required this.imageUrl,
+    this.title = '',
+    this.author = '',
+    this.large = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1488,27 +1526,138 @@ class _BookCover extends StatelessWidget {
         height: large ? 96 : 68,
         color: palette.illustration.withAlpha(72),
         child: canLoadNetwork
-            ? Image.network(
-                imageUrl,
+            ? CachedNetworkImage(
+                imageUrl: imageUrl,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const _BookCoverFallback(),
+                memCacheWidth: large ? 180 : 120,
+                maxWidthDiskCache: large ? 360 : 240,
+                fadeInDuration: const Duration(milliseconds: 160),
+                placeholder: (_, __) => _BookCoverFallback(
+                  title: title,
+                  author: author,
+                  large: large,
+                ),
+                errorWidget: (_, __, ___) => _BookCoverFallback(
+                  title: title,
+                  author: author,
+                  large: large,
+                ),
               )
-            : const _BookCoverFallback(),
+            : _BookCoverFallback(title: title, author: author, large: large),
       ),
     );
   }
 }
 
 class _BookCoverFallback extends StatelessWidget {
-  const _BookCoverFallback();
+  final String title;
+  final String author;
+  final bool large;
+
+  const _BookCoverFallback({
+    this.title = '',
+    this.author = '',
+    this.large = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Icon(
-      Icons.menu_book_outlined,
-      color: context.appPalette.icon,
-      size: 22,
+    final palette = context.appPalette;
+    final cleanTitle = _cleanTitle(title);
+    final cleanAuthor = author.trim().isNotEmpty ? author.trim() : '佚名';
+    final initials = _coverInitials(cleanTitle);
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            palette.primaryLight.withAlpha(92),
+            palette.card.withAlpha(245),
+            palette.primary.withAlpha(48),
+          ],
+        ),
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            right: -10,
+            bottom: -8,
+            child: Icon(
+              Icons.menu_book_outlined,
+              color: palette.primary.withAlpha(58),
+              size: large ? 44 : 30,
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.all(large ? 8 : 5),
+            child: large
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.menu_book_rounded,
+                        size: 14,
+                        color: palette.primaryDark.withAlpha(168),
+                      ),
+                      const Spacer(),
+                      Text(
+                        cleanTitle,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: palette.textPrimary.withAlpha(220),
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w700,
+                          height: 1.18,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        cleanAuthor,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: palette.textSecondary.withAlpha(180),
+                          fontSize: 6.5,
+                          height: 1.1,
+                        ),
+                      ),
+                    ],
+                  )
+                : Center(
+                    child: Text(
+                      initials,
+                      maxLines: 2,
+                      textAlign: TextAlign.center,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: palette.primaryDark.withAlpha(215),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        height: 1.05,
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      ),
     );
+  }
+
+  static String _cleanTitle(String value) {
+    final cleaned = value
+        .replaceAll('《', '')
+        .replaceAll('》', '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    return cleaned.isEmpty ? '知读' : cleaned;
+  }
+
+  static String _coverInitials(String value) {
+    final cleaned = _cleanTitle(value).replaceAll(RegExp(r'\s+'), '');
+    if (cleaned.length <= 2) return cleaned;
+    return cleaned.substring(0, 2);
   }
 }
 
