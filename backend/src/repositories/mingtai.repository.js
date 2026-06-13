@@ -16,6 +16,16 @@ function shapeBook(row) {
     file_size: Number(row.file_size || 0),
     chapter_count: Number(row.chapter_count || 0),
     description: row.description || '',
+    authoritative_description: row.authoritative_description || '',
+    authoritative_description_source: row.authoritative_description_source || '',
+    authoritative_description_url: row.authoritative_description_url || '',
+    one_line_summary: row.one_line_summary || '',
+    one_line_summary_source: row.one_line_summary_source || '',
+    encounter_summary: row.encounter_summary || '',
+    expanded_guide: row.expanded_guide || '',
+    why_worth_reading: row.why_worth_reading || '',
+    reading_themes: normalizeTextArray(row.reading_themes),
+    summary_updated_at: row.summary_updated_at || null,
     copyright_status: row.copyright_status || '',
     borrow_count: Number(row.borrow_count || 0),
     read_count: Number(row.read_count || row.reading_count || row.borrow_count || 0),
@@ -25,6 +35,21 @@ function shapeBook(row) {
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
+}
+
+function normalizeTextArray(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || '').trim()).filter(Boolean);
+  }
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      return normalizeTextArray(parsed);
+    } catch (_) {
+      return value.split(/[、,，/|]/).map((item) => item.trim()).filter(Boolean);
+    }
+  }
+  return [];
 }
 
 function safeTitle(value) {
@@ -135,10 +160,20 @@ async function upsertPublicBook(userId, payload, queryFn = query) {
        file_size,
        chapter_count,
        description,
+       authoritative_description,
+       authoritative_description_source,
+       authoritative_description_url,
+       one_line_summary,
+       one_line_summary_source,
+       encounter_summary,
+       expanded_guide,
+       why_worth_reading,
+       reading_themes,
+       summary_updated_at,
        copyright_status,
        metadata_json
      )
-     VALUES ($1, $1, $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, $11, $12, $13)
+     VALUES ($1, $1, $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, now(), $21, $22)
      ON CONFLICT (publisher_user_id, source_book_id) DO UPDATE SET
        uploader_user_id = EXCLUDED.uploader_user_id,
        title = EXCLUDED.title,
@@ -151,6 +186,16 @@ async function upsertPublicBook(userId, payload, queryFn = query) {
        file_size = EXCLUDED.file_size,
        chapter_count = EXCLUDED.chapter_count,
        description = EXCLUDED.description,
+       authoritative_description = EXCLUDED.authoritative_description,
+       authoritative_description_source = EXCLUDED.authoritative_description_source,
+       authoritative_description_url = EXCLUDED.authoritative_description_url,
+       one_line_summary = EXCLUDED.one_line_summary,
+       one_line_summary_source = EXCLUDED.one_line_summary_source,
+       encounter_summary = EXCLUDED.encounter_summary,
+       expanded_guide = EXCLUDED.expanded_guide,
+       why_worth_reading = EXCLUDED.why_worth_reading,
+       reading_themes = EXCLUDED.reading_themes,
+       summary_updated_at = EXCLUDED.summary_updated_at,
        copyright_status = EXCLUDED.copyright_status,
        metadata_json = EXCLUDED.metadata_json,
        updated_at = now()
@@ -169,6 +214,16 @@ async function upsertPublicBook(userId, payload, queryFn = query) {
        file_size,
        chapter_count,
        description,
+       authoritative_description,
+       authoritative_description_source,
+       authoritative_description_url,
+       one_line_summary,
+       one_line_summary_source,
+       encounter_summary,
+       expanded_guide,
+       why_worth_reading,
+       reading_themes,
+       summary_updated_at,
        copyright_status,
        borrow_count,
        read_count,
@@ -187,6 +242,15 @@ async function upsertPublicBook(userId, payload, queryFn = query) {
       Number(payload.file_size || 0),
       Number(payload.chapter_count || 0),
       payload.description || null,
+      payload.authoritative_description || null,
+      payload.authoritative_description_source || null,
+      payload.authoritative_description_url || null,
+      payload.one_line_summary || null,
+      payload.one_line_summary_source || null,
+      payload.encounter_summary || null,
+      payload.expanded_guide || null,
+      payload.why_worth_reading || null,
+      JSON.stringify(payload.reading_themes || []),
       payload.copyright_status,
       metadata,
     ],
@@ -367,6 +431,16 @@ async function replaceBookChapters(publicBookId, chapters, queryFn = query) {
        file_size,
        chapter_count,
        description,
+       authoritative_description,
+       authoritative_description_source,
+       authoritative_description_url,
+       one_line_summary,
+       one_line_summary_source,
+       encounter_summary,
+       expanded_guide,
+       why_worth_reading,
+       reading_themes,
+       summary_updated_at,
        copyright_status,
        borrow_count,
        read_count,
@@ -407,6 +481,33 @@ async function listBookChapters(publicBookId, { includeContent = false } = {}) {
   );
 
   return result.rows.map((row) => shapeChapter(row, { includeContent }));
+}
+
+async function listBookIntroChapters(publicBookId, { limit = 3 } = {}) {
+  const result = await query(
+    `SELECT
+       id,
+       public_book_id,
+       COALESCE(book_id, public_book_id) AS book_id,
+       chapter_index,
+       COALESCE(chapter_title, title, '') AS chapter_title,
+       COALESCE(chapter_title, title, '') AS title,
+       COALESCE(content_html, content, '') AS content_html,
+       COALESCE(content_html, content, '') AS content,
+       COALESCE(content_text, plain_text, '') AS content_text,
+       COALESCE(content_text, plain_text, '') AS plain_text,
+       word_count,
+       href,
+       created_at,
+       updated_at
+     FROM book_chapters
+     WHERE public_book_id = $1
+     ORDER BY chapter_index ASC
+     LIMIT $2`,
+    [publicBookId, limit],
+  );
+
+  return result.rows.map((row) => shapeChapter(row, { includeContent: true }));
 }
 
 async function getBookChapter(publicBookId, chapterIndex) {
@@ -495,6 +596,7 @@ async function publishEntries(userId, entryIds, publicBookId = null, queryFn = q
       AND pb.source_book_id = e.book_id
      WHERE e.user_id = $1
        AND e.id = ANY($2::uuid[])
+       AND e.source IN ('thought', 'manual')
      ON CONFLICT (entry_id) DO UPDATE SET
        public_book_id = COALESCE(EXCLUDED.public_book_id, public_annotations.public_book_id),
        source = EXCLUDED.source,
@@ -573,6 +675,16 @@ async function listBooks({ limit = 50, search = '', section = '' } = {}) {
        b.file_size,
        b.chapter_count,
        b.description,
+       b.authoritative_description,
+       b.authoritative_description_source,
+       b.authoritative_description_url,
+       b.one_line_summary,
+       b.one_line_summary_source,
+       b.encounter_summary,
+       b.expanded_guide,
+       b.why_worth_reading,
+       b.reading_themes,
+       b.summary_updated_at,
        b.copyright_status,
        b.borrow_count,
        b.read_count,
@@ -603,9 +715,17 @@ async function listBooks({ limit = 50, search = '', section = '' } = {}) {
 }
 
 async function getHome() {
-  const [todayPage, recentThoughts, recentDiscussions, readingNow, latestBooks] =
+  const [
+    todayPage,
+    encounterPool,
+    recentThoughts,
+    recentDiscussions,
+    readingNow,
+    latestBooks,
+  ] =
     await Promise.all([
       getTodayPage(),
+      listEncounterMoments({ limit: 12 }),
       listRecentThoughts({ limit: 4 }),
       listRecentDiscussions({ limit: 4 }),
       listBooks({ limit: 5, section: 'reading' }),
@@ -614,6 +734,7 @@ async function getHome() {
 
   return {
     today_page: todayPage,
+    encounter_pool: encounterPool,
     recent_thoughts: recentThoughts,
     recent_discussions: recentDiscussions,
     reading_now: readingNow.filter((book) => book.read_count > 0),
@@ -627,13 +748,14 @@ async function getTodayPage() {
        a.id,
        a.public_book_id,
        a.source,
-       a.original_text,
+       COALESCE(NULLIF(a.annotation_text, ''), NULLIF(a.original_text, '')) AS original_text,
        a.annotation_text,
        a.chapter_index,
        a.chapter_title,
        b.title AS book_title,
        b.author AS book_author,
        b.cover_url AS book_cover,
+       b.one_line_summary AS book_one_line_summary,
        a.created_at
      FROM public_annotations a
      INNER JOIN public_books b ON b.id = a.public_book_id
@@ -657,6 +779,7 @@ async function getTodayPage() {
        b.title AS book_title,
        b.author AS book_author,
        b.cover_url AS book_cover,
+       b.one_line_summary AS book_one_line_summary,
        c.created_at
      FROM book_chapters c
      INNER JOIN public_books b ON b.id = c.public_book_id
@@ -665,6 +788,61 @@ async function getTodayPage() {
      LIMIT 1`,
   );
   return chapterResult.rows[0] ? shapePageMoment(chapterResult.rows[0]) : null;
+}
+
+async function listEncounterMoments({ limit = 12 } = {}) {
+  const annotationLimit = Math.max(1, Math.ceil(limit / 2));
+  const chapterLimit = Math.max(1, limit - annotationLimit);
+  const [annotationResult, chapterResult] = await Promise.all([
+    query(
+      `SELECT
+         a.id,
+         a.public_book_id,
+         a.source,
+         COALESCE(NULLIF(a.annotation_text, ''), NULLIF(a.original_text, '')) AS original_text,
+         a.annotation_text,
+         a.chapter_index,
+         a.chapter_title,
+         b.title AS book_title,
+         b.author AS book_author,
+         b.cover_url AS book_cover,
+         b.one_line_summary AS book_one_line_summary,
+         a.created_at
+       FROM public_annotations a
+       INNER JOIN public_books b ON b.id = a.public_book_id
+       WHERE a.source IN ('thought', 'manual')
+         AND COALESCE(NULLIF(a.annotation_text, ''), NULLIF(a.original_text, '')) IS NOT NULL
+       ORDER BY md5(a.id::text || CURRENT_DATE::text)
+       LIMIT $1`,
+      [annotationLimit],
+    ),
+    query(
+      `SELECT
+         c.id,
+         c.public_book_id,
+         'excerpt' AS source,
+         LEFT(COALESCE(NULLIF(c.content_text, ''), NULLIF(c.plain_text, '')), 320) AS original_text,
+         '' AS annotation_text,
+         c.chapter_index::text,
+         COALESCE(c.chapter_title, c.title, '') AS chapter_title,
+         b.title AS book_title,
+         b.author AS book_author,
+         b.cover_url AS book_cover,
+         b.one_line_summary AS book_one_line_summary,
+         c.created_at
+       FROM book_chapters c
+       INNER JOIN public_books b ON b.id = c.public_book_id
+       WHERE COALESCE(NULLIF(c.content_text, ''), NULLIF(c.plain_text, '')) IS NOT NULL
+       ORDER BY md5(c.id::text || CURRENT_DATE::text)
+       LIMIT $1`,
+      [chapterLimit],
+    ),
+  ]);
+
+  return [...annotationResult.rows, ...chapterResult.rows]
+    .map(shapePageMoment)
+    .filter((moment) => moment.public_book_id && moment.text)
+    .slice(0, limit);
 }
 
 async function listRecentThoughts({ limit = 4 } = {}) {
@@ -715,6 +893,16 @@ async function listRecentDiscussions({ limit = 4 } = {}) {
        b.file_size,
        b.chapter_count,
        b.description,
+       b.authoritative_description,
+       b.authoritative_description_source,
+       b.authoritative_description_url,
+       b.one_line_summary,
+       b.one_line_summary_source,
+       b.encounter_summary,
+       b.expanded_guide,
+       b.why_worth_reading,
+       b.reading_themes,
+       b.summary_updated_at,
        b.copyright_status,
        b.borrow_count,
        b.read_count,
@@ -725,7 +913,8 @@ async function listRecentDiscussions({ limit = 4 } = {}) {
        b.updated_at
      FROM public_books b
      INNER JOIN public_annotations a ON a.public_book_id = b.id
-     WHERE COALESCE(NULLIF(a.annotation_text, ''), NULLIF(a.original_text, '')) IS NOT NULL
+     WHERE a.source IN ('thought', 'manual')
+       AND COALESCE(NULLIF(a.annotation_text, ''), NULLIF(a.original_text, '')) IS NOT NULL
      ORDER BY b.id, a.created_at DESC`,
   );
 
@@ -752,6 +941,7 @@ function shapePageMoment(row) {
     book_title: safeTitle(row.book_title),
     book_author: safeAuthor(row.book_author),
     book_cover: row.book_cover || '',
+    book_one_line_summary: row.book_one_line_summary || '',
     created_at: row.created_at,
   };
 }
@@ -773,6 +963,16 @@ async function getBook(publicBookId) {
        b.file_size,
        b.chapter_count,
        b.description,
+       b.authoritative_description,
+       b.authoritative_description_source,
+       b.authoritative_description_url,
+       b.one_line_summary,
+       b.one_line_summary_source,
+       b.encounter_summary,
+       b.expanded_guide,
+       b.why_worth_reading,
+       b.reading_themes,
+       b.summary_updated_at,
        b.copyright_status,
        b.borrow_count,
        b.read_count,
@@ -804,6 +1004,73 @@ async function getBook(publicBookId) {
     book: shapeBook(bookResult.rows[0]),
     annotations,
   };
+}
+
+async function updateBookIntroduction(publicBookId, introduction, queryFn = query) {
+  const result = await queryFn(
+    `UPDATE public_books
+     SET description = COALESCE(NULLIF($2, ''), description),
+         authoritative_description = NULLIF($3, ''),
+         authoritative_description_source = NULLIF($4, ''),
+         authoritative_description_url = NULLIF($5, ''),
+         one_line_summary = NULLIF($6, ''),
+         one_line_summary_source = NULLIF($7, ''),
+         encounter_summary = NULLIF($8, ''),
+         expanded_guide = NULLIF($9, ''),
+         why_worth_reading = NULLIF($10, ''),
+         reading_themes = $11::jsonb,
+         summary_updated_at = now(),
+         updated_at = now()
+     WHERE id = $1
+     RETURNING
+       id,
+       publisher_user_id,
+       uploader_user_id,
+       source_book_id,
+       title,
+       author,
+       cover_url,
+       file_url,
+       original_file_url,
+       storage_path,
+       file_type,
+       file_size,
+       chapter_count,
+       description,
+       authoritative_description,
+       authoritative_description_source,
+       authoritative_description_url,
+       one_line_summary,
+       one_line_summary_source,
+       encounter_summary,
+       expanded_guide,
+       why_worth_reading,
+       reading_themes,
+       summary_updated_at,
+       copyright_status,
+       borrow_count,
+       read_count,
+       GREATEST(read_count, borrow_count) AS reading_count,
+       0 AS annotation_count,
+       0 AS recent_discussion_count,
+       created_at,
+       updated_at`,
+    [
+      publicBookId,
+      introduction.description || '',
+      introduction.authoritative_description || '',
+      introduction.authoritative_description_source || '',
+      introduction.authoritative_description_url || '',
+      introduction.one_line_summary || '',
+      introduction.one_line_summary_source || '',
+      introduction.encounter_summary || '',
+      introduction.expanded_guide || '',
+      introduction.why_worth_reading || '',
+      JSON.stringify(introduction.reading_themes || []),
+    ],
+  );
+
+  return result.rows[0] ? shapeBook(result.rows[0]) : null;
 }
 
 async function listAnnotationsByBook(publicBookId) {
@@ -1071,6 +1338,16 @@ async function borrowBook(publicBookId) {
        file_size,
        chapter_count,
        description,
+       authoritative_description,
+       authoritative_description_source,
+       authoritative_description_url,
+       one_line_summary,
+       one_line_summary_source,
+       encounter_summary,
+       expanded_guide,
+       why_worth_reading,
+       reading_themes,
+       summary_updated_at,
        copyright_status,
        borrow_count,
        read_count,
@@ -1116,6 +1393,16 @@ async function recordBookRead(publicBookId) {
        file_size,
        chapter_count,
        description,
+       authoritative_description,
+       authoritative_description_source,
+       authoritative_description_url,
+       one_line_summary,
+       one_line_summary_source,
+       encounter_summary,
+       expanded_guide,
+       why_worth_reading,
+       reading_themes,
+       summary_updated_at,
        copyright_status,
        borrow_count,
        read_count,
@@ -1160,10 +1447,12 @@ module.exports = {
   publishEntries,
   replaceBookChapters,
   listBookChapters,
+  listBookIntroChapters,
   getBookChapter,
   listBooks,
   getHome,
   getBook,
+  updateBookIntroduction,
   createPublicAnnotation,
   createAnnotationComment,
   createResonance,

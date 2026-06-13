@@ -196,6 +196,14 @@ class MingtaiPublicBook {
   final int fileSize;
   final int chapterCount;
   final String description;
+  final String authoritativeDescription;
+  final String authoritativeDescriptionSource;
+  final String authoritativeDescriptionUrl;
+  final String oneLineSummary;
+  final String oneLineSummarySource;
+  final String encounterSummary;
+  final String expandedGuide;
+  final List<String> readingThemes;
   final String copyrightStatus;
   final int borrowCount;
   final int readingCount;
@@ -215,6 +223,14 @@ class MingtaiPublicBook {
     required this.fileSize,
     required this.chapterCount,
     required this.description,
+    required this.authoritativeDescription,
+    required this.authoritativeDescriptionSource,
+    required this.authoritativeDescriptionUrl,
+    required this.oneLineSummary,
+    required this.oneLineSummarySource,
+    required this.encounterSummary,
+    required this.expandedGuide,
+    required this.readingThemes,
     required this.copyrightStatus,
     required this.borrowCount,
     required this.readingCount,
@@ -243,6 +259,17 @@ class MingtaiPublicBook {
       fileSize: int.tryParse(row['file_size']?.toString() ?? '') ?? 0,
       chapterCount: int.tryParse(row['chapter_count']?.toString() ?? '') ?? 0,
       description: row['description']?.toString() ?? '',
+      authoritativeDescription:
+          row['authoritative_description']?.toString() ?? '',
+      authoritativeDescriptionSource:
+          row['authoritative_description_source']?.toString() ?? '',
+      authoritativeDescriptionUrl:
+          row['authoritative_description_url']?.toString() ?? '',
+      oneLineSummary: row['one_line_summary']?.toString() ?? '',
+      oneLineSummarySource: row['one_line_summary_source']?.toString() ?? '',
+      encounterSummary: row['encounter_summary']?.toString() ?? '',
+      expandedGuide: row['expanded_guide']?.toString() ?? '',
+      readingThemes: BookService._remoteTags(row['reading_themes']),
       copyrightStatus: row['copyright_status']?.toString() ?? '',
       borrowCount: int.tryParse(row['borrow_count']?.toString() ?? '') ?? 0,
       readingCount:
@@ -292,7 +319,10 @@ class MingtaiBookDetail {
   final MingtaiPublicBook book;
   final List<MingtaiFeedItem> annotations;
 
-  const MingtaiBookDetail({required this.book, required this.annotations});
+  const MingtaiBookDetail({
+    required this.book,
+    required this.annotations,
+  });
 }
 
 class MingtaiPageMoment {
@@ -306,6 +336,7 @@ class MingtaiPageMoment {
   final String bookTitle;
   final String bookAuthor;
   final String bookCover;
+  final String bookOneLineSummary;
 
   const MingtaiPageMoment({
     required this.id,
@@ -318,6 +349,7 @@ class MingtaiPageMoment {
     required this.bookTitle,
     required this.bookAuthor,
     required this.bookCover,
+    required this.bookOneLineSummary,
   });
 
   factory MingtaiPageMoment.fromRemote(Map<String, dynamic> row) {
@@ -332,6 +364,7 @@ class MingtaiPageMoment {
       bookTitle: row['book_title']?.toString() ?? '未命名文档',
       bookAuthor: row['book_author']?.toString() ?? '佚名',
       bookCover: row['book_cover']?.toString() ?? '',
+      bookOneLineSummary: row['book_one_line_summary']?.toString() ?? '',
     );
   }
 }
@@ -360,6 +393,7 @@ class MingtaiDiscussionPreview {
 
 class MingtaiHomeData {
   final MingtaiPageMoment? todayPage;
+  final List<MingtaiPageMoment> encounterPool;
   final List<MingtaiFeedItem> recentThoughts;
   final List<MingtaiDiscussionPreview> recentDiscussions;
   final List<MingtaiPublicBook> readingNow;
@@ -367,6 +401,7 @@ class MingtaiHomeData {
 
   const MingtaiHomeData({
     required this.todayPage,
+    required this.encounterPool,
     required this.recentThoughts,
     required this.recentDiscussions,
     required this.readingNow,
@@ -379,6 +414,9 @@ class MingtaiHomeData {
       todayPage: today is Map
           ? MingtaiPageMoment.fromRemote(Map<String, dynamic>.from(today))
           : null,
+      encounterPool: _remoteMaps(
+        row['encounter_pool'],
+      ).map(MingtaiPageMoment.fromRemote).toList(),
       recentThoughts: _remoteMaps(
         row['recent_thoughts'],
       ).map(MingtaiFeedItem.fromRemote).toList(),
@@ -1507,7 +1545,10 @@ class BookService {
     final annotations = List<Map<String, dynamic>>.from(
       data['annotations'] ?? [],
     ).map(MingtaiFeedItem.fromRemote).toList();
-    final detail = MingtaiBookDetail(book: book, annotations: annotations);
+    final detail = MingtaiBookDetail(
+      book: book,
+      annotations: annotations,
+    );
     _mingtaiBookDetailCache[bookId] = detail;
     _mingtaiBookDetailCacheAt[bookId] = DateTime.now();
     return detail;
@@ -2217,7 +2258,11 @@ class BookService {
       limit: 200,
     );
     return rows
-        .where((row) => (row['id']?.toString() ?? '').isNotEmpty)
+        .where((row) {
+          final id = row['id']?.toString() ?? '';
+          final source = row['source']?.toString() ?? '';
+          return id.isNotEmpty && (source == 'thought' || source == 'manual');
+        })
         .toList();
   }
 
@@ -2251,6 +2296,7 @@ class BookService {
     Map<String, dynamic> positionJson = const {},
   }) async {
     if (!isMingtaiShelfBook(book)) return;
+    if (source == 'highlight') return;
     final publicBookId = publicBookIdFromShelfId(book.id);
     await BmobApi.instance.createMingtaiBookAnnotation(
       bookId: publicBookId,

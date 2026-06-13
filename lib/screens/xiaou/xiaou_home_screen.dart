@@ -231,6 +231,33 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
 
   Future<void> _publishItem(String id) async {
     if (id.isEmpty || _publishingIds.contains(id)) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final palette = context.appPalette;
+        return AlertDialog(
+          title: const Text('让其他读者也看见？'),
+          content: const Text(
+            '这段话会出现在书页边缘。\n\n未发布的记录仍只属于你。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('暂时留给自己'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: palette.primary,
+                foregroundColor: palette.buttonForeground,
+              ),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('发布到明台'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) return;
     setState(() => _publishingIds.add(id));
     try {
       await BookService.publishEntryToMingtai(id);
@@ -412,6 +439,9 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
               delegate: SliverChildBuilderDelegate((_, i) {
                 final item = _items[i];
                 final id = (item['id'] as String?) ?? '';
+                final source = (item['source'] as String?) ?? '';
+                final canPublishToMingtai =
+                    source == 'thought' || source == 'manual';
                 return XiaouCard(
                   originalText: (item['original_text'] as String?) ?? '',
                   userNote: (item['user_note'] as String?) ?? '',
@@ -419,7 +449,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
                   aiUnderstanding: (item['ai_understanding'] as String?) ?? '',
                   bookTitle: (item['book_title'] as String?) ?? '',
                   onTagTap: _openTopic,
-                  onPublish: _publishingIds.contains(id)
+                  onPublish: !canPublishToMingtai || _publishingIds.contains(id)
                       ? null
                       : () => _publishItem(id),
                   onDelete: _deletingIds.contains(id)

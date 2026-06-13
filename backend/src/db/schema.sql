@@ -126,6 +126,16 @@ CREATE TABLE IF NOT EXISTS public_books (
   file_type TEXT,
   file_size BIGINT NOT NULL DEFAULT 0,
   description TEXT,
+  authoritative_description TEXT,
+  authoritative_description_source TEXT,
+  authoritative_description_url TEXT,
+  one_line_summary TEXT,
+  one_line_summary_source TEXT,
+  encounter_summary TEXT,
+  expanded_guide TEXT,
+  why_worth_reading TEXT,
+  reading_themes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  summary_updated_at TIMESTAMPTZ,
   copyright_status TEXT NOT NULL CHECK (
     copyright_status IN ('public_domain', 'original', 'authorized')
   ),
@@ -155,6 +165,36 @@ ALTER TABLE public_books
 
 ALTER TABLE public_books
   ADD COLUMN IF NOT EXISTS chapter_count INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE public_books
+  ADD COLUMN IF NOT EXISTS authoritative_description TEXT;
+
+ALTER TABLE public_books
+  ADD COLUMN IF NOT EXISTS authoritative_description_source TEXT;
+
+ALTER TABLE public_books
+  ADD COLUMN IF NOT EXISTS authoritative_description_url TEXT;
+
+ALTER TABLE public_books
+  ADD COLUMN IF NOT EXISTS one_line_summary TEXT;
+
+ALTER TABLE public_books
+  ADD COLUMN IF NOT EXISTS one_line_summary_source TEXT;
+
+ALTER TABLE public_books
+  ADD COLUMN IF NOT EXISTS encounter_summary TEXT;
+
+ALTER TABLE public_books
+  ADD COLUMN IF NOT EXISTS expanded_guide TEXT;
+
+ALTER TABLE public_books
+  ADD COLUMN IF NOT EXISTS why_worth_reading TEXT;
+
+ALTER TABLE public_books
+  ADD COLUMN IF NOT EXISTS reading_themes JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE public_books
+  ADD COLUMN IF NOT EXISTS summary_updated_at TIMESTAMPTZ;
 
 ALTER TABLE public_books
   ADD COLUMN IF NOT EXISTS uploader_user_id UUID REFERENCES users(id) ON DELETE CASCADE;

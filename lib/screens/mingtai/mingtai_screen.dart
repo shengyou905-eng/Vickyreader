@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -19,8 +20,10 @@ class MingtaiScreen extends StatefulWidget {
 }
 
 class _MingtaiScreenState extends State<MingtaiScreen> {
+  final Random _encounterRandom = Random();
   MingtaiHomeData? _home;
   Timer? _prefetchTimer;
+  int? _encounterIndex;
   bool _loading = false;
   bool _refreshing = true;
   String? _error;
@@ -106,25 +109,6 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
     }
   }
 
-  void _openBook(MingtaiPublicBook book) {
-    if (!BookService.canReadMingtaiBook(book)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('这本明台书尚未生成章节缓存，请重新发布后再阅读'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    unawaited(BookService.recordMingtaiBookRead(book.id));
-    final readerBook = BookService.readableBookFromMingtai(book);
-    unawaited(context.read<ReaderProvider>().openBook(readerBook));
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const ReaderScreen()));
-  }
-
   void _openBookById(String bookId, {MingtaiPublicBook? initialBook}) {
     if (bookId.isEmpty) return;
     Navigator.of(context).push(
@@ -150,8 +134,76 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
     return null;
   }
 
-  List<MingtaiPublicBook> _latestBooks(MingtaiHomeData home) {
-    return home.latestBooks;
+  List<MingtaiPublicBook> _recentlyStoppedBooks(MingtaiHomeData home) {
+    final seen = <String>{};
+    final books = <MingtaiPublicBook>[];
+    for (final book in home.readingNow) {
+      if (book.id.isEmpty || !seen.add(book.id)) continue;
+      books.add(book);
+    }
+    return books;
+  }
+
+  List<MingtaiPublicBook> _newBooks(MingtaiHomeData home) {
+    final seen = <String>{};
+    return home.latestBooks.where((book) {
+      if (book.id.isEmpty || !seen.add(book.id)) return false;
+      return true;
+    }).toList();
+  }
+
+  List<MingtaiPageMoment> _encounterCandidates(MingtaiHomeData home) {
+    final seen = <String>{};
+    final moments = <MingtaiPageMoment>[];
+    for (final moment in [
+      ...home.encounterPool,
+      if (home.todayPage != null) home.todayPage!,
+      ...home.latestBooks.map(_momentFromBook),
+    ]) {
+      final key = '${moment.publicBookId}:${moment.id}';
+      if (moment.publicBookId.isEmpty || !seen.add(key)) continue;
+      moments.add(moment);
+    }
+    return moments;
+  }
+
+  MingtaiPageMoment _momentFromBook(MingtaiPublicBook book) {
+    final summary = book.oneLineSummary.trim();
+    return MingtaiPageMoment(
+      id: 'book:${book.id}',
+      publicBookId: book.id,
+      source: 'book',
+      text: summary.isNotEmpty ? summary : '也许可以从这本书开始。',
+      annotationText: '',
+      chapterIndex: '',
+      chapterTitle: '',
+      bookTitle: book.title,
+      bookAuthor: book.author,
+      bookCover: book.coverUrl,
+      bookOneLineSummary: summary,
+    );
+  }
+
+  MingtaiPageMoment? _currentEncounter(List<MingtaiPageMoment> candidates) {
+    final index = _encounterIndex;
+    if (index == null || candidates.isEmpty) return null;
+    return candidates[index % candidates.length];
+  }
+
+  void _drawEncounter(List<MingtaiPageMoment> candidates) {
+    if (candidates.isEmpty) return;
+    setState(() {
+      if (candidates.length == 1) {
+        _encounterIndex = 0;
+        return;
+      }
+      final current = _encounterIndex;
+      var next = _encounterRandom.nextInt(candidates.length);
+      if (current != null && next == current % candidates.length) {
+        next = (next + 1) % candidates.length;
+      }
+      _encounterIndex = next;
+    });
   }
 
   bool _isQuiet(MingtaiHomeData home) {
@@ -164,6 +216,18 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final home = _home;
+    final recentlyStoppedBooks = home == null
+        ? const <MingtaiPublicBook>[]
+        : _recentlyStoppedBooks(home);
+    final newBooks = home == null
+        ? const <MingtaiPublicBook>[]
+        : _newBooks(home);
+    final encounterCandidates = home == null
+        ? const <MingtaiPageMoment>[]
+        : _encounterCandidates(home);
+    final encounterMoment = _currentEncounter(encounterCandidates);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('明台'),
@@ -192,35 +256,45 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
                             message: _error!,
                             onRetry: () => _load(forceRefresh: true),
                           )
-                        else if (_home == null || _isQuiet(_home!))
+                        else if (home == null || _isQuiet(home))
                           const _QuietEmpty()
                         else ...[
-                          if (_home!.todayPage != null)
-                            _TodayPageCard(
-                              moment: _home!.todayPage!,
-                              onTap: () =>
-                                  _openBookById(_home!.todayPage!.publicBookId),
-                            ),
-                          if (_home!.recentThoughts.isNotEmpty)
-                            _RecentThoughtsSection(
-                              items: _home!.recentThoughts,
-                              onTap: (item) => _openBookById(item.bookId),
-                            ),
-                          if (_home!.recentDiscussions.isNotEmpty)
-                            _RecentDiscussionsSection(
-                              items: _home!.recentDiscussions,
-                              onTap: (item) => _openBook(item.book),
-                            ),
-                          if (_home!.readingNow.isNotEmpty)
+                          _TodayEncounterCard(
+                            moment: encounterMoment,
+                            canDraw: encounterCandidates.isNotEmpty,
+                            onDraw: () => _drawEncounter(encounterCandidates),
+                            onShuffle: () =>
+                                _drawEncounter(encounterCandidates),
+                            onOpen: encounterMoment == null
+                                ? null
+                                : () => _openBookById(
+                                      encounterMoment.publicBookId,
+                                    ),
+                          ),
+                          if (recentlyStoppedBooks.isNotEmpty)
                             _ReadingNowSection(
-                              books: _home!.readingNow,
-                              onTap: _openBook,
+                              books: recentlyStoppedBooks,
+                              onTap: (book) =>
+                                  _openBookById(book.id, initialBook: book),
                             ),
-                          if (_latestBooks(_home!).isNotEmpty)
-                            _BookSection(
-                              title: '最新公开',
-                              books: _latestBooks(_home!),
-                              onTap: _openBook,
+                          if (home.recentThoughts.isNotEmpty)
+                            _RecentThoughtsSection(
+                              items: home.recentThoughts,
+                              onTap: (item) => _openBookById(item.bookId),
+                            )
+                          else if (home.recentDiscussions.isNotEmpty)
+                            _RecentDiscussionsSection(
+                              items: home.recentDiscussions,
+                              onTap: (item) => _openBookById(
+                                item.book.id,
+                                initialBook: item.book,
+                              ),
+                            ),
+                          if (newBooks.isNotEmpty)
+                            _NewBooksSection(
+                              books: newBooks,
+                              onTap: (book) =>
+                                  _openBookById(book.id, initialBook: book),
                             ),
                           const SizedBox(height: 12),
                           const _QuietHint(),
@@ -252,10 +326,10 @@ class MingtaiBookDetailScreen extends StatefulWidget {
 
 class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
   MingtaiBookDetail? _detail;
-  final Set<String> _expandedIds = {};
   final Set<String> _resonatingIds = {};
   final Set<String> _commentingIds = {};
-  int _selectedCommunityTab = 0;
+  bool _descriptionExpanded = false;
+  bool _hasReadingProgress = false;
   bool _loading = true;
   bool _startingReading = false;
   bool _borrowing = false;
@@ -266,9 +340,13 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
     super.initState();
     final initialBook = widget.initialBook;
     if (initialBook != null) {
-      _detail = MingtaiBookDetail(book: initialBook, annotations: const []);
+      _detail = MingtaiBookDetail(
+        book: initialBook,
+        annotations: const [],
+      );
       _loading = false;
       unawaited(BookService.prefetchMingtaiBookChapters(initialBook));
+      unawaited(_loadReadingProgress(initialBook));
     }
     _load();
   }
@@ -289,6 +367,7 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
         _loading = false;
       });
       unawaited(BookService.prefetchMingtaiBookChapters(detail.book));
+      unawaited(_loadReadingProgress(detail.book));
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -296,6 +375,19 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _loadReadingProgress(MingtaiPublicBook book) async {
+    try {
+      final shelfBookId = BookService.publicShelfBookId(book.id);
+      final progress = await BookService.getReadingProgress(shelfBookId);
+      if (!mounted || _detail?.book.id != book.id) return;
+      final chapter = int.tryParse(progress?.chapterIndex ?? '') ?? 0;
+      final offset = progress?.scrollOffset ?? 0;
+      setState(() {
+        _hasReadingProgress = chapter > 0 || offset > 8;
+      });
+    } catch (_) {}
   }
 
   Future<void> _borrow() async {
@@ -424,47 +516,103 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
     }
   }
 
-  void _toggleContext(String id) {
-    setState(() {
-      if (_expandedIds.contains(id)) {
-        _expandedIds.remove(id);
-      } else {
-        _expandedIds.add(id);
-      }
-    });
+  List<MingtaiFeedItem> _thoughts(MingtaiBookDetail detail) {
+    final items = detail.annotations
+        .where((item) => item.source == 'thought' || item.source == 'manual')
+        .toList();
+    items.sort(_byRecentTrace);
+    return items;
   }
 
-  List<MingtaiFeedItem> _itemsForCurrentTab(MingtaiBookDetail detail) {
-    if (_selectedCommunityTab == 0) {
-      final highlights = detail.annotations
-          .where((item) => item.source == 'highlight')
-          .toList();
-      highlights.sort((a, b) {
-        final aChapter = int.tryParse(a.chapterIndex) ?? 0;
-        final bChapter = int.tryParse(b.chapterIndex) ?? 0;
-        final byChapter = aChapter.compareTo(bChapter);
-        if (byChapter != 0) return byChapter;
-        final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        return bTime.compareTo(aTime);
-      });
-      return highlights;
-    }
-    if (_selectedCommunityTab == 1) {
-      return detail.annotations
-          .where((item) => item.source == 'thought' || item.source == 'manual')
-          .toList();
-    }
-    return detail.annotations
-        .where((item) => item.source == 'ai_explanation')
-        .toList();
+  List<MingtaiFeedItem> _recentTraces(MingtaiBookDetail detail) {
+    return _thoughts(detail);
+  }
+
+  int _sharedStopCount(MingtaiBookDetail detail) {
+    final annotationCount = detail.book.annotationCount;
+    final localCount = detail.annotations.length;
+    final count = annotationCount > localCount ? annotationCount : localCount;
+    return count;
+  }
+
+  int _byRecentTrace(MingtaiFeedItem a, MingtaiFeedItem b) {
+    final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    return bTime.compareTo(aTime);
+  }
+
+  int _discussionCount(MingtaiBookDetail detail) {
+    final fromBook = detail.book.recentDiscussionCount;
+    final fromItems = detail.annotations.fold<int>(
+      0,
+      (sum, item) => sum + item.commentCount,
+    );
+    return fromBook > fromItems ? fromBook : fromItems;
+  }
+
+  void _openTraceSheet(MingtaiFeedItem item) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _TraceDetailSheet(
+        item: item,
+        resonating: _resonatingIds.contains(item.id),
+        commenting: _commentingIds.contains(item.id),
+        onResonance: () => _sendResonance(item),
+        onComment: () => _sendComment(item),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final detail = _detail;
+    final palette = context.appPalette;
+    final thoughts = detail == null
+        ? const <MingtaiFeedItem>[]
+        : _thoughts(detail);
+    final traces = detail == null
+        ? const <MingtaiFeedItem>[]
+        : _recentTraces(detail);
     return Scaffold(
-      appBar: AppBar(title: Text(detail?.book.title ?? '明台书籍')),
+      appBar: AppBar(title: const Text('明台')),
+      bottomNavigationBar: detail == null || _error != null
+          ? null
+          : Container(
+              padding: EdgeInsets.fromLTRB(
+                18,
+                10,
+                18,
+                12 + MediaQuery.of(context).padding.bottom,
+              ),
+              decoration: BoxDecoration(
+                color: palette.surface.withAlpha(248),
+                border: Border(top: BorderSide(color: palette.divider)),
+              ),
+              child: SafeArea(
+                top: false,
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton(
+                    onPressed: _startingReading ||
+                            !BookService.canReadMingtaiBook(detail.book)
+                        ? null
+                        : _startReading,
+                    child: Text(
+                      !BookService.canReadMingtaiBook(detail.book)
+                          ? '暂无可读内容'
+                          : _startingReading
+                          ? '打开中...'
+                          : _hasReadingProgress
+                          ? '继续阅读'
+                          : '开始阅读',
+                    ),
+                  ),
+                ),
+              ),
+            ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -473,37 +621,32 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
               children: [_QuietError(message: _error!, onRetry: _load)],
             )
           : ListView(
-              padding: const EdgeInsets.fromLTRB(18, 16, 18, 32),
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 122),
               children: [
                 _BookDetailHeader(
                   book: detail!.book,
-                  startingReading: _startingReading,
                   borrowing: _borrowing,
-                  onStartReading: _startReading,
+                  descriptionExpanded: _descriptionExpanded,
+                  onToggleDescription: () {
+                    setState(
+                      () => _descriptionExpanded = !_descriptionExpanded,
+                    );
+                  },
                   onBorrow: _borrow,
                 ),
-                const SizedBox(height: 22),
-                _CommunityTabs(
-                  selectedIndex: _selectedCommunityTab,
-                  onChanged: (index) {
-                    setState(() => _selectedCommunityTab = index);
-                  },
+                const SizedBox(height: 20),
+                _BookTraceStats(
+                  readingCount: detail.book.readingCount,
+                  sharedStopCount: _sharedStopCount(detail),
+                  thoughtCount: thoughts.length,
+                  discussionCount: _discussionCount(detail),
                 ),
-                const SizedBox(height: 12),
-                if (_itemsForCurrentTab(detail).isEmpty)
-                  _BookEmptyAnnotations(tabIndex: _selectedCommunityTab)
-                else
-                  ..._itemsForCurrentTab(detail).map(
-                    (item) => _AnnotationCard(
-                      item: item,
-                      expanded: _expandedIds.contains(item.id),
-                      resonating: _resonatingIds.contains(item.id),
-                      commenting: _commentingIds.contains(item.id),
-                      onResonance: () => _sendResonance(item),
-                      onComment: () => _sendComment(item),
-                      onToggleContext: () => _toggleContext(item.id),
-                    ),
-                  ),
+                const SizedBox(height: 24),
+                _TraceMemorySection(
+                  items: traces,
+                  sharedStopCount: _sharedStopCount(detail),
+                  onTap: _openTraceSheet,
+                ),
               ],
             ),
     );
@@ -660,7 +803,7 @@ class _PublishBookSheetState extends State<_PublishBookSheet> {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      '先选择版权状态，再选择要公开的批注。未选择的内容不会公开。',
+                      '先选择版权状态。你也可以选择少量想法公开到书页边缘，未选择的内容仍只属于你。',
                       style: TextStyle(
                         color: AppTheme.textSecondary,
                         fontSize: 13,
@@ -713,7 +856,7 @@ class _PublishBookSheetState extends State<_PublishBookSheet> {
                         decoration: const InputDecoration(labelText: '版权状态'),
                       ),
                       const SizedBox(height: 18),
-                      const _SectionTitle(title: '公开批注'),
+                      const _SectionTitle(title: '可公开的想法'),
                       const SizedBox(height: 8),
                       if (_loadingEntries)
                         const Padding(
@@ -722,7 +865,7 @@ class _PublishBookSheetState extends State<_PublishBookSheet> {
                         )
                       else if (_entries.isEmpty)
                         const Text(
-                          '这本书还没有可公开的阅读记录。可以先发布书籍，之后再公开批注。',
+                          '这本书还没有可公开的想法。可以先发布书籍，之后再把某一句想法交给明台。',
                           style: TextStyle(
                             color: AppTheme.textSecondary,
                             fontSize: 13,
@@ -759,7 +902,11 @@ class _PublishBookSheetState extends State<_PublishBookSheet> {
 
   Widget _buildEntryCheckbox(Map<String, dynamic> entry) {
     final id = entry['id']?.toString() ?? '';
-    final text = entry['original_text']?.toString() ?? '';
+    final userInput = entry['user_input']?.toString() ??
+        entry['user_note']?.toString() ??
+        '';
+    final originalText = entry['original_text']?.toString() ?? '';
+    final text = userInput.trim().isNotEmpty ? userInput : originalText;
     final source = BookService.mingtaiSourceLabel(
       entry['source']?.toString() ?? 'manual',
     );
@@ -786,15 +933,25 @@ class _PublishBookSheetState extends State<_PublishBookSheet> {
   }
 }
 
-class _TodayPageCard extends StatelessWidget {
-  final MingtaiPageMoment moment;
-  final VoidCallback onTap;
+class _TodayEncounterCard extends StatelessWidget {
+  final MingtaiPageMoment? moment;
+  final bool canDraw;
+  final VoidCallback onDraw;
+  final VoidCallback onShuffle;
+  final VoidCallback? onOpen;
 
-  const _TodayPageCard({required this.moment, required this.onTap});
+  const _TodayEncounterCard({
+    required this.moment,
+    required this.canDraw,
+    required this.onDraw,
+    required this.onShuffle,
+    required this.onOpen,
+  });
 
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
+    final current = moment;
     return Container(
       margin: const EdgeInsets.only(bottom: 28),
       padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
@@ -807,58 +964,122 @@ class _TodayPageCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '今日书页',
+            '✦ 今日偶遇',
             style: TextStyle(
               color: palette.textSecondary,
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 20),
-          Text(
-            moment.text,
-            maxLines: 7,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: palette.textPrimary,
-              fontSize: 17,
-              height: 1.85,
-              fontWeight: FontWeight.w500,
+          const SizedBox(height: 18),
+          if (current == null)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '不知道读什么？',
+                  style: TextStyle(
+                    color: palette.textPrimary,
+                    fontSize: 20,
+                    height: 1.45,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  '让明台替你随机翻开一本书。',
+                  style: TextStyle(
+                    color: palette.textSecondary,
+                    fontSize: 14,
+                    height: 1.65,
+                  ),
+                ),
+                const SizedBox(height: 22),
+                OutlinedButton(
+                  onPressed: canDraw ? onDraw : null,
+                  child: const Text('抽一张'),
+                ),
+              ],
+            )
+          else
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  current.text,
+                  maxLines: 6,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette.textPrimary,
+                    fontSize: 17,
+                    height: 1.85,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  '《${current.bookTitle}》',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette.textPrimary,
+                    fontSize: 16,
+                    height: 1.4,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (current.bookAuthor.trim().isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    current.bookAuthor,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: palette.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+                if (current.bookOneLineSummary.trim().isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    current.bookOneLineSummary.trim(),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: palette.textSecondary,
+                      fontSize: 13,
+                      height: 1.6,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 20),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton(
+                      onPressed: onOpen,
+                      child: const Text('进入书页'),
+                    ),
+                    TextButton(
+                      onPressed: onShuffle,
+                      child: const Text('换一本'),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ),
-          if (moment.annotationText.trim().isNotEmpty &&
-              moment.annotationText.trim() != moment.text.trim()) ...[
-            const SizedBox(height: 18),
+          if (!canDraw && current == null) ...[
+            const SizedBox(height: 12),
             Text(
-              moment.annotationText,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
+              '明台暂时还没有可以偶遇的书页。',
               style: TextStyle(
                 color: palette.textSecondary,
-                fontSize: 13,
-                height: 1.65,
-                fontStyle: FontStyle.italic,
+                fontSize: 12,
               ),
             ),
           ],
-          const SizedBox(height: 22),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '《${moment.bookTitle}》${moment.bookAuthor.isEmpty ? '' : '  ·  ${moment.bookAuthor}'}',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppTheme.textSecondary,
-                    fontSize: 12,
-                    height: 1.4,
-                  ),
-                ),
-              ),
-              TextButton(onPressed: onTap, child: const Text('进入阅读')),
-            ],
-          ),
         ],
       ),
     );
@@ -874,7 +1095,7 @@ class _RecentThoughtsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _MingtaiSection(
-      title: '最近被看见的想法',
+      title: '✦ 最近留下痕迹',
       subtitle: '一些人在书页边缘留下的停顿',
       children: items
           .map(
@@ -944,8 +1165,8 @@ class _RecentDiscussionsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _MingtaiSection(
-      title: '最近讨论',
-      subtitle: '有些书页刚刚被人轻轻翻动',
+      title: '✦ 最近留下痕迹',
+      subtitle: '刚刚被回应过的书页',
       children: items
           .map(
             (item) =>
@@ -1022,50 +1243,78 @@ class _ReadingNowSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _MingtaiSection(
-      title: '正在阅读',
+      title: '✦ 最近有人停留',
       subtitle: '最近有人从这里走进了一本书',
       children: [
-        SizedBox(
-          height: 152,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: books.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 12),
-            itemBuilder: (_, index) {
-              final book = books[index];
-              return InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () => onTap(book),
-                child: SizedBox(
-                  width: 88,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _BookCover(
-                        imageUrl: book.coverUrl,
-                        title: book.title,
-                        author: book.author,
-                        large: true,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        book.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppTheme.textPrimary,
-                          fontSize: 12,
-                          height: 1.35,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
+        _BookRail(books: books, onTap: onTap),
       ],
+    );
+  }
+}
+
+class _NewBooksSection extends StatelessWidget {
+  final List<MingtaiPublicBook> books;
+  final ValueChanged<MingtaiPublicBook> onTap;
+
+  const _NewBooksSection({required this.books, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return _MingtaiSection(
+      title: '✦ 新来到明台',
+      subtitle: '刚刚被放到公共书页上的书',
+      children: [_BookRail(books: books, onTap: onTap)],
+    );
+  }
+}
+
+class _BookRail extends StatelessWidget {
+  final List<MingtaiPublicBook> books;
+  final ValueChanged<MingtaiPublicBook> onTap;
+
+  const _BookRail({required this.books, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 152,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: books.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemBuilder: (_, index) {
+          final book = books[index];
+          return InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => onTap(book),
+            child: SizedBox(
+              width: 88,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _BookCover(
+                    imageUrl: book.coverUrl,
+                    title: book.title,
+                    author: book.author,
+                    large: true,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    book.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontSize: 12,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
@@ -1103,270 +1352,423 @@ class _MingtaiSection extends StatelessWidget {
   }
 }
 
-class _PublicBookCard extends StatelessWidget {
-  final MingtaiPublicBook book;
-  final VoidCallback onTap;
-
-  const _PublicBookCard({required this.book, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.appPalette;
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: palette.card.withAlpha(242),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: palette.divider.withAlpha(150)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _BookCover(
-              imageUrl: book.coverUrl,
-              title: book.title,
-              author: book.author,
-            ),
-            const SizedBox(width: 13),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '《${book.title}》',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      height: 1.35,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    book.author.isEmpty ? '佚名' : book.author,
-                    style: const TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontSize: 12,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    children: [
-                      _MetaPill(text: _copyrightLabel(book.copyrightStatus)),
-                      _MetaPill(text: '${book.readingCount} 人阅读'),
-                      _MetaPill(text: '${book.recentDiscussionCount} 条最近讨论'),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _BookSection extends StatelessWidget {
-  final String title;
-  final List<MingtaiPublicBook> books;
-  final ValueChanged<MingtaiPublicBook> onTap;
-
-  const _BookSection({
-    required this.title,
-    required this.books,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (books.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _SectionTitle(title: title),
-        const SizedBox(height: 10),
-        ...books.map(
-          (book) => _PublicBookCard(book: book, onTap: () => onTap(book)),
-        ),
-        const SizedBox(height: 12),
-      ],
-    );
-  }
-}
-
-class _CommunityTabs extends StatelessWidget {
-  final int selectedIndex;
-  final ValueChanged<int> onChanged;
-
-  const _CommunityTabs({required this.selectedIndex, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.appPalette;
-    const labels = ['公共划线', '想法', 'AI解读'];
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: palette.card.withAlpha(225),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: palette.divider.withAlpha(150)),
-      ),
-      child: Row(
-        children: List.generate(labels.length, (index) {
-          final selected = selectedIndex == index;
-          return Expanded(
-            child: InkWell(
-              borderRadius: BorderRadius.circular(999),
-              onTap: () => onChanged(index),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                padding: const EdgeInsets.symmetric(vertical: 9),
-                decoration: BoxDecoration(
-                  color: selected
-                      ? palette.primaryLight.withAlpha(92)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  labels[index],
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: selected
-                        ? palette.primaryDark
-                        : palette.textSecondary,
-                    fontSize: 13,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  ),
-                ),
-              ),
-            ),
-          );
-        }),
-      ),
-    );
-  }
-}
-
 class _BookDetailHeader extends StatelessWidget {
   final MingtaiPublicBook book;
-  final bool startingReading;
   final bool borrowing;
-  final VoidCallback onStartReading;
+  final bool descriptionExpanded;
+  final VoidCallback onToggleDescription;
   final VoidCallback onBorrow;
 
   const _BookDetailHeader({
     required this.book,
-    required this.startingReading,
     required this.borrowing,
-    required this.onStartReading,
+    required this.descriptionExpanded,
+    required this.onToggleDescription,
     required this.onBorrow,
   });
 
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: palette.card.withAlpha(242),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: palette.divider.withAlpha(150)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _BookCover(
-            imageUrl: book.coverUrl,
-            title: book.title,
-            author: book.author,
-            large: true,
-          ),
-          const SizedBox(width: 15),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '《${book.title}》',
-                  style: const TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    height: 1.35,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  book.author.isEmpty ? '佚名' : book.author,
-                  style: const TextStyle(
-                    color: AppTheme.textSecondary,
-                    fontSize: 13,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
+    final credits = _BookCredits.fromAuthor(book.author);
+    final introduction = _BookIntroduction.fromBook(book);
+    final hasReadableContent = BookService.canReadMingtaiBook(book);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _BookCover(
+              imageUrl: book.coverUrl,
+              title: book.title,
+              author: book.author,
+              width: 112,
+              height: 158,
+            ),
+            const SizedBox(width: 18),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _MetaPill(text: _copyrightLabel(book.copyrightStatus)),
-                    _MetaPill(text: '${book.annotationCount} 条批注'),
+                    Text(
+                      '《${book.title}》',
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: palette.textPrimary,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        height: 1.35,
+                      ),
+                    ),
+                    const SizedBox(height: 9),
+                    Text(
+                      credits.author,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: palette.textSecondary,
+                        fontSize: 13,
+                        height: 1.45,
+                      ),
+                    ),
+                    if (credits.translator.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        '译者：${credits.translator}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: palette.textSecondary,
+                          fontSize: 12,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        _MetaPill(text: _copyrightLabel(book.copyrightStatus)),
+                        if (!hasReadableContent) const _MetaPill(text: '等待章节'),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    TextButton.icon(
+                      onPressed: borrowing || !hasReadableContent
+                          ? null
+                          : onBorrow,
+                      icon: const Icon(Icons.library_add_outlined, size: 17),
+                      label: Text(borrowing ? '借阅中...' : '借阅到书架'),
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(0, 34),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        foregroundColor: palette.primaryDark,
+                      ),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 14),
-                Builder(
-                  builder: (context) {
-                    final hasReadableContent = BookService.canReadMingtaiBook(
-                      book,
-                    );
-                    return Column(
-                      children: [
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            onPressed: startingReading || !hasReadableContent
-                                ? null
-                                : onStartReading,
-                            icon: const Icon(Icons.menu_book_rounded),
-                            label: Text(
-                              !hasReadableContent
-                                  ? '暂无可读内容'
-                                  : startingReading
-                                  ? '打开中...'
-                                  : '开始阅读',
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton.icon(
-                            onPressed: borrowing || !hasReadableContent
-                                ? null
-                                : onBorrow,
-                            icon: const Icon(Icons.library_add_outlined),
-                            label: Text(
-                              !hasReadableContent
-                                  ? '暂无可借阅内容'
-                                  : borrowing
-                                  ? '借阅中...'
-                                  : '借阅到书架',
-                            ),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        _BookIntroductionBlock(
+          introduction: introduction,
+          expanded: descriptionExpanded,
+          onToggle: onToggleDescription,
+        ),
+      ],
+    );
+  }
+}
+
+class _BookCredits {
+  final String author;
+  final String translator;
+
+  const _BookCredits({required this.author, required this.translator});
+
+  factory _BookCredits.fromAuthor(String raw) {
+    final parts = raw
+        .split(RegExp(r'[;；]'))
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) {
+      return const _BookCredits(author: '佚名', translator: '');
+    }
+    final translatorParts = parts
+        .where((part) => part.contains('译') || part.contains('翻译'))
+        .map((part) => part.replaceAll(RegExp(r'译$'), '').trim())
+        .where((part) => part.isNotEmpty)
+        .toList();
+    final authorParts = parts
+        .where((part) => !translatorParts.contains(part))
+        .where((part) => !(part.contains('译') || part.contains('翻译')))
+        .toList();
+    return _BookCredits(
+      author: authorParts.isEmpty ? parts.first : authorParts.join('；'),
+      translator: translatorParts.join('；'),
+    );
+  }
+}
+
+class _BookIntroduction {
+  final String oneLine;
+  final String expandedGuide;
+
+  const _BookIntroduction({
+    required this.oneLine,
+    required this.expandedGuide,
+  });
+
+  factory _BookIntroduction.fromBook(
+    MingtaiPublicBook book,
+  ) {
+    final raw = _cleanIntroText(book.description);
+    final oneLineSummary = _validIntroLine(book.oneLineSummary);
+    final authoritativeDescription = _cleanIntroText(
+      book.authoritativeDescription,
+    );
+    final title = _plainBookTitle(book.title);
+    final sourceText = authoritativeDescription.isNotEmpty
+        ? authoritativeDescription
+        : raw;
+    final expandedGuide = _validIntroLine(book.expandedGuide);
+
+    return _BookIntroduction(
+      oneLine: oneLineSummary.isNotEmpty
+          ? oneLineSummary
+          : _compactSentence(
+              sourceText,
+              fallback: title.isNotEmpty
+                  ? '《$title》需要从正文里慢慢进入。'
+                  : '这本书需要从正文里慢慢进入。',
+            ),
+      expandedGuide: expandedGuide.isNotEmpty
+          ? expandedGuide
+          : _expandedGuideFromSource(sourceText, title),
+    );
+  }
+}
+
+class _BookIntroductionBlock extends StatelessWidget {
+  final _BookIntroduction introduction;
+  final bool expanded;
+  final VoidCallback onToggle;
+
+  const _BookIntroductionBlock({
+    required this.introduction,
+    required this.expanded,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 17, 18, 16),
+      decoration: BoxDecoration(
+        color: palette.card.withAlpha(226),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: palette.primary.withAlpha(16),
+            blurRadius: 28,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.auto_awesome_rounded,
+                color: palette.primaryDark,
+                size: 16,
+              ),
+              const SizedBox(width: 7),
+              Text(
+                '小U整理的读前导览',
+                style: TextStyle(
+                  color: palette.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
                 ),
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _IntroPiece(
+            title: '一句话简介',
+            body: introduction.oneLine,
+            emphasize: true,
+          ),
+          if (expanded) ...[
+            const SizedBox(height: 14),
+            _IntroPiece(title: '展开导读', body: introduction.expandedGuide),
+          ],
+          const SizedBox(height: 6),
+          TextButton(
+            onPressed: onToggle,
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(0, 34),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              foregroundColor: palette.primaryDark,
+            ),
+            child: Text(expanded ? '收起导读' : '展开导读'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _IntroPiece extends StatelessWidget {
+  final String title;
+  final String body;
+  final bool emphasize;
+
+  const _IntroPiece({
+    required this.title,
+    required this.body,
+    this.emphasize = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            color: palette.textSecondary,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 7),
+        Text(
+          body,
+          style: TextStyle(
+            color: palette.textPrimary,
+            fontSize: emphasize ? 16 : 14,
+            height: emphasize ? 1.72 : 1.68,
+            fontWeight: emphasize ? FontWeight.w600 : FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+String _cleanIntroText(String value) {
+  return value.replaceAll(RegExp(r'\s+'), ' ').trim();
+}
+
+String _validIntroLine(String value) {
+  final text = _cleanIntroText(value);
+  if (text.contains('围绕自身核心问题') ||
+      text.contains('从正文和读者痕迹') ||
+      text.contains('等待有人从第一页') ||
+      text.contains('暂无可靠简介') ||
+      text.contains('这本书刚来到明台')) {
+    return '';
+  }
+  return text;
+}
+
+String _plainBookTitle(String title) {
+  return title.replaceAll('《', '').replaceAll('》', '').trim();
+}
+
+String _compactSentence(String raw, {required String fallback}) {
+  final matches = RegExp(r'[^。！？!?]+[。！？!?]?').allMatches(raw);
+  final first = matches.isEmpty ? raw.trim() : matches.first.group(0)!.trim();
+  final text = first.isEmpty ? fallback : first;
+  if (text.length <= 72) return text;
+  return '${text.substring(0, 72).trim()}...';
+}
+
+String _expandedGuideFromSource(
+  String sourceText,
+  String title,
+) {
+  final sentences = RegExp(r'[^。！？!?]+[。！？!?]?')
+      .allMatches(sourceText)
+      .map((match) => _cleanIntroText(match.group(0) ?? ''))
+      .where((sentence) => sentence.length > 8)
+      .take(3)
+      .toList();
+  if (sentences.length >= 2) {
+    final joined = sentences.join('');
+    return joined.length <= 180 ? joined : '${joined.substring(0, 180).trim()}...';
+  }
+  final intro = sentences.isNotEmpty
+      ? sentences.first
+      : title.isNotEmpty
+          ? '《$title》从正文展开它真正的问题。'
+          : '这本书从正文展开它真正的问题。';
+  return intro.length <= 180 ? intro : '${intro.substring(0, 180).trim()}...';
+}
+
+class _BookTraceStats extends StatelessWidget {
+  final int readingCount;
+  final int sharedStopCount;
+  final int thoughtCount;
+  final int discussionCount;
+
+  const _BookTraceStats({
+    required this.readingCount,
+    required this.sharedStopCount,
+    required this.thoughtCount,
+    required this.discussionCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 18),
+      decoration: BoxDecoration(
+        border: Border.symmetric(
+          horizontal: BorderSide(color: context.appPalette.divider),
+        ),
+      ),
+      child: Row(
+        children: [
+          _TraceStat(value: readingCount, label: '人在读'),
+          _TraceStat(value: sharedStopCount, label: '共同停留'),
+          _TraceStat(value: thoughtCount, label: '公开想法'),
+          _TraceStat(value: discussionCount, label: '讨论'),
+        ],
+      ),
+    );
+  }
+}
+
+class _TraceStat extends StatelessWidget {
+  final int value;
+  final String label;
+
+  const _TraceStat({required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            '$value',
+            style: TextStyle(
+              color: palette.textPrimary,
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              height: 1.1,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: palette.textSecondary,
+              fontSize: 11,
+              height: 1.2,
             ),
           ),
         ],
@@ -1375,130 +1777,336 @@ class _BookDetailHeader extends StatelessWidget {
   }
 }
 
-class _AnnotationCard extends StatelessWidget {
+class _FeaturedTraceCard extends StatelessWidget {
   final MingtaiFeedItem item;
-  final bool expanded;
-  final bool resonating;
-  final bool commenting;
-  final VoidCallback onResonance;
-  final VoidCallback onComment;
-  final VoidCallback onToggleContext;
+  final VoidCallback onTap;
 
-  const _AnnotationCard({
-    required this.item,
-    required this.expanded,
-    required this.resonating,
-    required this.commenting,
-    required this.onResonance,
-    required this.onComment,
-    required this.onToggleContext,
+  const _FeaturedTraceCard({required this.item, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    final text = _traceMainText(item);
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 17),
+        decoration: BoxDecoration(
+          color: palette.card.withAlpha(238),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: palette.divider.withAlpha(140)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '最近留下的话',
+              style: TextStyle(
+                color: palette.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              '“$text”',
+              maxLines: 5,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: palette.textPrimary,
+                fontSize: 16,
+                height: 1.75,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _traceSourceLine(item),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: palette.textSecondary, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TraceMemorySection extends StatelessWidget {
+  final List<MingtaiFeedItem> items;
+  final int sharedStopCount;
+  final ValueChanged<MingtaiFeedItem> onTap;
+
+  const _TraceMemorySection({
+    required this.items,
+    required this.sharedStopCount,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
-    final contextBefore = item.metadata['contextBefore']?.toString() ?? '';
-    final contextAfter = item.metadata['contextAfter']?.toString() ?? '';
-    final annotation = item.annotationText.trim().isNotEmpty
-        ? item.annotationText.trim()
-        : _fallbackAnnotation(item.source);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _SectionTitle(title: '✦ 最近留下的痕迹'),
+          const SizedBox(height: 14),
+          if (items.isEmpty && sharedStopCount > 0)
+            _SharedStopCard(count: sharedStopCount)
+          else if (items.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(20, 22, 20, 24),
+              decoration: BoxDecoration(
+                color: palette.card.withAlpha(218),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: palette.divider.withAlpha(95)),
+              ),
+              child: Text(
+                '这本书刚来到明台。\n\n还没有留下公开痕迹。\n\n也许你会成为第一个停留的人。',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: palette.textSecondary,
+                  fontSize: 14,
+                  height: 1.8,
+                ),
+              ),
+            )
+          else ...[
+            _FeaturedTraceCard(
+              item: items.first,
+              onTap: () => onTap(items.first),
+            ),
+            if (items.length > 1) ...[
+              const SizedBox(height: 14),
+              SizedBox(
+                height: 154,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: items.length > 9 ? 8 : items.length - 1,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (context, index) {
+                    final item = items[index + 1];
+                    return _TracePreviewCard(
+                      item: item,
+                      onTap: () => onTap(item),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
 
+class _SharedStopCard extends StatelessWidget {
+  final int count;
+
+  const _SharedStopCard({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 22),
       decoration: BoxDecoration(
-        color: palette.card.withAlpha(242),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: palette.divider.withAlpha(150)),
+        color: palette.card.withAlpha(222),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: palette.divider.withAlpha(100)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (item.chapterTitle.isNotEmpty) ...[
-            Text(
-              item.chapterTitle,
-              style: const TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 12,
-              ),
-            ),
-            const SizedBox(height: 10),
-          ],
-          if (expanded && contextBefore.isNotEmpty) ...[
-            _ContextLine(text: contextBefore),
-            const SizedBox(height: 8),
-          ],
           Text(
-            item.originalText,
-            maxLines: expanded ? null : 4,
-            overflow: expanded ? TextOverflow.visible : TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: AppTheme.textPrimary,
-              fontSize: 15,
-              height: 1.7,
+            '最近共同停留',
+            style: TextStyle(
+              color: palette.textSecondary,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
             ),
           ),
-          if (expanded && contextAfter.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            _ContextLine(text: contextAfter),
-          ],
           const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
-            decoration: BoxDecoration(
-              color: palette.background,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: palette.divider),
+          Text(
+            '$count 位读者曾在这本书里停留过。',
+            style: TextStyle(
+              color: palette.textPrimary,
+              fontSize: 15,
+              height: 1.65,
+              fontWeight: FontWeight.w600,
             ),
-            child: Text(
-              annotation,
-              maxLines: expanded ? null : 2,
-              overflow: expanded ? TextOverflow.visible : TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 13,
-                height: 1.6,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: [
-              _QuietAction(
-                icon: Icons.favorite_border,
-                label: resonating ? '发送中' : '共鸣',
-                onTap: resonating ? null : onResonance,
-              ),
-              _QuietAction(
-                icon: Icons.mode_comment_outlined,
-                label: commenting ? '发送中' : '评论',
-                onTap: commenting ? null : onComment,
-              ),
-              _QuietAction(
-                icon: expanded ? Icons.expand_less : Icons.notes_outlined,
-                label: expanded ? '收起上下文' : '展开上下文',
-                onTap: onToggleContext,
-              ),
-              if (item.resonanceCount > 0)
-                _MetaPill(text: '已有 ${item.resonanceCount} 人在这里停留过'),
-              if (item.commentCount > 0)
-                _MetaPill(text: '${item.commentCount} 句回应'),
-            ],
           ),
         ],
       ),
     );
   }
+}
 
-  String _fallbackAnnotation(String source) {
-    if (source == 'highlight') return '有人在这里划下了这句话。';
-    if (source == 'ai_explanation') return '有人把这段交给小U解释过。';
-    if (source == 'thought') return '有人在这里留下了一句想法。';
-    return '有人在这里留下了一条页边笔记。';
+class _TracePreviewCard extends StatelessWidget {
+  final MingtaiFeedItem item;
+  final VoidCallback onTap;
+
+  const _TracePreviewCard({required this.item, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        width: 238,
+        padding: const EdgeInsets.fromLTRB(15, 14, 15, 13),
+        decoration: BoxDecoration(
+          color: palette.card.withAlpha(236),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: palette.divider.withAlpha(135)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _traceMainText(item),
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: palette.textPrimary,
+                fontSize: 14,
+                height: 1.55,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              _traceSourceLine(item),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: palette.textSecondary, fontSize: 11),
+            ),
+          ],
+        ),
+      ),
+    );
   }
+}
+
+class _TraceDetailSheet extends StatelessWidget {
+  final MingtaiFeedItem item;
+  final bool resonating;
+  final bool commenting;
+  final VoidCallback onResonance;
+  final VoidCallback onComment;
+
+  const _TraceDetailSheet({
+    required this.item,
+    required this.resonating,
+    required this.commenting,
+    required this.onResonance,
+    required this.onComment,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    final annotation = item.annotationText.trim();
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 22),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                item.chapterTitle.isEmpty ? '公开痕迹' : item.chapterTitle,
+                style: TextStyle(
+                  color: palette.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                item.originalText.trim().isEmpty
+                    ? _traceMainText(item)
+                    : item.originalText.trim(),
+                style: TextStyle(
+                  color: palette.textPrimary,
+                  fontSize: 16,
+                  height: 1.75,
+                ),
+              ),
+              if (annotation.isNotEmpty) ...[
+                const SizedBox(height: 18),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(15, 13, 15, 14),
+                  decoration: BoxDecoration(
+                    color: palette.background,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: palette.divider),
+                  ),
+                  child: Text(
+                    annotation,
+                    style: TextStyle(
+                      color: palette.textSecondary,
+                      fontSize: 14,
+                      height: 1.65,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  _QuietAction(
+                    icon: Icons.favorite_border,
+                    label: resonating ? '发送中' : '共鸣',
+                    onTap: resonating ? null : onResonance,
+                  ),
+                  _QuietAction(
+                    icon: Icons.mode_comment_outlined,
+                    label: commenting ? '发送中' : '评论',
+                    onTap: commenting ? null : onComment,
+                  ),
+                  if (item.resonanceCount > 0)
+                    _MetaPill(text: '已有 ${item.resonanceCount} 人停留'),
+                  if (item.commentCount > 0)
+                    _MetaPill(text: '${item.commentCount} 句回应'),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _traceMainText(MingtaiFeedItem item) {
+  final annotation = item.annotationText.trim();
+  if (item.source == 'thought' && annotation.isNotEmpty) return annotation;
+  final original = item.originalText.trim();
+  if (original.isNotEmpty) return original;
+  if (annotation.isNotEmpty) return annotation;
+  if (item.source == 'ai_explanation') return '有人把这一段交给小U解释过。';
+  return '有人在这里停留过。';
+}
+
+String _traceSourceLine(MingtaiFeedItem item) {
+  final source = BookService.mingtaiSourceLabel(item.source);
+  final chapter = item.chapterTitle.trim();
+  if (chapter.isEmpty) return source;
+  return '$source · $chapter';
 }
 
 class _BookCover extends StatelessWidget {
@@ -1506,12 +2114,16 @@ class _BookCover extends StatelessWidget {
   final String title;
   final String author;
   final bool large;
+  final double? width;
+  final double? height;
 
   const _BookCover({
     required this.imageUrl,
     this.title = '',
     this.author = '',
     this.large = false,
+    this.width,
+    this.height,
   });
 
   @override
@@ -1519,31 +2131,36 @@ class _BookCover extends StatelessWidget {
     final palette = context.appPalette;
     final canLoadNetwork =
         imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+    final displayLarge = large || (height ?? 0) > 100;
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        width: large ? 70 : 50,
-        height: large ? 96 : 68,
+        width: width ?? (large ? 70 : 50),
+        height: height ?? (large ? 96 : 68),
         color: palette.illustration.withAlpha(72),
         child: canLoadNetwork
             ? CachedNetworkImage(
                 imageUrl: imageUrl,
                 fit: BoxFit.cover,
-                memCacheWidth: large ? 180 : 120,
-                maxWidthDiskCache: large ? 360 : 240,
+                memCacheWidth: displayLarge ? 240 : 120,
+                maxWidthDiskCache: displayLarge ? 480 : 240,
                 fadeInDuration: const Duration(milliseconds: 160),
                 placeholder: (_, __) => _BookCoverFallback(
                   title: title,
                   author: author,
-                  large: large,
+                  large: displayLarge,
                 ),
                 errorWidget: (_, __, ___) => _BookCoverFallback(
                   title: title,
                   author: author,
-                  large: large,
+                  large: displayLarge,
                 ),
               )
-            : _BookCoverFallback(title: title, author: author, large: large),
+            : _BookCoverFallback(
+                title: title,
+                author: author,
+                large: displayLarge,
+              ),
       ),
     );
   }
@@ -1727,24 +2344,6 @@ class _QuietAction extends StatelessWidget {
   }
 }
 
-class _ContextLine extends StatelessWidget {
-  final String text;
-
-  const _ContextLine({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: const TextStyle(
-        color: AppTheme.textSecondary,
-        fontSize: 13,
-        height: 1.6,
-      ),
-    );
-  }
-}
-
 class _SectionTitle extends StatelessWidget {
   final String title;
 
@@ -1779,29 +2378,6 @@ class _QuietEmpty extends StatelessWidget {
           fontSize: 14,
           height: 1.7,
         ),
-      ),
-    );
-  }
-}
-
-class _BookEmptyAnnotations extends StatelessWidget {
-  final int tabIndex;
-
-  const _BookEmptyAnnotations({required this.tabIndex});
-
-  @override
-  Widget build(BuildContext context) {
-    final text = tabIndex == 0
-        ? '这本书暂时还没有公开划线。'
-        : tabIndex == 1
-        ? '这本书暂时还没有公开想法。'
-        : '这本书暂时还没有公开 AI 解读。';
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24),
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
       ),
     );
   }

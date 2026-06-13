@@ -8,11 +8,12 @@ const {
   savePublicBookFile,
 } = require('../utils/publicBookStorage');
 const { parsePublicBookChapters } = require('../utils/publicBookParser');
+const { buildBookIntroduction } = require('../services/bookIntroduction.service');
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const allowedCopyrightStatuses = new Set(['public_domain', 'original', 'authorized']);
-const allowedAnnotationSources = new Set(['highlight', 'thought', 'ai_explanation']);
+const allowedAnnotationSources = new Set(['thought']);
 
 function normalizeEntryIds(body) {
   const entryIds = body.entry_ids;
@@ -175,6 +176,23 @@ function requireFields(fields) {
       missing_fields: missing,
     });
   }
+}
+
+function isWeakBookIntroduction(book) {
+  return (
+    isWeakIntroText(book?.one_line_summary) ||
+    isWeakIntroText(book?.expanded_guide)
+  );
+}
+
+function isWeakIntroText(value) {
+  const text = String(value || '').trim();
+  return !text ||
+    text.includes('围绕自身核心问题') ||
+    text.includes('从正文和读者痕迹') ||
+    text.includes('等待有人从第一页') ||
+    text.includes('暂无可靠简介') ||
+    text.includes('这本书刚来到明台');
 }
 
 function fallbackSourceBookId(req, { rawTitle, fileType }) {
@@ -349,16 +367,34 @@ async function publishBook(req, res, next) {
       throw error;
     }
 
+    const author = safeAuthor(requestField(req, 'author'));
+    const uploadedDescription = requestField(req, 'description');
+    const introduction = await buildBookIntroduction({
+      title,
+      author,
+      description: uploadedDescription,
+      chapters,
+    });
+
     let result;
     try {
       result = await mingtaiRepository.publishBook(req.user.id, {
         source_book_id: sourceBookId,
         title,
-        author: safeAuthor(requestField(req, 'author')),
+        author,
         cover_url: storedCover
           ? publicUrlFor(req, storedCover.public_path)
           : requestField(req, 'cover_url'),
-        description: requestField(req, 'description'),
+        description: introduction.description || uploadedDescription,
+        authoritative_description: introduction.authoritative_description,
+        authoritative_description_source: introduction.authoritative_description_source,
+        authoritative_description_url: introduction.authoritative_description_url,
+        one_line_summary: introduction.one_line_summary,
+        one_line_summary_source: introduction.one_line_summary_source,
+        encounter_summary: introduction.encounter_summary,
+        expanded_guide: introduction.expanded_guide,
+        why_worth_reading: introduction.why_worth_reading,
+        reading_themes: introduction.reading_themes,
         copyright_status: copyrightStatus,
         metadata_json: Buffer.isBuffer(req.body) ? {} : req.body.metadata_json,
         file_url: publicUrlFor(req, storedFile.public_path),
@@ -439,8 +475,36 @@ async function getHome(req, res, next) {
 async function getBook(req, res, next) {
   try {
     assertUuid(req.params.id, 'book id');
-    const detail = await mingtaiRepository.getBook(req.params.id);
+    let detail = await mingtaiRepository.getBook(req.params.id);
     if (!detail) throw httpError(404, 'Public book not found');
+    if (isWeakBookIntroduction(detail.book)) {
+      const chapters = await mingtaiRepository.listBookIntroChapters(req.params.id);
+      const introduction = await buildBookIntroduction({
+        title: detail.book.title,
+        author: detail.book.author,
+        description: detail.book.description,
+        chapters,
+      });
+      if (
+        introduction.one_line_summary ||
+        introduction.expanded_guide ||
+        introduction.description
+      ) {
+        const refreshedBook = await mingtaiRepository.updateBookIntroduction(
+          req.params.id,
+          introduction,
+        );
+        if (refreshedBook) {
+          detail = {
+            ...detail,
+            book: {
+              ...detail.book,
+              ...refreshedBook,
+            },
+          };
+        }
+      }
+    }
     return res.json(detail);
   } catch (error) {
     return next(error);
