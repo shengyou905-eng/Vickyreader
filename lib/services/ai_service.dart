@@ -47,6 +47,21 @@ class AiService {
     });
   }
 
+  /// 小U Agent 对话：围绕用户阅读痕迹、授权随心记和明台公开痕迹回答
+  static Stream<String> xiaouAgentStream({
+    required String message,
+    required List<AiMessage> conversationHistory,
+  }) {
+    final history = conversationHistory
+        .map((m) => {'role': m.role, 'content': m.content})
+        .toList();
+
+    return _sseStream('/api/ai/chat', {
+      'message': message,
+      'history': history,
+    });
+  }
+
   /// 连接后端 SSE，逐 chunk yield
   static Stream<String> _sseStream(
     String path,

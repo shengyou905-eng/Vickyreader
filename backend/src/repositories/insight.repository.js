@@ -24,7 +24,11 @@ async function getUserInsight(userId) {
 }
 
 async function getOrCreateUserInsight(userId) {
-  return (await getUserInsight(userId)) || refreshUserInsight(userId);
+  const insight = await getUserInsight(userId);
+  if (!insight || isLegacyInsight(insight) || isStale(insight)) {
+    return refreshUserInsight(userId);
+  }
+  return insight;
 }
 
 async function refreshUserInsight(userId) {
@@ -80,26 +84,61 @@ function isStale(insight, maxAgeMs = 15 * 60 * 1000) {
   return !Number.isFinite(refreshedAt) || Date.now() - refreshedAt > maxAgeMs;
 }
 
+function isLegacyInsight(insight) {
+  const questions = Array.isArray(insight?.high_value_questions)
+    ? insight.high_value_questions
+    : [];
+  const hasLegacyQuestion = questions.some((question) => {
+    const id = clean(question?.id);
+    const title = clean(question?.title);
+    return id === 'top_highlight_themes' ||
+      title.includes('最常划线') ||
+      title.includes('我最近在反复停留什么') ||
+      title.includes('我在哪些书里反复提到') ||
+      title.includes('这一周，我留下了什么');
+  });
+  if (hasLegacyQuestion) return true;
+
+  const focus = insight?.recent_focus || {};
+  const summaries = [
+    focus?.['7']?.summary,
+    focus?.['30']?.summary,
+    insight?.weekly_summary,
+    insight?.deep_reflection,
+  ]
+    .map(clean)
+    .filter(Boolean);
+  return summaries.some((summary) => (
+    summary.includes('频繁记录') ||
+    summary.includes('主要在回顾') ||
+    (summary.includes('留下了') && summary.includes('条阅读痕迹')) ||
+    summary.includes('最近还没有新的阅读痕迹') ||
+    summary.includes('今天没有新的发现') ||
+    summary.includes('这一周很安静') ||
+    summary.includes('我看见你最近常常停在') ||
+    summary.includes('我看见「') ||
+    summary.includes('小U会先替你记住') ||
+    summary.includes('这些内容之间有什么联系') ||
+    summary.includes('它们可能在靠近什么问题') ||
+    summary.includes('不急着给答案')
+  ));
+}
+
 function buildInsightCache(entries = [], authorizedFreeNotes = []) {
   const recentFocus = {
     7: buildWindowInsight(entries, 7),
     30: buildWindowInsight(entries, 30),
   };
   const longTermTopics = topKeys(countTags(entries), 6);
-  const weeklySummary = buildWeeklySummary(recentFocus[7]);
-  const highValueQuestions = buildHighValueQuestions(entries, recentFocus, longTermTopics);
-  const deepReflection = buildDeepReflection({
-    recentFocus,
-    longTermTopics,
-    authorizedFreeNotes,
-  });
+  const activeDiscovery = buildActiveDiscovery(entries, authorizedFreeNotes);
+  const highValueQuestions = [];
   return {
     recentFocus,
-    weeklySummary,
+    weeklySummary: activeDiscovery,
     longTermTopics,
     highValueQuestions,
     recentEntries: entries.slice(0, 30),
-    deepReflection,
+    deepReflection: activeDiscovery,
   };
 }
 
@@ -118,137 +157,117 @@ function buildWindowInsight(entries, days) {
     top_tags: topTags,
     top_books: topBooks,
     top_source: topSources[0] || '',
-    summary: buildFocusSummary(visible.length, topTags, topBooks),
+    summary: '',
   };
 }
 
-function buildFocusSummary(entryCount, topTags, topBooks) {
-  if (entryCount === 0) {
-    return '最近还没有新的阅读痕迹。继续读一点，小U会在这里安静地替你留意。';
-  }
-  if (topTags.length >= 2) {
-    return `你最近反复停留在「${topTags[0]}」与「${topTags[1]}」附近。它们似乎正在慢慢靠近同一个问题。`;
-  }
-  if (topTags.length === 1) {
-    return `你最近常常回到「${topTags[0]}」。有些问题还没有答案，但已经值得被看见。`;
-  }
-  if (topBooks.length > 0) {
-    return `你最近在《${topBooks[0]}》里停留得更多。那些留下来的句子，正在逐渐显出方向。`;
-  }
-  return `最近留下了 ${entryCount} 条阅读痕迹。小U会慢慢替你聚拢它们。`;
-}
+function buildActiveDiscovery(entries = [], authorizedFreeNotes = []) {
+  const normalized = entries
+    .map((entry) => ({
+      ...entry,
+      createdAtMs: new Date(entry.created_at || 0).getTime(),
+      bookTitle: clean(entry.book_title),
+      originalText: normalizeText(entry.original_text),
+      userInput: normalizeText(entry.user_input),
+      tags: tagsOf(entry).filter((tag) => !actionTags.has(tag)),
+    }))
+    .filter((entry) => Number.isFinite(entry.createdAtMs))
+    .sort((a, b) => b.createdAtMs - a.createdAtMs);
 
-function buildWeeklySummary(weekly) {
-  if (weekly.entry_count === 0) {
-    return '这一周还很安静。没有关系，阅读不是一场需要赶进度的事。';
-  }
-  if (weekly.top_tags.length > 0) {
-    return `这一周，你留下了 ${weekly.entry_count} 条阅读痕迹。比起追逐结论，你更像是在「${weekly.top_tags.slice(0, 2).join('」与「')}」附近反复停留。`;
-  }
-  if (weekly.top_books.length > 0) {
-    return `这一周，你留下了 ${weekly.entry_count} 条阅读痕迹。许多停留发生在《${weekly.top_books[0]}》里。`;
-  }
-  return `这一周，你留下了 ${weekly.entry_count} 条阅读痕迹。它们还很零散，但已经开始形成自己的纹理。`;
-}
+  if (normalized.length < 3) return '';
 
-function buildHighValueQuestions(entries, recentFocus, longTermTopics) {
-  const questions = [
-    {
-      id: 'recent_focus',
-      title: '我最近在反复停留什么？',
-      answer: recentFocus[7].summary,
-    },
-  ];
-  const topic = recentFocus[30].top_tags[0] || longTermTopics[0];
-  if (topic) {
-    questions.push({
-      id: 'recurring_topic',
-      title: `我在哪些书里反复提到「${topic}」？`,
-      answer: buildTopicAnswer(entries, topic),
+  const now = Date.now();
+  const recentWindowMs = 14 * 24 * 60 * 60 * 1000;
+  const freshWindowMs = 72 * 60 * 60 * 1000;
+  const recent = normalized.filter((entry) => now - entry.createdAtMs <= recentWindowMs);
+  if (recent.length < 2) return '';
+
+  const repeatedText = findRepeatedText(recent, freshWindowMs, now);
+  if (repeatedText) return repeatedText;
+
+  const crossBookTheme = findCrossBookTheme(normalized, recent, freshWindowMs, now);
+  if (crossBookTheme) return crossBookTheme;
+
+  const shift = findInterestShift(normalized, recent, freshWindowMs, now);
+  if (shift) return shift;
+
+  if (authorizedFreeNotes.length > 0) {
+    const freshAuthorized = authorizedFreeNotes.some((note) => {
+      const grantedAt = new Date(note.granted_at || note.updated_at || note.created_at || 0).getTime();
+      return Number.isFinite(grantedAt) && now - grantedAt <= freshWindowMs;
     });
-  } else {
-    questions.push({
-      id: 'recurring_book',
-      title: '最近哪本书让我停留得更久？',
-      answer: buildBookAnswer(recentFocus[30]),
-    });
+    if (freshAuthorized && recent.length >= 2) {
+      return '✦ 小U发现了一件事\n\n你最近把私人片段交给小U，同时阅读里也留下了新的停留。\n\n我还不能确定它们之间有没有真正的关系，所以先不替你下结论。之后如果它们继续靠近，我会再告诉你。';
+    }
   }
-  questions.push(
-    {
-      id: 'weekly_summary',
-      title: '这一周，我留下了什么？',
-      answer: buildWeeklySummary(recentFocus[7]),
-    },
-    {
-      id: 'top_highlight_themes',
-      title: '我最常划线的主题是什么？',
-      answer: buildHighlightThemeAnswer(entries),
-    },
-    {
-      id: 'touching_recently',
-      title: '最近哪些内容让我停了下来？',
-      answer: buildTouchingAnswer(entries),
-    },
-  );
-  return questions;
+
+  return '';
 }
 
-function buildTopicAnswer(entries, topic) {
-  const related = entries.filter((entry) => tagsOf(entry).includes(topic));
-  const books = topKeys(countBy(related, (entry) => clean(entry.book_title)), 3);
-  if (books.length === 0) {
-    return `「${topic}」已经出现过几次，但它还没有稳定地落在某一本书里。再读一阵，也许会慢慢看见它的来源。`;
+function findRepeatedText(recent, freshWindowMs, now) {
+  const buckets = new Map();
+  for (const entry of recent) {
+    if (entry.originalText.length < 20) continue;
+    const key = entry.originalText.slice(0, 90);
+    const bucket = buckets.get(key) || [];
+    bucket.push(entry);
+    buckets.set(key, bucket);
   }
-  return `你在 ${books.map((book) => `《${book}》`).join('、')} 里都停留在「${topic}」附近。它不是一次偶然的划线，更像是一个反复回来的问题。`;
+  for (const bucket of buckets.values()) {
+    if (bucket.length < 2) continue;
+    const latest = Math.max(...bucket.map((entry) => entry.createdAtMs));
+    if (now - latest > freshWindowMs) continue;
+    const books = unique(bucket.map((entry) => entry.bookTitle).filter(Boolean));
+    const excerpt = clip(bucket[0].originalText, 54);
+    const place = books.length > 0 ? `在《${books[0]}》里，` : '';
+    return `✦ 小U发现了一件事\n\n${place}有一句话被你不止一次留下来：\n\n“${excerpt}”\n\n我还不知道它为什么让你停住，但它已经不像普通摘录。你可以问我：这句话和我之前的想法有什么关系？`;
+  }
+  return '';
 }
 
-function buildBookAnswer(insight) {
-  if (insight.top_books.length === 0) {
-    return '最近的痕迹还比较零散。再留下一些划线和想法，小U会替你看见反复回来的地方。';
+function findCrossBookTheme(allEntries, recent, freshWindowMs, now) {
+  const buckets = new Map();
+  for (const entry of recent) {
+    for (const tag of entry.tags) {
+      const bucket = buckets.get(tag) || [];
+      bucket.push(entry);
+      buckets.set(tag, bucket);
+    }
   }
-  return `最近你在《${insight.top_books[0]}》里停留得更久。与其说是读得更多，不如说是有些句子更容易让你慢下来。`;
+  for (const [tag, bucket] of buckets.entries()) {
+    if (bucket.length < 3) continue;
+    const latest = Math.max(...bucket.map((entry) => entry.createdAtMs));
+    if (now - latest > freshWindowMs) continue;
+    const books = unique(bucket.map((entry) => entry.bookTitle).filter(Boolean));
+    if (books.length < 2) continue;
+    const olderCount = allEntries.filter((entry) => {
+      return now - entry.createdAtMs > 14 * 24 * 60 * 60 * 1000 &&
+        entry.tags.includes(tag);
+    }).length;
+    const lead = olderCount > 0
+      ? `「${tag}」又回来了。`
+      : `「${tag}」第一次在不同书里连了起来。`;
+    return `✦ 小U发现了一件事\n\n${lead}\n\n它最近同时出现在 ${books.slice(0, 3).map((book) => `《${book}》`).join('、')} 里。\n\n我不确定它是不是一个稳定的问题，但它已经不只是某一本书里的词了。`;
+  }
+  return '';
 }
 
-function buildHighlightThemeAnswer(entries) {
-  const highlightEntries = entries.filter((entry) => entry.source === 'highlight');
-  const themes = topKeys(countTags(highlightEntries), 4);
-  if (themes.length === 0) {
-    return '目前的划线还没有形成稳定主题。先不用急着归纳，继续留下真正让你停住的句子。';
-  }
-  return `你的划线常常落在「${themes.join('」「')}」附近。它们也许不是分开的兴趣，而是同一个问题的不同侧面。`;
-}
-
-function buildTouchingAnswer(entries) {
-  const recent = entries.find((entry) => {
-    return clean(entry.user_input) || clean(entry.original_text) || clean(entry.ai_explanation);
+function findInterestShift(allEntries, recent, freshWindowMs, now) {
+  const latest = recent[0]?.createdAtMs || 0;
+  if (now - latest > freshWindowMs) return '';
+  const recentTags = topKeys(countTags(recent), 2);
+  if (!recentTags.length) return '';
+  const older = allEntries.filter((entry) => {
+    const age = now - entry.createdAtMs;
+    return age > 14 * 24 * 60 * 60 * 1000 && age <= 90 * 24 * 60 * 60 * 1000;
   });
-  if (!recent) {
-    return '最近还没有足够清晰的阅读停留。等你留下几处真正想回看的句子，小U会在这里替你收好。';
-  }
-  const text = clean(recent.user_input) || clean(recent.original_text) || clean(recent.ai_explanation);
-  const excerpt = text.length > 90 ? `${text.slice(0, 90)}……` : text;
-  const book = clean(recent.book_title);
-  return `${book ? `在《${book}》里，` : ''}你最近曾在这句话附近停下来：\n\n“${excerpt}”`;
-}
-
-function buildDeepReflection({ recentFocus, longTermTopics, authorizedFreeNotes }) {
-  const topics = longTermTopics.slice(0, 3);
-  if (topics.length === 0) {
-    return '现在还不必急着给自己的阅读命名。\n\n继续留下真正让你停住的地方。时间久一点，问题会自己浮出来。';
-  }
-  const noteSentence = authorizedFreeNotes.length > 0
-    ? `\n\n你还主动交来了 ${authorizedFreeNotes.length} 条私人片段${buildPrivateHint(authorizedFreeNotes)}。它们会被谨慎地放在阅读痕迹旁边，而不是混成同一种记录。`
-    : '';
-  const recent = recentFocus[30].top_tags.slice(0, 2).join('」与「');
-  return `你似乎并不只是在关注「${recent || topics[0]}」。\n\n你反复回到的，也许是「${topics.join('、')}」之间那条还没有完全说清的线。${noteSentence}`;
-}
-
-function buildPrivateHint(notes) {
-  const hints = notes
-    .map((note) => clean(note.title) || clean(note.content).slice(0, 12))
-    .filter(Boolean)
-    .slice(0, 2);
-  return hints.length > 0 ? `，其中有「${hints.join('」「')}」` : '';
+  const olderTags = topKeys(countTags(older), 2);
+  if (!olderTags.length) return '';
+  const [recentTop] = recentTags;
+  if (olderTags.includes(recentTop)) return '';
+  const recentCount = recent.filter((entry) => entry.tags.includes(recentTop)).length;
+  if (recentCount < 3) return '';
+  return `✦ 小U发现了一件事\n\n最近的新停留开始偏向「${recentTop}」，而之前更常出现的是「${olderTags[0]}」。\n\n这不一定是转向，也可能只是一次短暂靠近。我会继续观察它会不会持续。`;
 }
 
 function countTags(entries) {
@@ -263,6 +282,9 @@ function countTags(entries) {
 }
 
 function tagsOf(entry) {
+  if (Array.isArray(entry.tags)) {
+    return entry.tags.map(clean).filter(Boolean);
+  }
   if (Array.isArray(entry.auto_tags)) {
     return entry.auto_tags.map(clean).filter(Boolean);
   }
@@ -288,6 +310,19 @@ function topKeys(counts, limit) {
 
 function clean(value) {
   return String(value || '').trim();
+}
+
+function normalizeText(value) {
+  return clean(value).replace(/\s+/g, ' ');
+}
+
+function unique(items) {
+  return [...new Set(items)];
+}
+
+function clip(value, maxLength) {
+  if (!value) return '';
+  return value.length > maxLength ? `${value.slice(0, maxLength)}……` : value;
 }
 
 module.exports = {

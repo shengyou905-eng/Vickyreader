@@ -66,7 +66,7 @@ class MingtaiInsight {
       topTags: const [],
       topBooks: const [],
       topSource: '',
-      summary: '最近还没有新的阅读痕迹，继续读一点，小U会在这里帮你回顾。',
+      summary: '',
     );
   }
 
@@ -77,7 +77,7 @@ class MingtaiInsight {
       topTags: BookService._remoteTags(row['top_tags']),
       topBooks: BookService._remoteTags(row['top_books']),
       topSource: row['top_source']?.toString() ?? '',
-      summary: row['summary']?.toString() ?? '最近还没有新的阅读痕迹，继续读一点，小U会在这里帮你回顾。',
+      summary: row['summary']?.toString() ?? '',
     );
   }
 }
@@ -120,14 +120,11 @@ class XiaouHomeInsight {
   factory XiaouHomeInsight.empty() {
     return XiaouHomeInsight(
       recentFocus: {7: MingtaiInsight.empty(7), 30: MingtaiInsight.empty(30)},
-      weeklySummary: '这一周还很安静。没有关系，阅读不是一场需要赶进度的事。',
+      weeklySummary: '',
       longTermTopics: const [],
-      quickQuestions: const [
-        XiaouQuickQuestion(id: 'recent_focus', title: '我最近在反复停留什么？'),
-        XiaouQuickQuestion(id: 'weekly_summary', title: '这一周，我留下了什么？'),
-      ],
+      quickQuestions: const [],
       recentEntries: const [],
-      deepReflection: '现在还不必急着给自己的阅读命名。\n\n继续留下真正让你停住的地方。时间久一点，问题会自己浮出来。',
+      deepReflection: '',
       authorizedNoteCount: 0,
     );
   }
@@ -155,9 +152,7 @@ class XiaouHomeInsight {
       },
       weeklySummary: row['weekly_summary']?.toString() ?? '',
       longTermTopics: BookService._remoteTags(row['long_term_topics']),
-      quickQuestions: questions.isEmpty
-          ? XiaouHomeInsight.empty().quickQuestions
-          : questions,
+      quickQuestions: questions,
       recentEntries: (row['recent_entries'] as List? ?? const [])
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
@@ -168,20 +163,14 @@ class XiaouHomeInsight {
       refreshedAt: BookService._tryParseDate(row['refreshed_at']),
     );
   }
-}
 
-class MingtaiQuestionAnswer {
-  final String questionId;
-  final String question;
-  final String answer;
-  final DateTime? generatedAt;
+  String get activeDiscovery {
+    final weekly = weeklySummary.trim();
+    if (weekly.isNotEmpty) return weekly;
+    return deepReflection.trim();
+  }
 
-  const MingtaiQuestionAnswer({
-    required this.questionId,
-    required this.question,
-    required this.answer,
-    this.generatedAt,
-  });
+  bool get hasActiveDiscovery => activeDiscovery.isNotEmpty;
 }
 
 class MingtaiPublicBook {
@@ -515,8 +504,8 @@ class MingtaiFeedItem {
 class BookService {
   static final Uuid _uuid = Uuid();
   static const String _freeNotesBackupKey = 'free_notes_local_backup_v1';
-  static const String _xiaouHomeDiskCacheKey = 'xiaou_home_cache_v1';
-  static const String _xiaouOverviewDiskCacheKey = 'xiaou_overview_cache_v1';
+  static const String _xiaouHomeDiskCacheKey = 'xiaou_home_cache_v4';
+  static const String _xiaouOverviewDiskCacheKey = 'xiaou_overview_cache_v4';
   static const String _mingtaiHomeDiskCacheKey = 'mingtai_home_cache_v1';
   static List<MingtaiPublicBook>? _mingtaiBooksCache;
   static DateTime? _mingtaiBooksCacheAt;
@@ -1358,18 +1347,6 @@ class BookService {
       'mingtai_items',
       item,
       conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-  }
-
-  static Future<MingtaiQuestionAnswer> answerMingtaiQuestion(
-    String questionId,
-  ) async {
-    final data = await BmobApi.instance.answerInsightQuestion(questionId);
-    return MingtaiQuestionAnswer(
-      questionId: data['question_id']?.toString() ?? questionId,
-      question: data['question']?.toString() ?? '',
-      answer: data['answer']?.toString() ?? '',
-      generatedAt: _tryParseDate(data['generated_at']),
     );
   }
 
@@ -2625,25 +2602,7 @@ class BookService {
     required List<String> topTags,
     required List<String> topBooks,
   }) {
-    if (entryCount == 0) {
-      return '最近还没有新的阅读痕迹，继续读一点，小U会在这里帮你回顾。';
-    }
-
-    if (topTags.length >= 2) {
-      return '你最近频繁记录关于「${topTags[0]}」与「${topTags[1]}」的内容。';
-    }
-    if (topTags.length == 1) {
-      return '你最近频繁记录关于「${topTags[0]}」的内容。';
-    }
-
-    if (topBooks.length >= 2) {
-      return '你最近主要在回顾《${topBooks[0]}》和《${topBooks[1]}》里的内容。';
-    }
-    if (topBooks.length == 1) {
-      return '你最近主要在回顾《${topBooks[0]}》里的内容。';
-    }
-
-    return '最近留下了 $entryCount 条阅读痕迹，小U会慢慢帮你聚拢它们。';
+    return '';
   }
 
   static List<String> _topCountKeys(

@@ -323,23 +323,6 @@ class BmobApi {
     );
   }
 
-  Future<Map<String, dynamic>> answerInsightQuestion(String questionId) async {
-    final safeQuestionId = Uri.encodeComponent(questionId);
-    final res = await http
-        .post(
-          Uri.parse(
-            '${AppConstants.apiBaseUrl}/api/insights/questions/$safeQuestionId/answer',
-          ),
-          headers: _authHeaders(),
-        )
-        .timeout(const Duration(seconds: 5));
-
-    if (res.statusCode == 200) {
-      return jsonDecode(res.body) as Map<String, dynamic>;
-    }
-    throw Exception('读取小U回望失败 (HTTP ${res.statusCode}): ${res.body}');
-  }
-
   Future<Map<String, dynamic>> getXiaouHomeInsight() async {
     final res = await http
         .get(
