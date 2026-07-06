@@ -675,7 +675,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                           ),
                           const SizedBox(height: 5),
                           Text(
-                            '围绕你的阅读痕迹、想法和授权片段聊聊。',
+                            '直接问。小U会尽量把问题放回你的阅读里。',
                             style: TextStyle(
                               color: palette.textSecondary,
                               fontSize: 12,
@@ -738,7 +738,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                           maxLines: 4,
                           textInputAction: TextInputAction.newline,
                           decoration: InputDecoration(
-                            hintText: '问问小U：最近这些停留之间有什么关系？',
+                            hintText: '直接问小U…',
                             filled: true,
                             fillColor: palette.card.withAlpha(235),
                             contentPadding: const EdgeInsets.symmetric(
@@ -787,7 +787,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
       padding: const EdgeInsets.fromLTRB(22, 18, 22, 22),
       children: [
         Text(
-          '小U可以直接和你聊，但它会尽量留在阅读里。',
+          '你可以直接问小U。',
           style: TextStyle(
             color: palette.textPrimary,
             fontSize: 17,
@@ -797,7 +797,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
         ),
         const SizedBox(height: 10),
         Text(
-          '它会参考你的划线、想法、小U解读、主动授权的随心记，以及明台公开痕迹。看不清的时候，它会说不确定；没有新发现时，它也可以保持安静。',
+          '它会参考你的划线、想法、小U解读、主动授权的随心记，以及明台公开痕迹。看不清的时候，它会说不确定；不会再要求你使用固定问题。',
           style: TextStyle(
             color: palette.textSecondary,
             fontSize: 13,
@@ -806,7 +806,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
         ),
         const SizedBox(height: 22),
         Text(
-          '可以这样问',
+          '一些问法，不是固定问题',
           style: TextStyle(
             color: palette.textSecondary.withAlpha(180),
             fontSize: 12,

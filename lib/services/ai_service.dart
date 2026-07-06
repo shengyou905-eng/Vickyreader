@@ -126,6 +126,11 @@ class AiService {
 
   static String friendlyError(Object error) {
     final raw = error.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+    if (raw.contains('固定引导问题') ||
+        raw.contains('阅读回顾入口') ||
+        raw.contains('小U已收敛')) {
+      return '小U现在支持自由提问。如果这里还出现旧提示，请部署最新后端并重启服务。';
+    }
     if (raw.contains('TimeoutException') || raw.contains('Future not completed')) {
       return '这段内容有些复杂，小U思考得久了一点。请稍后重试。';
     }
