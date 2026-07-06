@@ -32,6 +32,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   String? _loadedChapterKey;
   int _appliedReadingPositionRevision = -1;
   DateTime _lastChapterBoundaryAt = DateTime.fromMillisecondsSinceEpoch(0);
+  double? _pendingRestoreRatio;
 
   @override
   void initState() {
@@ -62,7 +63,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final reader = context.read<ReaderProvider>();
     final settings = context.read<SettingsProvider>();
     _applyReaderStyles(settings);
-    if (reader.scrollOffset != 0) {
+    final pendingRatio = _pendingRestoreRatio;
+    if (pendingRatio != null) {
+      _pendingRestoreRatio = null;
+      _restoreScrollRatio(pendingRatio);
+    } else if (reader.scrollOffset != 0) {
       _restoreScrollOffset(reader.scrollOffset, settings);
     }
     final target = reader.scrollToTextTarget;
@@ -89,6 +94,44 @@ class _ReaderScreenState extends State<ReaderScreen> {
       "});"
       "})();",
     );
+  }
+
+  void _restoreScrollRatio(double ratio) {
+    final clamped = ratio.clamp(0.0, 1.0).toStringAsFixed(6);
+    _webViewController.runJavaScript(
+      "(function(){"
+      "if(!window.scrollToRatio)return;"
+      "requestAnimationFrame(function(){"
+      "window.scrollToRatio($clamped);"
+      "setTimeout(function(){window.scrollToRatio($clamped);},120);"
+      "});"
+      "})();",
+    );
+  }
+
+  Future<double?> _captureScrollRatio() async {
+    try {
+      final result = await _webViewController.runJavaScriptReturningResult(
+        "(function(){"
+        "if(window.readerPositionRatio)return window.readerPositionRatio();"
+        "var s=document.getElementById('readSurface');"
+        "if(!s)return 0;"
+        "var horizontal=s.getAttribute('data-paging')==='horizontal';"
+        "var max=horizontal?"
+        "Math.max(0,s.scrollWidth-s.clientWidth):"
+        "Math.max(0,s.scrollHeight-s.clientHeight);"
+        "if(max<=0)return 0;"
+        "return (horizontal?s.scrollLeft:s.scrollTop)/max;"
+        "})();",
+      );
+      if (result is num) {
+        return result.toDouble().clamp(0.0, 1.0).toDouble();
+      }
+      final parsed = double.tryParse(result.toString());
+      return parsed?.clamp(0.0, 1.0).toDouble();
+    } catch (_) {
+      return null;
+    }
   }
 
   void _applyReaderStyles(SettingsProvider settings) {
@@ -368,21 +411,24 @@ class _ReaderScreenState extends State<ReaderScreen> {
     setState(() => _showControls = !_showControls);
   }
 
-  void _showSettings() {
-    final pagingBefore = context.read<SettingsProvider>().readerPagingMode;
+  void _showSettings() async {
+    final modalContext = context;
+    final settingsProvider = modalContext.read<SettingsProvider>();
+    final readerProvider = modalContext.read<ReaderProvider>();
+    final pagingBefore = settingsProvider.readerPagingMode;
+    final positionRatioFuture = _captureScrollRatio();
     showModalBottomSheet(
-      context: context,
+      context: modalContext,
       builder: (_) => const ReaderSettings(),
-    ).then((_) {
+    ).then((_) async {
+      final positionRatioBefore = await positionRatioFuture;
       if (!mounted) return;
-      final settings = context.read<SettingsProvider>();
-      _applyReaderStyles(settings);
-      if (settings.readerPagingMode != pagingBefore) {
-        final reader = context.read<ReaderProvider>();
-        final book = reader.book;
+      _applyReaderStyles(settingsProvider);
+      if (settingsProvider.readerPagingMode != pagingBefore) {
+        final book = readerProvider.book;
         if (book != null && book.format != 'pdf') {
           _ignoreChapterMessages = true;
-          reader.setScrollOffset(0);
+          _pendingRestoreRatio = positionRatioBefore;
           _loadChapter();
         }
       }
@@ -872,6 +918,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   void _showNoteDialog(ReaderProvider reader) {
     final controller = TextEditingController();
+    final messenger = ScaffoldMessenger.of(context);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -895,8 +942,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
               final selectedText = reader.selectedText ?? '';
               if (noteContent.isNotEmpty) {
                 await reader.addThought(content: noteContent);
-                if (context.mounted) {
+                if (ctx.mounted) {
                   Navigator.pop(ctx);
+                }
+                if (mounted) {
                   await _maybePublishPublicAnnotation(
                     reader,
                     source: 'thought',
@@ -904,12 +953,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     annotationText: noteContent,
                   );
                 }
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('已由小U整理'),
-                      duration: Duration(seconds: 1),
-                    ),
+                if (mounted) {
+                  messenger.showSnackBar(
+                    const SnackBar(content: Text('已由小U整理'), duration: Duration(seconds: 1)),
                   );
                 }
               }

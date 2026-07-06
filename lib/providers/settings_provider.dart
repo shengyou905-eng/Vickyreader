@@ -6,7 +6,7 @@ import '../config/theme.dart';
 class SettingsProvider extends ChangeNotifier {
   double _fontSize = 18.0;
   double _lineHeight = 1.6;
-  String _themeMode = 'light'; // 'light', 'sepia', 'dark'
+  String _themeMode = 'light'; // 'light', 'sepia', 'green', 'dark'
   AppThemeId _appThemeId = AppThemeId.lavender;
   bool _syncEnabled = false;
   ReaderPagingMode _readerPagingMode = ReaderPagingMode.vertical;
@@ -82,6 +82,8 @@ class SettingsProvider extends ChangeNotifier {
     switch (_themeMode) {
       case 'sepia':
         return const Color(0xFFF5ECD7);
+      case 'green':
+        return const Color(0xFFEAF4E3);
       case 'dark':
         return const Color(0xFF1A1A1A);
       default:
@@ -93,6 +95,8 @@ class SettingsProvider extends ChangeNotifier {
     switch (_themeMode) {
       case 'dark':
         return const Color(0xFFD0D0D0);
+      case 'green':
+        return const Color(0xFF223229);
       default:
         return const Color(0xFF1A1A1A);
     }

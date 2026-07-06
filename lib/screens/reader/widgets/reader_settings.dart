@@ -109,6 +109,13 @@ class ReaderSettings extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                   _ThemeOption(
+                    label: '绿意',
+                    color: const Color(0xFFEAF4E3),
+                    isSelected: settings.themeMode == 'green',
+                    onTap: () => settings.setThemeMode('green'),
+                  ),
+                  const SizedBox(width: 12),
+                  _ThemeOption(
                     label: '夜间',
                     color: const Color(0xFF1A1A1A),
                     isSelected: settings.themeMode == 'dark',

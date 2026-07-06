@@ -78,12 +78,11 @@ class ReaderDocumentHtml {
     touch-action: pan-y;
   }
   #readSurface[data-paging="horizontal"] {
-    overflow-x: auto;
+    overflow-x: hidden;
     overflow-y: hidden;
-    touch-action: pan-x;
+    touch-action: pan-y;
     column-width: calc(100vw - 2 * var(--page-pad-x));
     column-gap: 28px;
-    scroll-snap-type: x proximity;
     scrollbar-width: none;
   }
   #readSurface[data-paging="horizontal"]::-webkit-scrollbar { display: none; }
@@ -171,6 +170,11 @@ class ReaderDocumentHtml {
       function currentScroll() {
         if (!s) return 0;
         return isHorizontal() ? s.scrollLeft : s.scrollTop;
+      }
+      function scrollRatio() {
+        var max = maxScroll();
+        if (max <= 0) return 0;
+        return Math.max(0, Math.min(1, currentScroll() / max));
       }
       function atStart(edge) {
         return currentScroll() <= (edge || 10);
@@ -282,6 +286,7 @@ class ReaderDocumentHtml {
       var _touchStartScroll = 0;
       var _touchStartAt = 0;
       var _horizontalTouch = false;
+      var _swipeHandled = false;
       if (s) {
         s.addEventListener('touchstart', function(e) {
           if (!e.touches || !e.touches.length) return;
@@ -290,6 +295,7 @@ class ReaderDocumentHtml {
           _touchStartScroll = currentScroll();
           _touchStartAt = Date.now();
           _horizontalTouch = false;
+          _swipeHandled = false;
         }, { passive: true });
 
         s.addEventListener('touchmove', function(e) {
@@ -297,7 +303,7 @@ class ReaderDocumentHtml {
           if (hasSelection() || _selectionActive) return;
           var dx = e.touches[0].clientX - _touchStartX;
           var dy = e.touches[0].clientY - _touchStartY;
-          if (Math.abs(dx) > 18 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+          if (_horizontalTouch || (Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(dy) * 1.15)) {
             _horizontalTouch = true;
             e.preventDefault();
           }
@@ -306,12 +312,14 @@ class ReaderDocumentHtml {
         s.addEventListener('touchend', function(e) {
           if (!e.changedTouches || !e.changedTouches.length) return;
           if (hasSelection() || _selectionActive) return;
+          if (_swipeHandled) return;
           var dx = e.changedTouches[0].clientX - _touchStartX;
           var dy = e.changedTouches[0].clientY - _touchStartY;
           var elapsed = Date.now() - _touchStartAt;
           if (isHorizontal()) {
             if (elapsed > 900) return;
             if (Math.abs(dx) < 72 || Math.abs(dx) < Math.abs(dy) * 1.35) return;
+            _swipeHandled = true;
             scrollOnePageFrom(_touchStartScroll, dx > 0 ? -1 : 1);
             _suppressClickUntil = Date.now() + 180;
             return;
@@ -388,6 +396,23 @@ class ReaderDocumentHtml {
           s.scrollLeft += (tr.left - sr.left - 24);
         } else {
           s.scrollTop += (tr.top - sr.top - 48);
+        }
+      };
+
+      window.readerPositionRatio = function() {
+        return scrollRatio();
+      };
+
+      window.scrollToRatio = function(ratio) {
+        if (!s) return;
+        var r = Math.max(0, Math.min(1, Number(ratio) || 0));
+        var target = Math.round(maxScroll() * r);
+        if (isHorizontal()) {
+          var step = pageStep();
+          target = Math.round(target / step) * step;
+          s.scrollLeft = Math.max(0, Math.min(maxScroll(), target));
+        } else {
+          s.scrollTop = Math.max(0, Math.min(maxScroll(), target));
         }
       };
 
