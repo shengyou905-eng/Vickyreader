@@ -20,10 +20,18 @@ const publicBookUpload = express.raw({
 
 router.get('/books', mingtaiController.listBooks);
 router.get('/home', mingtaiController.getHome);
+router.get('/profiles/me', auth, mingtaiController.getMyProfile);
+router.put('/profiles/me', auth, mingtaiController.updateMyProfile);
+router.post('/profiles/me/avatar', auth, mingtaiController.uploadMyProfileAvatar);
+router.get('/profiles/:userId', mingtaiController.getPublicProfile);
 router.post('/books', auth, publicBookUpload, mingtaiController.publishBook);
 router.delete('/books', auth, mingtaiController.deleteMyBooks);
+router.patch('/reviews/:id', auth, mingtaiController.updateBookReview);
+router.delete('/reviews/:id', auth, mingtaiController.deleteBookReview);
 router.get('/books/:id/chapters', mingtaiController.listBookChapters);
 router.get('/books/:id/chapters/:chapterIndex', mingtaiController.getBookChapter);
+router.get('/books/:id/reviews', mingtaiController.listBookReviews);
+router.post('/books/:id/reviews', auth, mingtaiController.createBookReview);
 router.get('/books/:id', mingtaiController.getBook);
 router.post('/books/:id/borrow', auth, mingtaiController.borrowBook);
 router.post('/books/:id/read', mingtaiController.recordBookRead);

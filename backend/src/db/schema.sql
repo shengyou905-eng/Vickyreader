@@ -8,6 +8,24 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS user_profiles (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  nickname TEXT NOT NULL DEFAULT '',
+  avatar_url TEXT NOT NULL DEFAULT '',
+  bio TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE user_profiles
+  ADD COLUMN IF NOT EXISTS nickname TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE user_profiles
+  ADD COLUMN IF NOT EXISTS avatar_url TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE user_profiles
+  ADD COLUMN IF NOT EXISTS bio TEXT NOT NULL DEFAULT '';
+
 CREATE TABLE IF NOT EXISTS user_entries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -423,6 +441,21 @@ CREATE TABLE IF NOT EXISTS annotation_resonances (
 
 CREATE INDEX IF NOT EXISTS idx_annotation_resonances_annotation
   ON annotation_resonances(annotation_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS book_reviews (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  public_book_id UUID NOT NULL REFERENCES public_books(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_book_reviews_book_created
+  ON book_reviews(public_book_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_book_reviews_user_created
+  ON book_reviews(user_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS reading_personality_profiles (
   user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

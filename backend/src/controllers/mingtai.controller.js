@@ -6,6 +6,7 @@ const {
   deletePublicBookFile,
   savePublicBookCover,
   savePublicBookFile,
+  saveProfileAvatar,
 } = require('../utils/publicBookStorage');
 const { parsePublicBookChapters } = require('../utils/publicBookParser');
 const { buildBookIntroduction } = require('../services/bookIntroduction.service');
@@ -549,6 +550,145 @@ async function recordBookRead(req, res, next) {
   }
 }
 
+async function getMyProfile(req, res, next) {
+  try {
+    await mingtaiRepository.getMyProfile(req.user.id);
+    const profile = await mingtaiRepository.getPublicProfile(req.user.id);
+    if (!profile) throw httpError(404, 'Profile not found');
+    return res.json(profile);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function updateMyProfile(req, res, next) {
+  try {
+    const profile = await mingtaiRepository.updateMyProfile(req.user.id, {
+      nickname: req.body?.nickname,
+      avatar_url: req.body?.avatar_url,
+      bio: req.body?.bio,
+    });
+    if (!profile) throw httpError(404, 'Profile not found');
+    return res.json({ profile });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function uploadMyProfileAvatar(req, res, next) {
+  try {
+    const mimeType = String(req.body?.mime_type || '').trim().toLowerCase();
+    if (!allowedAvatarMimeTypes.has(mimeType)) {
+      throw httpError(400, 'Unsupported avatar image type');
+    }
+
+    const rawBase64 = String(req.body?.image_base64 || '').trim();
+    if (!rawBase64) {
+      throw httpError(400, 'image_base64 is required');
+    }
+
+    const normalizedBase64 = rawBase64.includes(',')
+      ? rawBase64.split(',').pop()
+      : rawBase64;
+    const imageBuffer = Buffer.from(normalizedBase64, 'base64');
+    if (!imageBuffer.length) {
+      throw httpError(400, 'avatar image is empty');
+    }
+    if (imageBuffer.length > 2 * 1024 * 1024) {
+      throw httpError(400, 'avatar image is too large');
+    }
+
+    const saved = await saveProfileAvatar(imageBuffer, {
+      fileName: req.body?.file_name || 'avatar.jpg',
+      mimeType,
+    });
+    const avatarUrl = publicUrlFor(req, saved.public_path);
+    const profile = await mingtaiRepository.updateMyProfile(req.user.id, {
+      nickname: req.body?.nickname,
+      avatar_url: avatarUrl,
+      bio: req.body?.bio,
+    });
+    if (!profile) throw httpError(404, 'Profile not found');
+    return res.status(201).json({ profile });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getPublicProfile(req, res, next) {
+  try {
+    assertUuid(req.params.userId, 'user id');
+    const profile = await mingtaiRepository.getPublicProfile(req.params.userId);
+    if (!profile) throw httpError(404, 'Profile not found');
+    return res.json(profile);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function listBookReviews(req, res, next) {
+  try {
+    assertUuid(req.params.id, 'book id');
+    const limit = Math.min(50, Math.max(1, Number(req.query.limit || 20)));
+    const reviews = await mingtaiRepository.listBookReviews(req.params.id, { limit });
+    return res.json({ reviews });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function createBookReview(req, res, next) {
+  try {
+    assertUuid(req.params.id, 'book id');
+    const content = String(req.body?.content || '').trim();
+    if (!isMeaningfulPublicText(content, { minLength: 10 })) {
+      throw httpError(400, '短评至少需要 10 个字，并且不能是测试或无意义内容');
+    }
+    const review = await mingtaiRepository.createBookReview(
+      req.user.id,
+      req.params.id,
+      content,
+    );
+    if (!review) throw httpError(404, 'Public book not found');
+    return res.status(201).json({ review });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function updateBookReview(req, res, next) {
+  try {
+    assertUuid(req.params.id, 'review id');
+    const content = String(req.body?.content || '').trim();
+    if (!isMeaningfulPublicText(content, { minLength: 10 })) {
+      throw httpError(400, '短评至少需要 10 个字，并且不能是测试或无意义内容');
+    }
+    const review = await mingtaiRepository.updateBookReview(
+      req.user.id,
+      req.params.id,
+      content,
+    );
+    if (!review) throw httpError(404, 'Review not found');
+    return res.json({ review });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function deleteBookReview(req, res, next) {
+  try {
+    assertUuid(req.params.id, 'review id');
+    const deleted = await mingtaiRepository.deleteBookReview(
+      req.user.id,
+      req.params.id,
+    );
+    if (!deleted) throw httpError(404, 'Review not found');
+    return res.json({ deleted: true });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function createBookAnnotation(req, res, next) {
   try {
     assertUuid(req.params.id, 'book id');
@@ -639,6 +779,14 @@ module.exports = {
   deleteMyBooks,
   borrowBook,
   recordBookRead,
+  getMyProfile,
+  updateMyProfile,
+  uploadMyProfileAvatar,
+  getPublicProfile,
+  listBookReviews,
+  createBookReview,
+  updateBookReview,
+  deleteBookReview,
   createBookAnnotation,
   createAnnotationComment,
   createResonance,

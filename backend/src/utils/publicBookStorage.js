@@ -10,6 +10,13 @@ const coverUploadDir = path.resolve(
   'uploads',
   'public_book_covers',
 );
+const profileAvatarUploadDir = path.resolve(
+  __dirname,
+  '..',
+  '..',
+  'uploads',
+  'profile_avatars',
+);
 const backendRoot = path.resolve(__dirname, '..', '..');
 const supportedExtensions = new Set(['epub', 'txt', 'pdf']);
 const supportedCoverExtensions = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp']);
@@ -112,6 +119,26 @@ async function savePublicBookCover(buffer, { fileName, mimeType }) {
   };
 }
 
+async function saveProfileAvatar(buffer, { fileName, mimeType }) {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+    throw Object.assign(new Error('avatar image is required'), {
+      statusCode: 400,
+    });
+  }
+
+  const type = normalizeCoverType({ fileName, mimeType });
+  await fs.mkdir(profileAvatarUploadDir, { recursive: true });
+  const storedName = `${Date.now()}-${crypto.randomUUID()}.${type}`;
+  const absolutePath = path.join(profileAvatarUploadDir, storedName);
+  await fs.writeFile(absolutePath, buffer);
+
+  const storagePath = path.posix.join('uploads', 'profile_avatars', storedName);
+  return {
+    storage_path: storagePath,
+    public_path: `/${storagePath}`,
+  };
+}
+
 async function deletePublicBookFile(storagePath) {
   const absolutePath = absoluteStoragePath(storagePath);
   if (!absolutePath) return;
@@ -138,4 +165,5 @@ module.exports = {
   deletePublicBookFile,
   savePublicBookCover,
   savePublicBookFile,
+  saveProfileAvatar,
 };
