@@ -15,6 +15,7 @@ class BmobApi {
   static const _emailKey = 'auth_email';
   static const _authTimeout = Duration(seconds: 20);
   static const _mingtaiTimeout = Duration(seconds: 20);
+  static const _mingtaiUploadTimeout = Duration(seconds: 75);
 
   String? _token;
   String? _userId;
@@ -495,10 +496,16 @@ class BmobApi {
     }
   }
 
-  Future<List<Map<String, dynamic>>> listMingtaiBooks({int limit = 50}) async {
+  Future<List<Map<String, dynamic>>> listMingtaiBooks({
+    int limit = 50,
+    String search = '',
+  }) async {
+    final queryParameters = <String, String>{'limit': limit.toString()};
+    final q = search.trim();
+    if (q.isNotEmpty) queryParameters['q'] = q;
     final uri = Uri.parse(
       '${AppConstants.apiBaseUrl}/api/mingtai/books',
-    ).replace(queryParameters: {'limit': limit.toString()});
+    ).replace(queryParameters: queryParameters);
 
     debugPrint('[MingtaiBooks] GET $uri');
     try {
@@ -570,6 +577,233 @@ class BmobApi {
       return jsonDecode(res.body) as Map<String, dynamic>;
     }
     throw Exception('读取明台书籍失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<List<Map<String, dynamic>>> listMingtaiBookReviews(
+    String bookId,
+  ) async {
+    late final http.Response res;
+    try {
+      res = await http
+          .get(
+            Uri.parse(
+              '${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/reviews',
+            ),
+            headers: _authHeaders(),
+          )
+          .timeout(_mingtaiTimeout);
+    } on TimeoutException {
+      throw Exception('读者短评加载超时，请稍后重试');
+    }
+
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return List<Map<String, dynamic>>.from(data['reviews'] ?? []);
+    }
+    throw Exception('读取读者短评失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>> createMingtaiBookReview({
+    required String bookId,
+    required String content,
+  }) async {
+    late final http.Response res;
+    try {
+      res = await http
+          .post(
+            Uri.parse(
+              '${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/reviews',
+            ),
+            headers: _authHeaders(),
+            body: jsonEncode({'content': content}),
+          )
+          .timeout(_mingtaiTimeout);
+    } on TimeoutException {
+      throw Exception('发布短评超时，请稍后重试');
+    }
+
+    if (res.statusCode == 201) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    throw Exception('发布短评失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>> updateMingtaiBookReview({
+    required String reviewId,
+    required String content,
+  }) async {
+    late final http.Response res;
+    try {
+      res = await http
+          .patch(
+            Uri.parse(
+              '${AppConstants.apiBaseUrl}/api/mingtai/reviews/$reviewId',
+            ),
+            headers: _authHeaders(),
+            body: jsonEncode({'content': content}),
+          )
+          .timeout(_mingtaiTimeout);
+    } on TimeoutException {
+      throw Exception('修改短评超时，请稍后重试');
+    }
+
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    throw Exception('修改短评失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<void> deleteMingtaiBookReview(String reviewId) async {
+    late final http.Response res;
+    try {
+      res = await http
+          .delete(
+            Uri.parse(
+              '${AppConstants.apiBaseUrl}/api/mingtai/reviews/$reviewId',
+            ),
+            headers: _authHeaders(),
+          )
+          .timeout(_mingtaiTimeout);
+    } on TimeoutException {
+      throw Exception('删除短评超时，请稍后重试');
+    }
+
+    if (res.statusCode == 200) return;
+    throw Exception('删除短评失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>> getMingtaiMyProfile() async {
+    late final http.Response res;
+    try {
+      res = await http
+          .get(
+            Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/profiles/me'),
+            headers: _authHeaders(),
+          )
+          .timeout(_mingtaiTimeout);
+    } on TimeoutException {
+      throw Exception('阅读档案加载超时，请稍后重试');
+    }
+
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    if (res.statusCode == 404) {
+      return _emptyMingtaiProfile(userId: _userId ?? '', email: _email ?? '');
+    }
+    throw Exception('读取阅读档案失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>> updateMingtaiMyProfile({
+    required String nickname,
+    required String avatarUrl,
+    required String bio,
+  }) async {
+    late final http.Response res;
+    try {
+      res = await http
+          .put(
+            Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/profiles/me'),
+            headers: _authHeaders(),
+            body: jsonEncode({
+              'nickname': nickname,
+              'avatar_url': avatarUrl,
+              'bio': bio,
+            }),
+          )
+          .timeout(_mingtaiTimeout);
+    } on TimeoutException {
+      throw Exception('资料保存超时，请稍后重试');
+    }
+
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    throw Exception('保存阅读档案失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>> uploadMingtaiProfileAvatar({
+    required List<int> bytes,
+    required String fileName,
+    required String mimeType,
+    String nickname = '',
+    String bio = '',
+  }) async {
+    late final http.Response res;
+    try {
+      res = await http
+          .post(
+            Uri.parse(
+              '${AppConstants.apiBaseUrl}/api/mingtai/profiles/me/avatar',
+            ),
+            headers: _authHeaders(),
+            body: jsonEncode({
+              'file_name': fileName,
+              'mime_type': mimeType,
+              'image_base64': base64Encode(bytes),
+              'nickname': nickname,
+              'bio': bio,
+            }),
+          )
+          .timeout(_mingtaiUploadTimeout);
+    } on TimeoutException {
+      throw Exception('头像上传有点慢，请换一张更小的图片或稍后重试');
+    }
+
+    if (res.statusCode == 200 || res.statusCode == 201) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    throw Exception('头像上传失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>> getMingtaiPublicProfile(String userId) async {
+    late final http.Response res;
+    try {
+      res = await http
+          .get(
+            Uri.parse(
+              '${AppConstants.apiBaseUrl}/api/mingtai/profiles/$userId',
+            ),
+            headers: _authHeaders(),
+          )
+          .timeout(_mingtaiTimeout);
+    } on TimeoutException {
+      throw Exception('公开阅读档案加载超时，请稍后重试');
+    }
+
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    if (res.statusCode == 404) {
+      return _emptyMingtaiProfile(userId: userId, email: '');
+    }
+    throw Exception('读取公开阅读档案失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Map<String, dynamic> _emptyMingtaiProfile({
+    required String userId,
+    required String email,
+  }) {
+    final nickname = email.trim().isEmpty
+        ? '知读读者'
+        : email.trim().split('@').first;
+    return {
+      'profile': {
+        'user_id': userId,
+        'nickname': nickname.isEmpty ? '知读读者' : nickname,
+        'avatar_url': '',
+        'bio': '',
+      },
+      'stats': {
+        'public_books': 0,
+        'public_thoughts': 0,
+        'public_reviews': 0,
+        'mingtai_stops': 0,
+      },
+      'recent_books': [],
+      'reviews': [],
+      'annotations': [],
+    };
   }
 
   Future<List<Map<String, dynamic>>> listMingtaiBookChapters(

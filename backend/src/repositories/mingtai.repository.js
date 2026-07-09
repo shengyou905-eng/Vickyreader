@@ -92,6 +92,42 @@ function shapeAnnotation(row) {
   };
 }
 
+function nicknameFromEmail(email) {
+  return String(email || '').split('@')[0] || '知读读者';
+}
+
+function shapeUserProfile(row = {}) {
+  return {
+    user_id: row.user_id || row.id || '',
+    nickname: row.nickname || nicknameFromEmail(row.email),
+    avatar_url: row.avatar_url || '',
+    bio: row.bio || '',
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+  };
+}
+
+function shapeBookReview(row = {}) {
+  return {
+    id: row.id || '',
+    public_book_id: row.public_book_id || '',
+    book_title: row.book_title || '',
+    book_author: row.book_author || '',
+    book_cover: row.book_cover || '',
+    user_id: row.user_id || '',
+    user: shapeUserProfile({
+      user_id: row.user_id,
+      email: row.email,
+      nickname: row.nickname,
+      avatar_url: row.avatar_url,
+      bio: row.bio,
+    }),
+    content: row.content || '',
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
 function shapeChapter(row, { includeContent = false } = {}) {
   const chapterTitle = row.chapter_title || row.title || `第${Number(row.chapter_index || 0) + 1}章`;
   const contentHtml = row.content_html || row.content || '';
@@ -643,7 +679,39 @@ async function listBooks({ limit = 50, search = '', section = '' } = {}) {
   const q = String(search || '').trim();
   if (q) {
     values.push(`%${q}%`);
-    where.push(`(b.title ILIKE $${values.length} OR b.author ILIKE $${values.length})`);
+    const qRef = `$${values.length}`;
+    where.push(`(
+      b.title ILIKE ${qRef}
+      OR b.author ILIKE ${qRef}
+      OR b.description ILIKE ${qRef}
+      OR b.one_line_summary ILIKE ${qRef}
+      OR b.expanded_guide ILIKE ${qRef}
+      OR EXISTS (
+        SELECT 1
+        FROM book_chapters c
+        WHERE c.public_book_id = b.id
+          AND (
+            c.chapter_title ILIKE ${qRef}
+            OR c.content_text ILIKE ${qRef}
+            OR c.content_html ILIKE ${qRef}
+          )
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM public_annotations pa
+        WHERE pa.public_book_id = b.id
+          AND (
+            pa.original_text ILIKE ${qRef}
+            OR pa.annotation_text ILIKE ${qRef}
+          )
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM book_reviews br
+        WHERE br.public_book_id = b.id
+          AND br.content ILIKE ${qRef}
+      )
+    )`);
   }
   if (section === 'public_domain') {
     where.push("b.copyright_status = 'public_domain'");
@@ -1427,6 +1495,326 @@ async function recordBookRead(publicBookId) {
   return shapeBook(result.rows[0]);
 }
 
+async function getMyProfile(userId) {
+  await query(
+    `INSERT INTO user_profiles (user_id, nickname)
+     SELECT id, split_part(email, '@', 1)
+     FROM users
+     WHERE id = $1
+     ON CONFLICT (user_id) DO NOTHING`,
+    [userId],
+  );
+
+  const result = await query(
+    `SELECT
+       u.id AS user_id,
+       u.email,
+       p.nickname,
+       p.avatar_url,
+       p.bio,
+       p.created_at,
+       p.updated_at
+     FROM users u
+     LEFT JOIN user_profiles p ON p.user_id = u.id
+     WHERE u.id = $1
+     LIMIT 1`,
+    [userId],
+  );
+  return result.rows[0] ? shapeUserProfile(result.rows[0]) : null;
+}
+
+async function updateMyProfile(userId, payload) {
+  const nickname = String(payload.nickname || '').trim().slice(0, 32);
+  const avatarUrl = String(payload.avatar_url || '').trim().slice(0, 500);
+  const bio = String(payload.bio || '').trim().slice(0, 80);
+
+  const result = await query(
+    `INSERT INTO user_profiles (user_id, nickname, avatar_url, bio)
+     SELECT $1, COALESCE(NULLIF($2, ''), split_part(email, '@', 1)), $3, $4
+     FROM users
+     WHERE id = $1
+     ON CONFLICT (user_id) DO UPDATE SET
+       nickname = COALESCE(NULLIF(EXCLUDED.nickname, ''), user_profiles.nickname),
+       avatar_url = EXCLUDED.avatar_url,
+       bio = EXCLUDED.bio,
+       updated_at = now()
+     RETURNING user_id, nickname, avatar_url, bio, created_at, updated_at`,
+    [userId, nickname, avatarUrl, bio],
+  );
+
+  return result.rows[0] ? shapeUserProfile(result.rows[0]) : null;
+}
+
+async function listBookReviews(publicBookId, { limit = 20 } = {}) {
+  const result = await query(
+    `SELECT
+       r.id,
+       r.public_book_id,
+       b.title AS book_title,
+       b.author AS book_author,
+       b.cover_url AS book_cover,
+       r.user_id,
+       u.email,
+       p.nickname,
+       p.avatar_url,
+       p.bio,
+       r.content,
+       r.created_at,
+       r.updated_at
+     FROM book_reviews r
+     INNER JOIN public_books b ON b.id = r.public_book_id
+     INNER JOIN users u ON u.id = r.user_id
+     LEFT JOIN user_profiles p ON p.user_id = r.user_id
+     WHERE r.public_book_id = $1
+     ORDER BY r.created_at DESC
+     LIMIT $2`,
+    [publicBookId, limit],
+  );
+
+  return result.rows.map(shapeBookReview);
+}
+
+async function createBookReview(userId, publicBookId, content) {
+  const result = await query(
+    `WITH book AS (
+       SELECT id
+       FROM public_books
+       WHERE id = $2
+     ),
+     profile AS (
+       INSERT INTO user_profiles (user_id, nickname)
+       SELECT id, split_part(email, '@', 1)
+       FROM users
+       WHERE id = $1
+       ON CONFLICT (user_id) DO NOTHING
+     ),
+     created AS (
+       INSERT INTO book_reviews (public_book_id, user_id, content)
+       SELECT book.id, $1, $3
+       FROM book
+       RETURNING id
+     )
+     SELECT
+       r.id,
+       r.public_book_id,
+       b.title AS book_title,
+       b.author AS book_author,
+       b.cover_url AS book_cover,
+       r.user_id,
+       u.email,
+       p.nickname,
+       p.avatar_url,
+       p.bio,
+       r.content,
+       r.created_at,
+       r.updated_at
+     FROM book_reviews r
+     INNER JOIN created c ON c.id = r.id
+     INNER JOIN public_books b ON b.id = r.public_book_id
+     INNER JOIN users u ON u.id = r.user_id
+     LEFT JOIN user_profiles p ON p.user_id = r.user_id`,
+    [userId, publicBookId, content],
+  );
+
+  return result.rows[0] ? shapeBookReview(result.rows[0]) : null;
+}
+
+async function updateBookReview(userId, reviewId, content) {
+  const result = await query(
+    `WITH updated AS (
+       UPDATE book_reviews
+       SET content = $3,
+           updated_at = now()
+       WHERE id = $2 AND user_id = $1
+       RETURNING *
+     )
+     SELECT
+       r.id,
+       r.public_book_id,
+       b.title AS book_title,
+       b.author AS book_author,
+       b.cover_url AS book_cover,
+       r.user_id,
+       u.email,
+       p.nickname,
+       p.avatar_url,
+       p.bio,
+       r.content,
+       r.created_at,
+       r.updated_at
+     FROM updated r
+     INNER JOIN public_books b ON b.id = r.public_book_id
+     INNER JOIN users u ON u.id = r.user_id
+     LEFT JOIN user_profiles p ON p.user_id = r.user_id`,
+    [userId, reviewId, content],
+  );
+
+  return result.rows[0] ? shapeBookReview(result.rows[0]) : null;
+}
+
+async function deleteBookReview(userId, reviewId) {
+  const result = await query(
+    `DELETE FROM book_reviews
+     WHERE id = $2 AND user_id = $1
+     RETURNING id`,
+    [userId, reviewId],
+  );
+
+  return result.rowCount > 0;
+}
+
+async function getPublicProfile(userId) {
+  const [profileResult, reviewResult, annotationResult, statsResult, recentBooksResult] =
+    await Promise.all([
+      query(
+        `SELECT
+           u.id AS user_id,
+           u.email,
+           p.nickname,
+           p.avatar_url,
+           p.bio,
+           p.created_at,
+           p.updated_at
+         FROM users u
+         LEFT JOIN user_profiles p ON p.user_id = u.id
+         WHERE u.id = $1
+         LIMIT 1`,
+        [userId],
+      ),
+      query(
+        `SELECT
+           r.id,
+           r.public_book_id,
+           b.title AS book_title,
+           b.author AS book_author,
+           b.cover_url AS book_cover,
+           r.user_id,
+           u.email,
+           p.nickname,
+           p.avatar_url,
+           p.bio,
+           r.content,
+           r.created_at,
+           r.updated_at
+         FROM book_reviews r
+         INNER JOIN public_books b ON b.id = r.public_book_id
+         INNER JOIN users u ON u.id = r.user_id
+         LEFT JOIN user_profiles p ON p.user_id = r.user_id
+         WHERE r.user_id = $1
+         ORDER BY r.created_at DESC
+         LIMIT 30`,
+        [userId],
+      ),
+      query(
+        `SELECT
+           a.id,
+           a.entry_id,
+           a.public_book_id,
+           a.source,
+           a.book_id,
+           a.book_title,
+           a.book_author,
+           a.book_cover,
+           a.chapter_index,
+           a.chapter_title,
+           a.original_text,
+           a.annotation_text,
+           a.auto_tags,
+           a.metadata_json,
+           a.position_json,
+           0 AS resonance_count,
+           0 AS comment_count,
+           a.created_at
+         FROM public_annotations a
+         WHERE a.user_id = $1
+           AND a.source IN ('thought', 'manual', 'ai_explanation')
+         ORDER BY a.created_at DESC
+         LIMIT 30`,
+        [userId],
+      ),
+      query(
+        `SELECT
+           COUNT(DISTINCT COALESCE(a.public_book_id, r.public_book_id)) AS public_books,
+           COUNT(DISTINCT a.id) AS public_thoughts,
+           COUNT(DISTINCT r.id) AS public_reviews,
+           (
+             COUNT(DISTINCT a.id) +
+             COUNT(DISTINCT r.id) +
+             COUNT(DISTINCT ar.annotation_id) +
+             COUNT(DISTINCT br.id)
+           ) AS mingtai_stops
+         FROM users u
+         LEFT JOIN public_annotations a ON a.user_id = u.id
+         LEFT JOIN book_reviews r ON r.user_id = u.id
+         LEFT JOIN annotation_resonances ar ON ar.user_id = u.id
+         LEFT JOIN book_resonance br ON br.user_id = u.id
+         WHERE u.id = $1`,
+        [userId],
+      ),
+      query(
+        `SELECT DISTINCT ON (b.id)
+           b.id,
+           b.publisher_user_id,
+           b.uploader_user_id,
+           b.source_book_id,
+           b.title,
+           b.author,
+           b.cover_url,
+           b.file_url,
+           b.original_file_url,
+           b.storage_path,
+           b.file_type,
+           b.file_size,
+           b.chapter_count,
+           b.description,
+           b.authoritative_description,
+           b.authoritative_description_source,
+           b.authoritative_description_url,
+           b.one_line_summary,
+           b.one_line_summary_source,
+           b.encounter_summary,
+           b.expanded_guide,
+           b.why_worth_reading,
+           b.reading_themes,
+           b.summary_updated_at,
+           b.copyright_status,
+           b.borrow_count,
+           b.read_count,
+           GREATEST(b.read_count, b.borrow_count) AS reading_count,
+           0 AS annotation_count,
+           0 AS recent_discussion_count,
+           GREATEST(
+             COALESCE(a.created_at, 'epoch'::timestamptz),
+             COALESCE(r.created_at, 'epoch'::timestamptz)
+           ) AS last_touch,
+           b.created_at,
+           b.updated_at
+         FROM public_books b
+         LEFT JOIN public_annotations a ON a.public_book_id = b.id AND a.user_id = $1
+         LEFT JOIN book_reviews r ON r.public_book_id = b.id AND r.user_id = $1
+         WHERE a.id IS NOT NULL OR r.id IS NOT NULL
+         ORDER BY b.id, last_touch DESC
+         LIMIT 12`,
+        [userId],
+      ),
+    ]);
+
+  if (profileResult.rows.length === 0) return null;
+
+  return {
+    profile: shapeUserProfile(profileResult.rows[0]),
+    stats: {
+      public_books: Number(statsResult.rows[0]?.public_books || 0),
+      public_thoughts: Number(statsResult.rows[0]?.public_thoughts || 0),
+      public_reviews: Number(statsResult.rows[0]?.public_reviews || 0),
+      mingtai_stops: Number(statsResult.rows[0]?.mingtai_stops || 0),
+    },
+    recent_books: recentBooksResult.rows.map(shapeBook),
+    reviews: reviewResult.rows.map(shapeBookReview),
+    annotations: annotationResult.rows.map(shapeAnnotation),
+  };
+}
+
 async function deletePublishedBooks(userId) {
   const result = await query(
     `DELETE FROM public_books
@@ -1458,5 +1846,12 @@ module.exports = {
   createResonance,
   borrowBook,
   recordBookRead,
+  getMyProfile,
+  updateMyProfile,
+  getPublicProfile,
+  listBookReviews,
+  createBookReview,
+  updateBookReview,
+  deleteBookReview,
   deletePublishedBooks,
 };

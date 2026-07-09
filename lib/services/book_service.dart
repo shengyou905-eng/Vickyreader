@@ -308,10 +308,7 @@ class MingtaiBookDetail {
   final MingtaiPublicBook book;
   final List<MingtaiFeedItem> annotations;
 
-  const MingtaiBookDetail({
-    required this.book,
-    required this.annotations,
-  });
+  const MingtaiBookDetail({required this.book, required this.annotations});
 }
 
 class MingtaiPageMoment {
@@ -497,6 +494,116 @@ class MingtaiFeedItem {
           int.tryParse(row['resonance_count']?.toString() ?? '') ?? 0,
       commentCount: int.tryParse(row['comment_count']?.toString() ?? '') ?? 0,
       createdAt: BookService._tryParseDate(row['created_at']),
+    );
+  }
+}
+
+class MingtaiUserProfile {
+  final String userId;
+  final String nickname;
+  final String avatarUrl;
+  final String bio;
+
+  const MingtaiUserProfile({
+    required this.userId,
+    required this.nickname,
+    required this.avatarUrl,
+    required this.bio,
+  });
+
+  factory MingtaiUserProfile.fromRemote(Map<String, dynamic> row) {
+    final nickname = row['nickname']?.toString().trim() ?? '';
+    return MingtaiUserProfile(
+      userId: row['user_id']?.toString() ?? row['id']?.toString() ?? '',
+      nickname: nickname.isEmpty ? '知读读者' : nickname,
+      avatarUrl: row['avatar_url']?.toString() ?? '',
+      bio: row['bio']?.toString() ?? '',
+    );
+  }
+}
+
+class MingtaiBookReview {
+  final String id;
+  final String publicBookId;
+  final String bookTitle;
+  final String bookAuthor;
+  final String bookCover;
+  final MingtaiUserProfile user;
+  final String content;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  const MingtaiBookReview({
+    required this.id,
+    required this.publicBookId,
+    required this.bookTitle,
+    required this.bookAuthor,
+    required this.bookCover,
+    required this.user,
+    required this.content,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory MingtaiBookReview.fromRemote(Map<String, dynamic> row) {
+    return MingtaiBookReview(
+      id: row['id']?.toString() ?? '',
+      publicBookId: row['public_book_id']?.toString() ?? '',
+      bookTitle: row['book_title']?.toString() ?? '',
+      bookAuthor: row['book_author']?.toString() ?? '',
+      bookCover: row['book_cover']?.toString() ?? '',
+      user: MingtaiUserProfile.fromRemote(
+        Map<String, dynamic>.from(row['user'] ?? {}),
+      ),
+      content: row['content']?.toString() ?? '',
+      createdAt: BookService._tryParseDate(row['created_at']),
+      updatedAt: BookService._tryParseDate(row['updated_at']),
+    );
+  }
+}
+
+class MingtaiPublicProfile {
+  final MingtaiUserProfile profile;
+  final int publicBooks;
+  final int publicThoughts;
+  final int publicReviews;
+  final int mingtaiStops;
+  final List<MingtaiPublicBook> recentBooks;
+  final List<MingtaiBookReview> reviews;
+  final List<MingtaiFeedItem> annotations;
+
+  const MingtaiPublicProfile({
+    required this.profile,
+    required this.publicBooks,
+    required this.publicThoughts,
+    required this.publicReviews,
+    required this.mingtaiStops,
+    required this.recentBooks,
+    required this.reviews,
+    required this.annotations,
+  });
+
+  factory MingtaiPublicProfile.fromRemote(Map<String, dynamic> row) {
+    final stats = Map<String, dynamic>.from(row['stats'] ?? {});
+    return MingtaiPublicProfile(
+      profile: MingtaiUserProfile.fromRemote(
+        Map<String, dynamic>.from(row['profile'] ?? {}),
+      ),
+      publicBooks: int.tryParse(stats['public_books']?.toString() ?? '') ?? 0,
+      publicThoughts:
+          int.tryParse(stats['public_thoughts']?.toString() ?? '') ?? 0,
+      publicReviews:
+          int.tryParse(stats['public_reviews']?.toString() ?? '') ?? 0,
+      mingtaiStops: int.tryParse(stats['mingtai_stops']?.toString() ?? '') ?? 0,
+      recentBooks: MingtaiHomeData._remoteMaps(
+        row['recent_books'],
+      ).map(MingtaiPublicBook.fromRemote).toList(),
+      reviews: MingtaiHomeData._remoteMaps(
+        row['reviews'],
+      ).map(MingtaiBookReview.fromRemote).toList(),
+      annotations: MingtaiHomeData._remoteMaps(
+        row['annotations'],
+      ).map(MingtaiFeedItem.fromRemote).toList(),
     );
   }
 }
@@ -1475,7 +1582,17 @@ class BookService {
   static Future<List<MingtaiPublicBook>> getMingtaiBooks({
     int limit = 50,
     bool forceRefresh = false,
+    String search = '',
   }) async {
+    final q = search.trim();
+    if (q.isNotEmpty) {
+      final rows = await BmobApi.instance.listMingtaiBooks(
+        limit: limit,
+        search: q,
+      );
+      return rows.map(MingtaiPublicBook.fromRemote).toList();
+    }
+
     final cached = _mingtaiBooksCache;
     final cacheAt = _mingtaiBooksCacheAt;
     final cacheFresh =
@@ -1522,13 +1639,106 @@ class BookService {
     final annotations = List<Map<String, dynamic>>.from(
       data['annotations'] ?? [],
     ).map(MingtaiFeedItem.fromRemote).toList();
-    final detail = MingtaiBookDetail(
-      book: book,
-      annotations: annotations,
-    );
+    final detail = MingtaiBookDetail(book: book, annotations: annotations);
     _mingtaiBookDetailCache[bookId] = detail;
     _mingtaiBookDetailCacheAt[bookId] = DateTime.now();
     return detail;
+  }
+
+  static Future<List<MingtaiBookReview>> listMingtaiBookReviews(
+    String bookId,
+  ) async {
+    final rows = await BmobApi.instance.listMingtaiBookReviews(bookId);
+    return rows.map(MingtaiBookReview.fromRemote).toList();
+  }
+
+  static Future<MingtaiBookReview> createMingtaiBookReview({
+    required String bookId,
+    required String content,
+  }) async {
+    final data = await BmobApi.instance.createMingtaiBookReview(
+      bookId: bookId,
+      content: content,
+    );
+    _mingtaiBookDetailCache.remove(bookId);
+    _mingtaiBookDetailCacheAt.remove(bookId);
+    final review = data['review'];
+    return MingtaiBookReview.fromRemote(
+      Map<String, dynamic>.from(review ?? {}),
+    );
+  }
+
+  static Future<MingtaiBookReview> updateMingtaiBookReview({
+    required String reviewId,
+    required String content,
+  }) async {
+    final data = await BmobApi.instance.updateMingtaiBookReview(
+      reviewId: reviewId,
+      content: content,
+    );
+    final review = data['review'];
+    final parsed = MingtaiBookReview.fromRemote(
+      Map<String, dynamic>.from(review ?? {}),
+    );
+    if (parsed.publicBookId.isNotEmpty) {
+      _mingtaiBookDetailCache.remove(parsed.publicBookId);
+      _mingtaiBookDetailCacheAt.remove(parsed.publicBookId);
+    }
+    return parsed;
+  }
+
+  static Future<void> deleteMingtaiBookReview(MingtaiBookReview review) async {
+    await BmobApi.instance.deleteMingtaiBookReview(review.id);
+    if (review.publicBookId.isNotEmpty) {
+      _mingtaiBookDetailCache.remove(review.publicBookId);
+      _mingtaiBookDetailCacheAt.remove(review.publicBookId);
+    }
+  }
+
+  static Future<MingtaiPublicProfile> getMingtaiMyProfile() async {
+    final data = await BmobApi.instance.getMingtaiMyProfile();
+    return MingtaiPublicProfile.fromRemote(data);
+  }
+
+  static Future<MingtaiUserProfile> updateMingtaiMyProfile({
+    required String nickname,
+    required String avatarUrl,
+    required String bio,
+  }) async {
+    final data = await BmobApi.instance.updateMingtaiMyProfile(
+      nickname: nickname,
+      avatarUrl: avatarUrl,
+      bio: bio,
+    );
+    return MingtaiUserProfile.fromRemote(
+      Map<String, dynamic>.from(data['profile'] ?? {}),
+    );
+  }
+
+  static Future<MingtaiUserProfile> uploadMingtaiProfileAvatar({
+    required List<int> bytes,
+    required String fileName,
+    required String mimeType,
+    required String nickname,
+    required String bio,
+  }) async {
+    final data = await BmobApi.instance.uploadMingtaiProfileAvatar(
+      bytes: bytes,
+      fileName: fileName,
+      mimeType: mimeType,
+      nickname: nickname,
+      bio: bio,
+    );
+    return MingtaiUserProfile.fromRemote(
+      Map<String, dynamic>.from(data['profile'] ?? {}),
+    );
+  }
+
+  static Future<MingtaiPublicProfile> getMingtaiPublicProfile(
+    String userId,
+  ) async {
+    final data = await BmobApi.instance.getMingtaiPublicProfile(userId);
+    return MingtaiPublicProfile.fromRemote(data);
   }
 
   static Future<void> publishBookToMingtai({
@@ -1612,11 +1822,16 @@ class BookService {
       if (optimizedBytes.length >= bytes.length) return coverPath;
 
       final tempDir = await getTemporaryDirectory();
-      final outputDir = Directory(p.join(tempDir.path, 'mingtai_cover_uploads'));
+      final outputDir = Directory(
+        p.join(tempDir.path, 'mingtai_cover_uploads'),
+      );
       await outputDir.create(recursive: true);
       final digest = md5.convert(bytes).toString().substring(0, 12);
       final output = File(p.join(outputDir.path, 'cover_$digest.png'));
-      await output.writeAsBytes(Uint8List.fromList(optimizedBytes), flush: true);
+      await output.writeAsBytes(
+        Uint8List.fromList(optimizedBytes),
+        flush: true,
+      );
       return output.path;
     } catch (_) {
       return coverPath;
@@ -2234,13 +2449,11 @@ class BookService {
       bookId: bookId,
       limit: 200,
     );
-    return rows
-        .where((row) {
-          final id = row['id']?.toString() ?? '';
-          final source = row['source']?.toString() ?? '';
-          return id.isNotEmpty && (source == 'thought' || source == 'manual');
-        })
-        .toList();
+    return rows.where((row) {
+      final id = row['id']?.toString() ?? '';
+      final source = row['source']?.toString() ?? '';
+      return id.isNotEmpty && (source == 'thought' || source == 'manual');
+    }).toList();
   }
 
   static Future<void> createMingtaiResonance({
@@ -2489,28 +2702,6 @@ class BookService {
     _mingtaiOverviewCacheAt = null;
     _xiaouHomeInsightCache = null;
     _xiaouHomeInsightCacheAt = null;
-  }
-
-  static Map<String, dynamic> _userEntryToMingtaiItem(UserEntry entry) {
-    final understanding = entry.aiExplanation.isNotEmpty
-        ? entry.aiExplanation
-        : entry.autoSummary;
-    final entryId = entry.bmobId.isNotEmpty ? entry.bmobId : entry.id;
-    return {
-      'id': 'entry:$entryId',
-      'local_entry_id': entry.id,
-      'remote_entry_id': entry.bmobId,
-      'source': entry.source,
-      'book_id': entry.bookId,
-      'book_title': entry.bookTitle,
-      'chapter_index': entry.chapterIndex,
-      'original_text': entry.originalText,
-      'user_note': entry.userInput,
-      'ai_tags': entry.autoTags.join(','),
-      'ai_understanding': understanding,
-      'created_at': entry.createdAt.toIso8601String(),
-      'updated_at': entry.updatedAt,
-    };
   }
 
   static Map<String, dynamic> _remoteUserEntryToMingtaiItem(
