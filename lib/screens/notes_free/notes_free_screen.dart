@@ -612,6 +612,8 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
   late final TextEditingController _controller;
   late final TextEditingController _titleController;
   late final String _noteId;
+  String _lastSavedContent = '';
+  String _lastSavedTitle = '';
   Timer? _autosaveTimer;
   bool _saving = false;
   bool _autosaving = false;
@@ -625,12 +627,12 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
     _noteId = existingId.isNotEmpty
         ? existingId
         : 'free_${DateTime.now().microsecondsSinceEpoch}';
-    _controller = TextEditingController(
-      text: widget.note?['content']?.toString() ?? '',
-    )..addListener(_scheduleAutosave);
-    _titleController = TextEditingController(
-      text: widget.note?['title']?.toString() ?? '',
-    )..addListener(_scheduleAutosave);
+    _lastSavedContent = widget.note?['content']?.toString() ?? '';
+    _lastSavedTitle = widget.note?['title']?.toString() ?? '';
+    _controller = TextEditingController(text: _lastSavedContent)
+      ..addListener(_scheduleAutosave);
+    _titleController = TextEditingController(text: _lastSavedTitle)
+      ..addListener(_scheduleAutosave);
     _xiaouAuthorized =
         widget.note?['xiaou_authorized'] == true ||
         widget.note?['xiaou_authorized'] == 1;
@@ -638,7 +640,9 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
 
   @override
   void dispose() {
-    unawaited(_autosave());
+    if (_hasUnsavedChanges) {
+      unawaited(_autosave());
+    }
     _autosaveTimer?.cancel();
     _controller.dispose();
     _titleController.dispose();
@@ -646,20 +650,31 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
   }
 
   void _scheduleAutosave() {
+    if (!_hasUnsavedChanges) return;
     _autosaveTimer?.cancel();
     _autosaveTimer = Timer(const Duration(milliseconds: 700), _autosave);
   }
 
+  bool get _hasUnsavedChanges {
+    return _controller.text != _lastSavedContent ||
+        _titleController.text != _lastSavedTitle;
+  }
+
   Future<void> _autosave() async {
     final content = _controller.text.trim();
-    if (content.isEmpty || _saving || _autosaving) return;
+    if (content.isEmpty || _saving || _autosaving || !_hasUnsavedChanges) {
+      return;
+    }
     if (mounted) setState(() => _autosaving = true);
+    final title = _titleController.text;
     try {
       await BookService.saveFreeNote(
         id: _noteId,
-        title: _titleController.text,
+        title: title,
         content: content,
       );
+      _lastSavedContent = content;
+      _lastSavedTitle = title;
     } finally {
       _autosaving = false;
       if (mounted) setState(() {});
@@ -672,11 +687,14 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
     _autosaveTimer?.cancel();
     setState(() => _saving = true);
     try {
+      final title = _titleController.text;
       await BookService.saveFreeNote(
         id: _noteId,
-        title: _titleController.text,
+        title: title,
         content: content,
       );
+      _lastSavedContent = content;
+      _lastSavedTitle = title;
       if (mounted) Navigator.pop(context, true);
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -720,12 +738,15 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
       ),
     );
     try {
+      final title = _titleController.text;
       await BookService.saveFreeNote(
         id: _noteId,
-        title: _titleController.text,
+        title: title,
         content: content,
         waitForRemote: true,
       );
+      _lastSavedContent = content;
+      _lastSavedTitle = title;
       await BookService.setFreeNoteXiaouAuthorization(
         _noteId,
         authorized: authorized,
@@ -1026,7 +1047,16 @@ class _FreeNoteCard extends StatelessWidget {
     final savedTitle = note['title']?.toString().trim() ?? '';
     final title = savedTitle.isEmpty ? _noteTitle(content) : savedTitle;
     final preview = _notePreview(content, title);
-    final updatedAt = _formatTime(note['updated_at']?.toString() ?? '');
+    final createdAtRaw = note['created_at']?.toString() ?? '';
+    final updatedAtRaw = note['updated_at']?.toString() ?? '';
+    final createdAt = _formatTime(createdAtRaw);
+    final updatedAt = _formatTime(updatedAtRaw);
+    final edited = _isMeaningfullyEdited(createdAtRaw, updatedAtRaw);
+    final timeLabel = edited
+        ? '写于 $createdAt · 最近编辑 $updatedAt'
+        : createdAt.isNotEmpty
+        ? '写于 $createdAt'
+        : updatedAt;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -1084,7 +1114,7 @@ class _FreeNoteCard extends StatelessWidget {
                       ],
                       const SizedBox(height: 11),
                       Text(
-                        updatedAt,
+                        timeLabel,
                         style: const TextStyle(
                           fontSize: 11,
                           color: Color(0xFF9892A2),
@@ -1235,6 +1265,13 @@ String _formatTime(String value) {
   if (time == null) return '';
   String two(int n) => n.toString().padLeft(2, '0');
   return '${two(time.month)}月${two(time.day)}日  ${two(time.hour)}:${two(time.minute)}';
+}
+
+bool _isMeaningfullyEdited(String createdAt, String updatedAt) {
+  final created = DateTime.tryParse(createdAt)?.toLocal();
+  final updated = DateTime.tryParse(updatedAt)?.toLocal();
+  if (created == null || updated == null) return false;
+  return updated.difference(created).abs() > const Duration(minutes: 1);
 }
 
 _TodayEcho? _todayEcho(List<Map<String, dynamic>> notes) {

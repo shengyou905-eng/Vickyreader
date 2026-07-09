@@ -2329,7 +2329,7 @@ class _MingtaiShelfGrid extends StatelessWidget {
         crossAxisCount: 2,
         crossAxisSpacing: 14,
         mainAxisSpacing: 14,
-        childAspectRatio: 0.68,
+        childAspectRatio: 0.58,
       ),
       itemBuilder: (_, index) {
         final book = books[index];
@@ -2402,7 +2402,7 @@ class _MingtaiShelfBookCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: palette.textSecondary, fontSize: 12),
             ),
-            const Spacer(),
+            const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
               decoration: BoxDecoration(

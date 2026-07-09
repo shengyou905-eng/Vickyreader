@@ -6,6 +6,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/sync_service.dart';
 import '../auth/auth_screen.dart';
+import '../mingtai/mingtai_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -149,6 +150,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         ),
         const SizedBox(height: 12),
+        InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: _openMingtaiProfile,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.person_outline_rounded,
+                  size: 21,
+                  color: palette.icon,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '我的阅读档案',
+                        style: TextStyle(
+                          color: palette.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '头像、昵称、公开短评与阅读痕迹',
+                        style: TextStyle(
+                          color: palette.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: palette.textSecondary),
+              ],
+            ),
+          ),
+        ),
+        Divider(height: 18, color: palette.divider),
         Row(
           children: [
             OutlinedButton(
@@ -182,6 +225,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await context.read<AuthProvider>().signOut();
     if (!mounted) return;
     await _openAuth();
+  }
+
+  void _openMingtaiProfile() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const MingtaiProfileScreen()));
   }
 
   Future<void> _onLoginSuccess() async {

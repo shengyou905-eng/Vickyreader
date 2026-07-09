@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../config/theme.dart';
 import '../../../services/book_service.dart';
 
-class XiaouCard extends StatelessWidget {
+class XiaouCard extends StatefulWidget {
   final String originalText;
   final String? userNote;
   final String? aiTags;
@@ -25,8 +25,21 @@ class XiaouCard extends StatelessWidget {
   });
 
   @override
+  State<XiaouCard> createState() => _XiaouCardState();
+}
+
+class _XiaouCardState extends State<XiaouCard> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
-    final tags = (_parseTags(aiTags));
+    final tags = _parseTags(widget.aiTags);
+    final expandable = _isExpandable(
+      widget.originalText,
+      widget.userNote,
+      widget.aiUnderstanding,
+    );
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -35,7 +48,6 @@ class XiaouCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Original text
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
@@ -44,9 +56,11 @@ class XiaouCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
-                originalText,
-                maxLines: 4,
-                overflow: TextOverflow.ellipsis,
+                widget.originalText,
+                maxLines: _expanded ? null : 4,
+                overflow: _expanded
+                    ? TextOverflow.visible
+                    : TextOverflow.ellipsis,
                 style: const TextStyle(
                   fontSize: 14,
                   fontStyle: FontStyle.italic,
@@ -54,51 +68,74 @@ class XiaouCard extends StatelessWidget {
                 ),
               ),
             ),
-            // User note
-            if (userNote != null && userNote!.isNotEmpty) ...[
+            if (widget.userNote != null && widget.userNote!.isNotEmpty) ...[
               const SizedBox(height: 10),
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('💬 ', style: TextStyle(fontSize: 13)),
-                Expanded(
-                  child: Text(
-                    userNote!,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppTheme.textSecondary,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('💬 ', style: TextStyle(fontSize: 13)),
+                  Expanded(
+                    child: Text(
+                      widget.userNote!,
+                      maxLines: _expanded ? null : 3,
+                      overflow: _expanded
+                          ? TextOverflow.visible
+                          : TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        height: 1.5,
+                        color: AppTheme.textSecondary,
+                      ),
                     ),
                   ),
-                ),
-              ]),
+                ],
+              ),
             ],
-            // AI understanding
-            if (aiUnderstanding != null && aiUnderstanding!.isNotEmpty) ...[
+            if (widget.aiUnderstanding != null &&
+                widget.aiUnderstanding!.isNotEmpty) ...[
               const SizedBox(height: 8),
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('🤖 ', style: TextStyle(fontSize: 13)),
-                Expanded(
-                  child: Text(
-                    aiUnderstanding!,
-                    maxLines: 4,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppTheme.textSecondary,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('🤖 ', style: TextStyle(fontSize: 13)),
+                  Expanded(
+                    child: Text(
+                      widget.aiUnderstanding!,
+                      maxLines: _expanded ? null : 4,
+                      overflow: _expanded
+                          ? TextOverflow.visible
+                          : TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        height: 1.5,
+                        color: AppTheme.textSecondary,
+                      ),
                     ),
                   ),
-                ),
-              ]),
+                ],
+              ),
             ],
-            // Tags
+            if (expandable) ...[
+              const SizedBox(height: 8),
+              TextButton(
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(44, 30),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                onPressed: () => setState(() => _expanded = !_expanded),
+                child: Text(_expanded ? '收起' : '展开'),
+              ),
+            ],
             if (tags.isNotEmpty) ...[
               const SizedBox(height: 10),
               Wrap(
                 spacing: 6,
-                children: tags.map((t) {
-                  final label = Text(t, style: const TextStyle(fontSize: 11));
-                  final canOpenTopic = onTagTap != null &&
-                      BookService.isMingtaiTopicTag(t);
+                children: tags.map((tag) {
+                  final label = Text(tag, style: const TextStyle(fontSize: 11));
+                  final canOpenTopic =
+                      widget.onTagTap != null &&
+                      BookService.isMingtaiTopicTag(tag);
                   if (!canOpenTopic) {
                     return Chip(
                       label: label,
@@ -114,50 +151,59 @@ class XiaouCard extends StatelessWidget {
                     visualDensity: VisualDensity.compact,
                     backgroundColor: AppTheme.primaryLight.withAlpha(25),
                     side: BorderSide.none,
-                    onPressed: () => onTagTap!(t),
+                    onPressed: () => widget.onTagTap!(tag),
                   );
                 }).toList(),
               ),
             ],
-            // Source
-            if (bookTitle != null && bookTitle!.isNotEmpty) ...[
+            if (widget.bookTitle != null && widget.bookTitle!.isNotEmpty) ...[
               const SizedBox(height: 8),
-              Row(children: [
-                const Icon(Icons.menu_book, size: 14, color: AppTheme.textSecondary),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    bookTitle!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.textSecondary,
-                    ),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.menu_book,
+                    size: 14,
+                    color: AppTheme.textSecondary,
                   ),
-                ),
-                const SizedBox(width: 8),
-                if (onPublish != null)
-                  Tooltip(
-                    message: '公开到明台',
-                    child: GestureDetector(
-                      onTap: onPublish,
-                      child: const Padding(
-                        padding: EdgeInsets.only(right: 12),
-                        child: Icon(
-                          Icons.public_outlined,
-                          size: 18,
-                          color: AppTheme.textSecondary,
-                        ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      widget.bookTitle!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textSecondary,
                       ),
                     ),
                   ),
-                if (onDelete != null)
-                  GestureDetector(
-                    onTap: onDelete,
-                    child: const Icon(Icons.delete_outline, size: 18, color: AppTheme.textSecondary),
-                  ),
-              ]),
+                  const SizedBox(width: 8),
+                  if (widget.onPublish != null)
+                    Tooltip(
+                      message: '公开到明台',
+                      child: GestureDetector(
+                        onTap: widget.onPublish,
+                        child: const Padding(
+                          padding: EdgeInsets.only(right: 12),
+                          child: Icon(
+                            Icons.public_outlined,
+                            size: 18,
+                            color: AppTheme.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (widget.onDelete != null)
+                    GestureDetector(
+                      onTap: widget.onDelete,
+                      child: const Icon(
+                        Icons.delete_outline,
+                        size: 18,
+                        color: AppTheme.textSecondary,
+                      ),
+                    ),
+                ],
+              ),
             ],
           ],
         ),
@@ -165,12 +211,27 @@ class XiaouCard extends StatelessWidget {
     );
   }
 
+  bool _isExpandable(String original, String? note, String? understanding) {
+    final combined = [
+      original,
+      note ?? '',
+      understanding ?? '',
+    ].where((text) => text.trim().isNotEmpty).join('\n');
+    return combined.length > 120 || combined.split('\n').length > 5;
+  }
+
   List<String> _parseTags(String? raw) {
     if (raw == null || raw.isEmpty) return [];
     return raw
         .split(',')
-        .map((t) => t.trim().replaceAll('"', '').replaceAll('[', '').replaceAll(']', ''))
-        .where((t) => t.isNotEmpty)
+        .map(
+          (tag) => tag
+              .trim()
+              .replaceAll('"', '')
+              .replaceAll('[', '')
+              .replaceAll(']', ''),
+        )
+        .where((tag) => tag.isNotEmpty)
         .toList();
   }
 }
