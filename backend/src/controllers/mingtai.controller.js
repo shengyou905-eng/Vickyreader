@@ -15,6 +15,12 @@ const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const allowedCopyrightStatuses = new Set(['public_domain', 'original', 'authorized']);
 const allowedAnnotationSources = new Set(['thought']);
+const allowedAvatarMimeTypes = new Set([
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+]);
 
 function normalizeEntryIds(body) {
   const entryIds = body.entry_ids;

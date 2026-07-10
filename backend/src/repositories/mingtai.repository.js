@@ -757,23 +757,40 @@ async function listBooks({ limit = 50, search = '', section = '' } = {}) {
        b.borrow_count,
        b.read_count,
        GREATEST(b.read_count, b.borrow_count) AS reading_count,
-       COUNT(DISTINCT a.id) AS annotation_count,
+       (
+         SELECT COUNT(*)
+         FROM public_annotations a
+         WHERE a.public_book_id = b.id
+       ) AS annotation_count,
        GREATEST(
-         COUNT(DISTINCT r.id),
-         COUNT(DISTINCT ar.id),
-         COUNT(DISTINCT d.id),
-         COUNT(DISTINCT c.id)
+         (
+           SELECT COUNT(*)
+           FROM resonances r
+           INNER JOIN public_annotations a ON a.id = r.annotation_id
+           WHERE a.public_book_id = b.id
+         ),
+         (
+           SELECT COUNT(*)
+           FROM annotation_resonances ar
+           INNER JOIN public_annotations a ON a.id = ar.annotation_id
+           WHERE a.public_book_id = b.id
+         ),
+         (
+           SELECT COUNT(*)
+           FROM book_discussions d
+           WHERE d.public_book_id = b.id
+         ),
+         (
+           SELECT COUNT(*)
+           FROM annotation_comments c
+           INNER JOIN public_annotations a ON a.id = c.annotation_id
+           WHERE a.public_book_id = b.id
+         )
        ) AS recent_discussion_count,
        b.created_at,
        b.updated_at
      FROM public_books b
-     LEFT JOIN public_annotations a ON a.public_book_id = b.id
-     LEFT JOIN resonances r ON r.annotation_id = a.id
-     LEFT JOIN annotation_resonances ar ON ar.annotation_id = a.id
-     LEFT JOIN annotation_comments c ON c.annotation_id = a.id
-     LEFT JOIN book_discussions d ON d.public_book_id = b.id
      ${whereSql}
-     GROUP BY b.id
      ORDER BY ${orderSql}
      LIMIT ${limitRef}`,
     values,

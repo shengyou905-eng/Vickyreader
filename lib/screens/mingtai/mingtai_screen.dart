@@ -43,9 +43,6 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
   }
 
   Future<void> _load({bool forceRefresh = false}) async {
-    if (forceRefresh) {
-      await BookService.clearMingtaiHomeCache();
-    }
     final cached = forceRefresh
         ? null
         : BookService.cachedMingtaiHome() ??

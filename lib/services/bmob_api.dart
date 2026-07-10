@@ -544,6 +544,7 @@ class BmobApi {
   }
 
   Future<Map<String, dynamic>> getMingtaiHome() async {
+    Object? homeError;
     try {
       final res = await http
           .get(
@@ -554,9 +555,28 @@ class BmobApi {
       if (res.statusCode == 200) {
         return jsonDecode(res.body) as Map<String, dynamic>;
       }
-      throw Exception('读取明台首页失败 (HTTP ${res.statusCode}): ${res.body}');
-    } on TimeoutException {
-      throw Exception('明台连接有点慢，请稍后重试');
+      homeError = Exception('读取明台首页失败 (HTTP ${res.statusCode}): ${res.body}');
+    } catch (error) {
+      homeError = error;
+    }
+
+    // The home endpoint is an aggregate view. If one optional aggregate is
+    // temporarily slow, keep the public shelf usable through the books API.
+    try {
+      final books = await listMingtaiBooks(limit: 50);
+      return {
+        'today_page': null,
+        'encounter_pool': const <Map<String, dynamic>>[],
+        'recent_thoughts': const <Map<String, dynamic>>[],
+        'recent_discussions': const <Map<String, dynamic>>[],
+        'reading_now': const <Map<String, dynamic>>[],
+        'latest_books': books,
+      };
+    } catch (_) {
+      if (homeError is TimeoutException) {
+        throw Exception('明台连接有点慢，请稍后重试');
+      }
+      throw homeError;
     }
   }
 
