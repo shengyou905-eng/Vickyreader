@@ -82,6 +82,4 @@ msix_config:
   logo_path: assets\icon.png
   capabilities: "internetClient,privateNetworkClientServer"
   store: false
-  certificate_path: assets\certificate.pfx
-  certificate_password: "$env(CERT_PASSWORD)"
-  install_certificate: true
+  # Supply Windows signing credentials outside the repository at build time.

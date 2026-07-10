@@ -42,6 +42,15 @@ migrate_working_dir/
 backend/uploads/
 .codex-remote-attachments/
 
+# Signing certificates and private keys must never enter source control/assets.
+*.pfx
+*.p12
+*.pem
+*.key
+*.jks
+*.keystore
+key.properties
+
 # Symbolication related
 app.*.symbols
 

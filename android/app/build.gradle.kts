@@ -5,6 +5,9 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val isInternalTestBuild =
+    System.getenv("ZHIDU_INTERNAL_TEST")?.equals("true", ignoreCase = true) == true
+
 android {
     namespace = "com.reader.ai_reader"
     compileSdk = flutter.compileSdkVersion
@@ -28,6 +31,10 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["appLabel"] =
+            if (isInternalTestBuild) "知读（内部测试）" else "知读"
+        manifestPlaceholders["usesCleartextTraffic"] =
+            if (isInternalTestBuild) "true" else "false"
     }
 
     buildTypes {
@@ -35,6 +42,10 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            if (isInternalTestBuild) {
+                applicationIdSuffix = ".internal"
+                versionNameSuffix = "-internal"
+            }
         }
     }
 }

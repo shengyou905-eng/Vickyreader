@@ -29,6 +29,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   bool _ignoreChapterMessages = false;
   bool _isExiting = false;
   bool _hasWebSelection = false;
+  bool? _controlsBeforeAi;
   String? _loadedChapterKey;
   int _appliedReadingPositionRevision = -1;
   DateTime _lastChapterBoundaryAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -408,6 +409,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _toggleControls() {
+    if (context.read<ReaderProvider>().showAiPanel) return;
     setState(() => _showControls = !_showControls);
   }
 
@@ -498,13 +500,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 else
                   WebViewWidget(controller: _webViewController),
 
-                if (reader.selectedText != null)
+                if (reader.selectedText != null && !reader.showAiPanel)
                   Positioned(
                     bottom: 0,
                     left: 0,
                     right: 0,
                     child: SelectionMenu(
-                      onExplain: () => reader.showAiExplanation(),
+                      onExplain: () {
+                        unawaited(_beginAiExplanation(reader));
+                      },
                       onHighlight: (color) async {
                         final chapter = reader.currentChapter;
                         if (chapter != null) {
@@ -570,8 +574,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     bottom: 0,
                     left: 0,
                     right: 0,
-                    height: MediaQuery.of(context).size.height * 0.4,
-                    child: const AiExplanationCard(),
+                    height: (MediaQuery.of(context).size.height * 0.36).clamp(
+                      260.0,
+                      380.0,
+                    ),
+                    child: AiExplanationCard(
+                      onClose: () => _closeAiExplanation(reader),
+                    ),
                   ),
 
                 if (_showControls) _buildTopBar(reader),
@@ -646,6 +655,46 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _webViewController.runJavaScript(
       'window.clearSelection && window.clearSelection();',
     );
+  }
+
+  Future<void> _beginAiExplanation(ReaderProvider reader) async {
+    if (reader.selectedText == null || reader.showAiPanel) return;
+
+    _controlsBeforeAi ??= _showControls;
+    if (_showControls && mounted) {
+      setState(() => _showControls = false);
+    }
+    _hasWebSelection = false;
+    reader.showAiExplanation();
+
+    try {
+      await _webViewController.runJavaScript(
+        'window.freezeSelectionForAi && window.freezeSelectionForAi();',
+      );
+    } catch (_) {
+      // The selected text is retained by ReaderProvider even if the WebView
+      // cannot create the temporary visual marker.
+    }
+  }
+
+  void _closeAiExplanation(ReaderProvider reader) {
+    reader.clearSelection();
+    _hasWebSelection = false;
+    unawaited(
+      _webViewController
+          .runJavaScript(
+            'window.releaseAiSelection && window.releaseAiSelection();',
+          )
+          .catchError((_) {}),
+    );
+
+    final restoreControls = _controlsBeforeAi;
+    _controlsBeforeAi = null;
+    if (restoreControls != null &&
+        mounted &&
+        _showControls != restoreControls) {
+      setState(() => _showControls = restoreControls);
+    }
   }
 
   Future<void> _maybePublishPublicAnnotation(
@@ -955,7 +1004,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 }
                 if (mounted) {
                   messenger.showSnackBar(
-                    const SnackBar(content: Text('已由小U整理'), duration: Duration(seconds: 1)),
+                    const SnackBar(
+                      content: Text('已由小U整理'),
+                      duration: Duration(seconds: 1),
+                    ),
                   );
                 }
               }

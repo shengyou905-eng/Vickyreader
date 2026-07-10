@@ -1,16 +1,44 @@
+import 'package:flutter/foundation.dart';
+
 class AppConstants {
   static const String appName = '知读';
   static const String appTagline = '让阅读痕迹慢慢显影';
 
   static const int contextChars = 200;
 
-  // Self-hosted backend (生产环境必须使用 HTTPS)
-  // 开发调试:
-  //   Android 模拟器:  'http://10.0.2.2:3000'
-  //   iOS 模拟器:      'http://localhost:3000'
-  //   真机调试:         'http://<你的局域网IP>:3000'
-  // 生产环境:          'https://your-domain.com'
-  static const String apiBaseUrl = 'http://101.32.186.151:3000';
+  // Production builds must inject an HTTPS endpoint:
+  //   --dart-define=API_BASE_URL=https://api.example.com
+  // Local/debug HTTP endpoints can use the same flag. Android release builds
+  // reject cleartext traffic at the platform layer.
+  static const String _configuredApiBaseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: '',
+  );
+  static const bool _allowInsecureHttp = bool.fromEnvironment(
+    'ALLOW_INSECURE_HTTP',
+    defaultValue: false,
+  );
+
+  static String get apiBaseUrl {
+    final value = _configuredApiBaseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
+    if (value.isEmpty) {
+      throw StateError(
+        'API_BASE_URL is not configured. Pass it with --dart-define.',
+      );
+    }
+    final uri = Uri.tryParse(value);
+    if (uri == null ||
+        !uri.hasAuthority ||
+        (uri.scheme != 'http' && uri.scheme != 'https')) {
+      throw StateError('API_BASE_URL is invalid.');
+    }
+    if (kReleaseMode && uri.scheme != 'https' && !_allowInsecureHttp) {
+      throw StateError(
+        'Release builds require HTTPS unless ALLOW_INSECURE_HTTP is enabled.',
+      );
+    }
+    return value;
+  }
 
   // Storage
   static const String dbName = 'ai_reader.db';

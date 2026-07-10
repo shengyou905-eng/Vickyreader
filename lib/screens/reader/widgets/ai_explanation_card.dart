@@ -1,14 +1,20 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../../../config/theme.dart';
-import '../../../providers/reader_provider.dart';
+import '../../../models/ai_conversation.dart';
 import '../../../providers/ai_provider.dart';
+import '../../../providers/reader_provider.dart';
 import '../../../services/book_service.dart';
+import '../../../utils/markdown_sanitizer.dart';
 
 class AiExplanationCard extends StatefulWidget {
-  const AiExplanationCard({super.key});
+  final VoidCallback onClose;
+
+  const AiExplanationCard({super.key, required this.onClose});
 
   @override
   State<AiExplanationCard> createState() => _AiExplanationCardState();
@@ -18,8 +24,11 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
   final TextEditingController _followUpController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _initialized = false;
+  bool _preparing = true;
   bool _publishing = false;
   bool _published = false;
+  int _sessionStartIndex = 0;
+  String? _setupError;
 
   @override
   void initState() {
@@ -30,31 +39,65 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
   Future<void> _loadExplanation() async {
     if (_initialized) return;
     _initialized = true;
+    if (mounted) {
+      setState(() {
+        _preparing = true;
+        _setupError = null;
+      });
+    }
 
     final reader = context.read<ReaderProvider>();
     final ai = context.read<AiProvider>();
+    final selectedText = reader.selectedText;
+    final book = reader.book;
+    if (selectedText == null || book == null) {
+      if (mounted) setState(() => _preparing = false);
+      return;
+    }
 
-    if (reader.selectedText == null || reader.book == null) return;
+    try {
+      await ai.loadHistory(book.id);
+      if (!mounted) return;
+      _sessionStartIndex = ai.messages.length;
+      final chapter = await reader.ensureChapterLoaded();
+      if (!mounted) return;
+      setState(() => _preparing = false);
+      await ai.explain(
+        selectedText: selectedText,
+        bookTitle: book.title,
+        bookAuthor: book.author,
+        chapterContent: chapter?.content ?? '',
+        chapterIndex: reader.currentChapterIndex.toString(),
+        chapterTitle: chapter?.title ?? '',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _preparing = false;
+        _setupError = '这一段暂时没能打开，请稍后重试。';
+      });
+    }
+  }
 
-    await ai.loadHistory(reader.book!.id);
-    final chapter = await reader.ensureChapterLoaded();
-    if (!mounted) return;
-    await ai.explain(
-      selectedText: reader.selectedText!,
-      bookTitle: reader.book!.title,
-      bookAuthor: reader.book!.author,
-      chapterContent: chapter?.content ?? '',
-      chapterIndex: reader.currentChapterIndex.toString(),
-      chapterTitle: chapter?.title ?? '',
-    );
+  void _retry() {
+    context.read<AiProvider>().clearError();
+    _initialized = false;
+    _sessionStartIndex = 0;
+    _loadExplanation();
   }
 
   void _sendFollowUp() {
-    if (context.read<AiProvider>().isLoading) return;
+    final ai = context.read<AiProvider>();
+    if (ai.isLoading) return;
     final text = _followUpController.text.trim();
     if (text.isEmpty) return;
     _followUpController.clear();
-    context.read<AiProvider>().sendFollowUp(text);
+    ai.sendFollowUp(text);
+  }
+
+  void _close() {
+    context.read<AiProvider>().clearMessages();
+    widget.onClose();
   }
 
   Future<void> _publishExplanation() async {
@@ -91,12 +134,12 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
       setState(() => _published = true);
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('小U解释已公开到明台')));
-    } catch (e) {
+      ).showSnackBar(const SnackBar(content: Text('小U解读已公开到明台')));
+    } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('公开失败：$e')));
+      ).showSnackBar(SnackBar(content: Text('公开失败：$error')));
     } finally {
       if (mounted) setState(() => _publishing = false);
     }
@@ -107,347 +150,385 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
     final palette = context.appPalette;
     final primary = Theme.of(context).colorScheme.primary;
     final glassColor = Color.alphaBlend(
-      primary.withAlpha(18),
-      Colors.white.withAlpha(172),
+      primary.withAlpha(10),
+      Colors.white.withAlpha(188),
     );
 
     return Container(
       decoration: BoxDecoration(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
         boxShadow: [
           BoxShadow(
-            color: primary.withAlpha(28),
-            blurRadius: 38,
-            spreadRadius: 3,
-            offset: const Offset(0, -8),
+            color: primary.withAlpha(20),
+            blurRadius: 34,
+            spreadRadius: 1,
+            offset: const Offset(0, -7),
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
           child: Container(
             decoration: BoxDecoration(
               color: glassColor,
               borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(24),
+                top: Radius.circular(26),
               ),
               border: Border.all(
-                color: Colors.white.withAlpha(176),
+                color: Colors.white.withAlpha(180),
                 width: 0.5,
               ),
             ),
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: 10, bottom: 2),
-                  child: Container(
-                    width: 32,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: primary.withAlpha(42),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                ),
-                // Header
-                Container(
-                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
-                  decoration: BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(
-                        color: Colors.white.withAlpha(132),
-                        width: 0.5,
-                      ),
-                    ),
-                  ),
-                  child: Row(
+            child: SafeArea(
+              top: false,
+              child: Consumer<AiProvider>(
+                builder: (context, ai, _) {
+                  final sessionMessages = _sessionMessages(ai);
+                  final visibleMessages = _preparing
+                      ? const <AiMessage>[]
+                      : _visibleMessages(sessionMessages);
+                  final error = _setupError ?? ai.error;
+                  final isWorking = _preparing || ai.isLoading;
+                  final hasAnswer = sessionMessages.any(
+                    (message) =>
+                        message.role == 'assistant' &&
+                        message.content.trim().isNotEmpty,
+                  );
+
+                  _scheduleAutoScroll();
+                  return Column(
                     children: [
-                      Icon(Icons.auto_awesome, color: primary, size: 20),
-                      const SizedBox(width: 8),
-                      Text(
-                        '小U解释',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: palette.textPrimary,
-                        ),
+                      _buildHandle(primary),
+                      _buildHeader(
+                        ai: ai,
+                        isWorking: isWorking,
+                        palette: palette,
+                        primary: primary,
                       ),
-                      const Spacer(),
-                      Consumer<AiProvider>(
-                        builder: (context, ai, _) {
-                          return Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (ai.isLoading)
-                                TextButton(
-                                  onPressed: ai.cancelGeneration,
-                                  child: const Text('停止'),
-                                ),
-                              IconButton(
-                                icon: Icon(
-                                  Icons.close,
-                                  size: 18,
-                                  color: palette.textSecondary,
-                                ),
-                                onPressed: () {
-                                  ai.clearMessages();
-                                  context
-                                      .read<ReaderProvider>()
-                                      .clearSelection();
-                                },
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-                // Messages
-                Expanded(
-                  child: Consumer<AiProvider>(
-                    builder: (context, ai, _) {
-                      if (ai.isLoading && ai.messages.isEmpty) {
-                        return Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              CircularProgressIndicator(color: primary),
-                              const SizedBox(height: 12),
-                              Text(
-                                ai.loadingText ?? '小U正在阅读这一段…',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: palette.textSecondary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      }
-
-                      if (ai.error != null) {
-                        return Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.error_outline,
-                                size: 36,
-                                color: Colors.red.shade300,
-                              ),
-                              const SizedBox(height: 8),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 24,
-                                ),
-                                child: Text(
-                                  ai.error!,
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: palette.textSecondary,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              ElevatedButton(
-                                onPressed: () {
-                                  ai.clearError();
-                                  _initialized = false;
-                                  _loadExplanation();
-                                },
-                                child: const Text('重试'),
-                              ),
-                            ],
-                          ),
-                        );
-                      }
-
-                      // Auto-scroll when new messages arrive
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (_scrollController.hasClients) {
-                          _scrollController.animateTo(
-                            _scrollController.position.maxScrollExtent,
-                            duration: const Duration(milliseconds: 300),
-                            curve: Curves.easeOut,
-                          );
-                        }
-                      });
-
-                      final hasEmptyAssistant =
-                          ai.messages.isNotEmpty &&
-                          ai.messages.last.role == 'assistant' &&
-                          ai.messages.last.content.isEmpty;
-
-                      return ListView.builder(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.all(16),
-                        itemCount:
-                            ai.messages.length +
-                            (ai.isLoading && !hasEmptyAssistant ? 1 : 0),
-                        itemBuilder: (context, index) {
-                          if (index >= ai.messages.length) {
-                            return _LoadingBubble(
-                              text: ai.loadingText ?? '正在组织语言…',
-                              onCancel: ai.cancelGeneration,
-                            );
-                          }
-                          final msg = ai.messages[index];
-                          final isUser = msg.role == 'user';
-                          final isWaitingAssistant =
-                              !isUser && msg.content.trim().isEmpty;
-                          return Align(
-                            alignment: isUser
-                                ? Alignment.centerRight
-                                : Alignment.centerLeft,
-                            child: Container(
-                              margin: const EdgeInsets.only(bottom: 8),
-                              padding: const EdgeInsets.all(12),
-                              constraints: BoxConstraints(
-                                maxWidth:
-                                    MediaQuery.of(context).size.width * 0.8,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isUser
-                                    ? primary.withAlpha(28)
-                                    : Colors.white.withAlpha(112),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: isWaitingAssistant
-                                  ? Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        SizedBox(
-                                          width: 14,
-                                          height: 14,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: primary,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Flexible(
-                                          child: Text(
-                                            ai.loadingText ?? '小U正在阅读这一段…',
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              color: palette.textSecondary,
-                                              height: 1.5,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    )
-                                  : Text(
-                                      msg.content,
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: palette.textPrimary,
-                                        height: 1.5,
-                                      ),
-                                    ),
-                            ),
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ),
-                Consumer2<ReaderProvider, AiProvider>(
-                  builder: (context, reader, ai, _) {
-                    final book = reader.book;
-                    final canPublish =
-                        book != null &&
-                        BookService.isMingtaiShelfBook(book) &&
-                        !ai.isLoading &&
-                        ai.error == null &&
-                        ai.messages.any(
-                          (message) =>
-                              message.role == 'assistant' &&
-                              message.content.trim().isNotEmpty,
-                        );
-                    if (!canPublish) return const SizedBox.shrink();
-                    return Align(
-                      alignment: Alignment.centerRight,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                        child: TextButton.icon(
-                          onPressed: _publishing || _published
-                              ? null
-                              : _publishExplanation,
-                          icon: Icon(
-                            _published
-                                ? Icons.check_circle_outline
-                                : Icons.public_outlined,
-                            size: 18,
-                          ),
-                          label: Text(
-                            _published
-                                ? '已公开到明台'
-                                : _publishing
-                                ? '公开中...'
-                                : '公开到明台',
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                // Follow-up input
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    border: Border(
-                      top: BorderSide(
-                        color: Colors.white.withAlpha(132),
-                        width: 0.5,
-                      ),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
                       Expanded(
-                        child: TextField(
-                          controller: _followUpController,
-                          decoration: InputDecoration(
-                            hintText: '继续追问...',
-                            filled: true,
-                            fillColor: Colors.white.withAlpha(105),
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 10,
-                            ),
-                            isDense: true,
-                          ),
-                          style: const TextStyle(fontSize: 14),
-                          onSubmitted: (_) => _sendFollowUp(),
-                        ),
+                        child: error != null
+                            ? _buildError(error, palette, primary)
+                            : _buildMessages(
+                                messages: visibleMessages,
+                                isWorking: isWorking,
+                                loadingText: ai.loadingText,
+                                palette: palette,
+                                primary: primary,
+                              ),
                       ),
-                      const SizedBox(width: 8),
-                      Consumer<AiProvider>(
-                        builder: (context, ai, _) {
-                          return IconButton(
-                            icon: Icon(
-                              Icons.send_rounded,
-                              color: ai.isLoading
-                                  ? palette.textSecondary
-                                  : primary,
-                            ),
-                            onPressed: ai.isLoading ? null : _sendFollowUp,
-                          );
-                        },
+                      if (!isWorking && error == null && hasAnswer)
+                        _buildCompletedActions(ai, palette, primary),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<AiMessage> _sessionMessages(AiProvider ai) {
+    final start = math.min(_sessionStartIndex, ai.messages.length);
+    return ai.messages.skip(start).toList(growable: false);
+  }
+
+  List<AiMessage> _visibleMessages(List<AiMessage> messages) {
+    if (messages.isNotEmpty && messages.first.role == 'user') {
+      return messages.skip(1).toList(growable: false);
+    }
+    return messages;
+  }
+
+  Widget _buildHandle(Color primary) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 9, bottom: 2),
+      child: Container(
+        width: 30,
+        height: 3,
+        decoration: BoxDecoration(
+          color: primary.withAlpha(34),
+          borderRadius: BorderRadius.circular(999),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader({
+    required AiProvider ai,
+    required bool isWorking,
+    required AppPalette palette,
+    required Color primary,
+  }) {
+    final title = _preparing
+        ? '小U正在读这一段'
+        : ai.isLoading
+        ? ai.loadingText ?? '小U正在组织语言'
+        : '小U解读';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 5, 10, 8),
+      child: Row(
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 240),
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isWorking ? primary.withAlpha(190) : primary.withAlpha(90),
+              boxShadow: isWorking
+                  ? [
+                      BoxShadow(
+                        color: primary.withAlpha(55),
+                        blurRadius: 8,
+                        spreadRadius: 2,
+                      ),
+                    ]
+                  : null,
+            ),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: palette.textPrimary,
+              ),
+            ),
+          ),
+          if (ai.isLoading)
+            TextButton(
+              onPressed: ai.cancelGeneration,
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                foregroundColor: palette.textSecondary,
+              ),
+              child: const Text('停止'),
+            ),
+          IconButton(
+            tooltip: '关闭',
+            onPressed: _close,
+            visualDensity: VisualDensity.compact,
+            icon: Icon(
+              Icons.close_rounded,
+              size: 19,
+              color: palette.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMessages({
+    required List<AiMessage> messages,
+    required bool isWorking,
+    required String? loadingText,
+    required AppPalette palette,
+    required Color primary,
+  }) {
+    final nonEmptyMessages = messages
+        .where((message) => message.content.trim().isNotEmpty)
+        .toList(growable: false);
+    final showWaiting =
+        isWorking &&
+        (messages.isEmpty ||
+            messages.last.role != 'assistant' ||
+            messages.last.content.trim().isEmpty);
+
+    if (nonEmptyMessages.isEmpty) {
+      return _ReadingStatus(
+        text: loadingText ?? '小U正在读这一段…',
+        color: palette.textSecondary,
+        accent: primary,
+      );
+    }
+
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+      itemCount: nonEmptyMessages.length + (showWaiting ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index >= nonEmptyMessages.length) {
+          return _InlineThinking(
+            text: loadingText ?? '正在组织语言…',
+            color: palette.textSecondary,
+            accent: primary,
+          );
+        }
+        final message = nonEmptyMessages[index];
+        final isUser = message.role == 'user';
+        final content = stripMarkdownMarkers(message.content);
+        if (!isUser) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: Text(
+              content,
+              style: TextStyle(
+                fontSize: 14.5,
+                fontWeight: FontWeight.w400,
+                height: 1.72,
+                color: palette.textPrimary,
+              ),
+            ),
+          );
+        }
+        return Align(
+          alignment: Alignment.centerRight,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 14, left: 42),
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+            decoration: BoxDecoration(
+              color: primary.withAlpha(20),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Text(
+              content,
+              style: TextStyle(
+                fontSize: 13.5,
+                height: 1.55,
+                color: palette.textPrimary,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildError(String error, AppPalette palette, Color primary) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.info_outline_rounded, size: 25, color: primary),
+            const SizedBox(height: 10),
+            Text(
+              error,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13.5,
+                height: 1.55,
+                color: palette.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextButton(onPressed: _retry, child: const Text('再试一次')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompletedActions(
+    AiProvider ai,
+    AppPalette palette,
+    Color primary,
+  ) {
+    final reader = context.read<ReaderProvider>();
+    final book = reader.book;
+    final canPublish =
+        book != null &&
+        BookService.isMingtaiShelfBook(book) &&
+        ai.error == null;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 7, 10, 10),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(color: Colors.white.withAlpha(120), width: 0.5),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _followUpController,
+              decoration: InputDecoration(
+                hintText: '继续问一句…',
+                filled: true,
+                fillColor: Colors.white.withAlpha(88),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 13,
+                  vertical: 9,
+                ),
+                isDense: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              style: const TextStyle(fontSize: 13.5),
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) => _sendFollowUp(),
+            ),
+          ),
+          IconButton(
+            tooltip: '发送',
+            onPressed: _sendFollowUp,
+            visualDensity: VisualDensity.compact,
+            icon: Icon(Icons.arrow_upward_rounded, size: 20, color: primary),
+          ),
+          if (canPublish)
+            PopupMenuButton<String>(
+              tooltip: '更多',
+              icon: Icon(
+                Icons.more_horiz_rounded,
+                size: 20,
+                color: palette.textSecondary,
+              ),
+              onSelected: (value) {
+                if (value == 'publish') _publishExplanation();
+              },
+              itemBuilder: (_) => [
+                PopupMenuItem<String>(
+                  value: 'publish',
+                  enabled: !_publishing && !_published,
+                  child: Row(
+                    children: [
+                      Icon(
+                        _published
+                            ? Icons.check_circle_outline_rounded
+                            : Icons.public_outlined,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 9),
+                      Text(
+                        _published
+                            ? '已公开到明台'
+                            : _publishing
+                            ? '正在公开…'
+                            : '公开到明台',
                       ),
                     ],
                   ),
                 ),
               ],
             ),
-          ),
-        ),
+        ],
       ),
     );
+  }
+
+  void _scheduleAutoScroll() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      final position = _scrollController.position;
+      if (position.maxScrollExtent - position.pixels > 96) return;
+      _scrollController.animateTo(
+        position.maxScrollExtent,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+      );
+    });
   }
 
   @override
@@ -458,55 +539,63 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
   }
 }
 
-class _LoadingBubble extends StatelessWidget {
+class _ReadingStatus extends StatelessWidget {
   final String text;
-  final VoidCallback onCancel;
+  final Color color;
+  final Color accent;
 
-  const _LoadingBubble({required this.text, required this.onCancel});
+  const _ReadingStatus({
+    required this.text,
+    required this.color,
+    required this.accent,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.appPalette;
-    final primary = Theme.of(context).colorScheme.primary;
-
     return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.all(12),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.82,
-        ),
-        decoration: BoxDecoration(
-          color: Colors.white.withAlpha(112),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(strokeWidth: 2, color: primary),
+      alignment: Alignment.topLeft,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+        child: _InlineThinking(text: text, color: color, accent: accent),
+      ),
+    );
+  }
+}
+
+class _InlineThinking extends StatelessWidget {
+  final String text;
+  final Color color;
+  final Color accent;
+
+  const _InlineThinking({
+    required this.text,
+    required this.color,
+    required this.accent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 13,
+            height: 13,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.7,
+              color: accent.withAlpha(170),
             ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                text,
-                style: TextStyle(fontSize: 13, color: palette.textSecondary),
-              ),
+          ),
+          const SizedBox(width: 9),
+          Flexible(
+            child: Text(
+              text,
+              style: TextStyle(fontSize: 13, height: 1.5, color: color),
             ),
-            const SizedBox(width: 8),
-            TextButton(
-              onPressed: onCancel,
-              style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: const Text('取消'),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

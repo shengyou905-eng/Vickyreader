@@ -127,7 +127,14 @@ class ReaderDocumentHtml {
     font-style: italic;
   }
   ::selection { background-color: rgba(179, 157, 219, 0.35); }
+  ::highlight(ai-reader-selection) { background-color: rgba(137, 207, 240, 0.34); }
   .ai-reader-highlight { border-radius: 2px; }
+  .ai-reader-active-selection {
+    background-color: rgba(137, 207, 240, 0.34);
+    border-radius: 3px;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
   .chapter-section-title {
     font-size: calc(var(--font-size) + 2px);
     font-weight: bold;
@@ -150,6 +157,8 @@ class ReaderDocumentHtml {
       var s = document.getElementById('readSurface');
       var _currentCh = 0; // 0 = current chapter, 1+ = next-chapter offset
       var _selectionActive = false;
+      var _activeAiSelectionMark = null;
+      var _aiInteractionLocked = false;
       var _suppressClickUntil = 0;
       function isHorizontal() {
         return s && s.getAttribute('data-paging') === 'horizontal';
@@ -184,7 +193,7 @@ class ReaderDocumentHtml {
       }
       var _boundaryUntil = 0;
       function requestBoundary(direction) {
-        if (!s || hasSelection() || _selectionActive) return;
+        if (!s || _aiInteractionLocked || hasSelection() || _selectionActive) return;
         var now = Date.now();
         if (now < _boundaryUntil) return;
         _boundaryUntil = now + 520;
@@ -192,7 +201,7 @@ class ReaderDocumentHtml {
         FlutterBridge.postMessage('BOUNDARY|' + direction);
       }
       function scrollPage(direction) {
-        if (!s || !isHorizontal() || hasSelection() || _selectionActive) return;
+        if (!s || _aiInteractionLocked || !isHorizontal() || hasSelection() || _selectionActive) return;
         scrollOnePageFrom(s.scrollLeft, direction);
       }
       function scrollOnePageFrom(startScroll, direction) {
@@ -263,6 +272,7 @@ class ReaderDocumentHtml {
       }, { passive: true });
 
       document.addEventListener('click', function(e) {
+        if (_aiInteractionLocked) return;
         var a = e.target && e.target.closest ? e.target.closest('a') : null;
         if (a) {
           e.preventDefault();
@@ -300,7 +310,7 @@ class ReaderDocumentHtml {
 
         s.addEventListener('touchmove', function(e) {
           if (!isHorizontal() || !e.touches || !e.touches.length) return;
-          if (hasSelection() || _selectionActive) return;
+          if (_aiInteractionLocked || hasSelection() || _selectionActive) return;
           var dx = e.touches[0].clientX - _touchStartX;
           var dy = e.touches[0].clientY - _touchStartY;
           if (_horizontalTouch || (Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(dy) * 1.15)) {
@@ -311,7 +321,7 @@ class ReaderDocumentHtml {
 
         s.addEventListener('touchend', function(e) {
           if (!e.changedTouches || !e.changedTouches.length) return;
-          if (hasSelection() || _selectionActive) return;
+          if (_aiInteractionLocked || hasSelection() || _selectionActive) return;
           if (_swipeHandled) return;
           var dx = e.changedTouches[0].clientX - _touchStartX;
           var dy = e.changedTouches[0].clientY - _touchStartY;
@@ -338,7 +348,7 @@ class ReaderDocumentHtml {
         }, { passive: false });
 
         s.addEventListener('wheel', function(e) {
-          if (hasSelection() || _selectionActive) return;
+          if (_aiInteractionLocked || hasSelection() || _selectionActive) return;
           if (isHorizontal()) return;
           if (Math.abs(e.deltaY) < 72) return;
           if (e.deltaY < 0 && atStart(8)) {
@@ -351,6 +361,7 @@ class ReaderDocumentHtml {
 
       var t;
       document.addEventListener('selectionchange', function() {
+        if (_aiInteractionLocked) return;
         clearTimeout(t);
         t = setTimeout(function() {
           var sel = window.getSelection();
@@ -434,10 +445,53 @@ class ReaderDocumentHtml {
         _selectionActive = false;
       };
 
+      function releaseAiSelection() {
+        if (window.CSS && CSS.highlights) {
+          CSS.highlights.delete('ai-reader-selection');
+        }
+        var mark = _activeAiSelectionMark;
+        if (mark && mark.parentNode) {
+          var parent = mark.parentNode;
+          while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+          parent.removeChild(mark);
+          parent.normalize();
+        }
+        _activeAiSelectionMark = null;
+        _aiInteractionLocked = false;
+      }
+
+      window.freezeSelectionForAi = function() {
+        var sel = window.getSelection();
+        if (!sel || !sel.rangeCount || !sel.toString().trim()) return false;
+        releaseAiSelection();
+        var range = sel.getRangeAt(0).cloneRange();
+        if (window.CSS && CSS.highlights && typeof Highlight !== 'undefined') {
+          CSS.highlights.set('ai-reader-selection', new Highlight(range));
+        } else {
+          var mark = document.createElement('span');
+          mark.className = 'ai-reader-active-selection';
+          try {
+            var fragment = range.extractContents();
+            mark.appendChild(fragment);
+            range.insertNode(mark);
+            _activeAiSelectionMark = mark;
+          } catch (e) {}
+        }
+        sel.removeAllRanges();
+        _selectionActive = false;
+        _aiInteractionLocked = true;
+        return true;
+      };
+
+      window.releaseAiSelection = function() {
+        releaseAiSelection();
+      };
+
       window.clearSelection = function() {
         var sel = window.getSelection();
         if (sel) sel.removeAllRanges();
         _selectionActive = false;
+        releaseAiSelection();
       };
 
       document.body.addEventListener('error', function(e) {
