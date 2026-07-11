@@ -158,14 +158,28 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
     }
   }
 
-  void _openBookById(String bookId, {MingtaiPublicBook? initialBook}) {
+  Future<void> _openBookById(
+    String bookId, {
+    MingtaiPublicBook? initialBook,
+  }) async {
     if (bookId.isEmpty) return;
-    Navigator.of(context).push(
+    final deletedBookId = await Navigator.of(context).push<String>(
       MaterialPageRoute(
         builder: (_) => MingtaiBookDetailScreen(
           bookId: bookId,
           initialBook: initialBook ?? _findBook(bookId),
         ),
+      ),
+    );
+    if (deletedBookId != null && mounted) {
+      await _load(forceRefresh: true);
+    }
+  }
+
+  void _openFullShelf(List<MingtaiPublicBook> books) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MingtaiShelfScreen(initialBooks: books),
       ),
     );
   }
@@ -203,6 +217,7 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
   MingtaiPublicBook _bookFromTrace(MingtaiFeedItem item) {
     return MingtaiPublicBook(
       id: item.bookId,
+      uploaderUserId: '',
       sourceBookId: '',
       title: item.bookTitle,
       author: item.bookAuthor,
@@ -233,6 +248,7 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
   MingtaiPublicBook _bookFromMoment(MingtaiPageMoment moment) {
     return MingtaiPublicBook(
       id: moment.publicBookId,
+      uploaderUserId: '',
       sourceBookId: '',
       title: moment.bookTitle,
       author: moment.bookAuthor,
@@ -486,9 +502,10 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
                           ),
                           if (shelfBooks.isNotEmpty)
                             _MingtaiShelfSection(
-                              books: shelfBooks,
+                              books: shelfBooks.take(6).toList(),
                               onBookTap: (book) =>
                                   _openBookById(book.id, initialBook: book),
+                              onViewAll: () => _openFullShelf(shelfBooks),
                             ),
                           const SizedBox(height: 12),
                           const _QuietHint(),
@@ -499,6 +516,191 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
                 ),
               ],
             ),
+    );
+  }
+}
+
+class MingtaiShelfScreen extends StatefulWidget {
+  final List<MingtaiPublicBook> initialBooks;
+
+  const MingtaiShelfScreen({super.key, this.initialBooks = const []});
+
+  @override
+  State<MingtaiShelfScreen> createState() => _MingtaiShelfScreenState();
+}
+
+class _MingtaiShelfScreenState extends State<MingtaiShelfScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  List<MingtaiPublicBook> _books = const [];
+  bool _loading = true;
+  String _query = '';
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _books = _readableUnique(widget.initialBooks);
+    _loading = _books.isEmpty;
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load({bool forceRefresh = false}) async {
+    if (_books.isEmpty) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+    try {
+      final books = await BookService.getMingtaiBooks(
+        limit: 100,
+        forceRefresh: forceRefresh,
+      );
+      if (!mounted) return;
+      setState(() {
+        _books = _readableUnique(books);
+        _loading = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        if (_books.isEmpty) _error = e.toString();
+      });
+    }
+  }
+
+  List<MingtaiPublicBook> _readableUnique(Iterable<MingtaiPublicBook> source) {
+    final seen = <String>{};
+    return source
+        .where(
+          (book) =>
+              book.id.isNotEmpty &&
+              seen.add(book.id) &&
+              BookService.canReadMingtaiBook(book),
+        )
+        .toList();
+  }
+
+  List<MingtaiPublicBook> get _visibleBooks {
+    final query = _query.trim().toLowerCase();
+    if (query.isEmpty) return _books;
+    return _books.where((book) {
+      return book.title.toLowerCase().contains(query) ||
+          book.author.toLowerCase().contains(query);
+    }).toList();
+  }
+
+  Future<void> _openBook(MingtaiPublicBook book) async {
+    final deletedBookId = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) =>
+            MingtaiBookDetailScreen(bookId: book.id, initialBook: book),
+      ),
+    );
+    if (deletedBookId != null && mounted) {
+      setState(() {
+        _books = _books.where((item) => item.id != deletedBookId).toList();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    final books = _visibleBooks;
+    return Scaffold(
+      appBar: AppBar(title: const Text('明台书架')),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (value) => setState(() => _query = value),
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: '找一本书或作者',
+                prefixIcon: const Icon(Icons.search, size: 20),
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: '清空搜索',
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _query = '');
+                        },
+                        icon: const Icon(Icons.close, size: 18),
+                      ),
+                filled: true,
+                fillColor: palette.card.withAlpha(220),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                ? ListView(
+                    padding: const EdgeInsets.all(18),
+                    children: [
+                      _QuietError(
+                        message: _error!,
+                        onRetry: () => _load(forceRefresh: true),
+                      ),
+                    ],
+                  )
+                : RefreshIndicator(
+                    onRefresh: () => _load(forceRefresh: true),
+                    child: books.isEmpty
+                        ? ListView(
+                            padding: const EdgeInsets.fromLTRB(28, 100, 28, 40),
+                            children: [
+                              Text(
+                                _books.isEmpty
+                                    ? '明台书架暂时还没有可阅读的书。'
+                                    : '没有找到相关书籍。',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: palette.textSecondary,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          )
+                        : GridView.builder(
+                            padding: const EdgeInsets.fromLTRB(18, 4, 18, 32),
+                            itemCount: books.length,
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 2,
+                                  crossAxisSpacing: 14,
+                                  mainAxisSpacing: 14,
+                                  childAspectRatio: 0.58,
+                                ),
+                            itemBuilder: (_, index) {
+                              final book = books[index];
+                              return _MingtaiShelfBookCard(
+                                book: book,
+                                onTap: () => _openBook(book),
+                              );
+                            },
+                          ),
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -698,18 +900,20 @@ class _MingtaiProfileScreenState extends State<MingtaiProfileScreen> {
     }
   }
 
-  void _openBook(MingtaiPublicBook book) {
-    Navigator.of(context).push(
+  Future<void> _openBook(MingtaiPublicBook book) async {
+    final deletedBookId = await Navigator.of(context).push<String>(
       MaterialPageRoute(
         builder: (_) =>
             MingtaiBookDetailScreen(bookId: book.id, initialBook: book),
       ),
     );
+    if (deletedBookId != null && mounted) await _load();
   }
 
   MingtaiPublicBook _bookFromAnnotation(MingtaiFeedItem item) {
     return MingtaiPublicBook(
       id: item.bookId,
+      uploaderUserId: '',
       sourceBookId: '',
       title: item.bookTitle,
       author: item.bookAuthor,
@@ -1524,11 +1728,17 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
   bool _startingReading = false;
   bool _borrowing = false;
   bool _submittingReview = false;
+  bool _deletingBook = false;
   String? _error;
 
   @override
   void initState() {
     super.initState();
+    unawaited(
+      AuthService.init().then((_) {
+        if (mounted) setState(() {});
+      }),
+    );
     final initialBook = widget.initialBook;
     if (initialBook != null) {
       _detail = MingtaiBookDetail(book: initialBook, annotations: const []);
@@ -1593,6 +1803,51 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => MingtaiProfileScreen(userId: userId)),
     );
+  }
+
+  bool get _canDeleteCurrentBook {
+    final uploaderUserId = _detail?.book.uploaderUserId.trim() ?? '';
+    final currentUserId = AuthService.userId?.trim() ?? '';
+    return uploaderUserId.isNotEmpty &&
+        currentUserId.isNotEmpty &&
+        uploaderUserId == currentUserId;
+  }
+
+  Future<void> _deleteCurrentBook() async {
+    final book = _detail?.book;
+    if (book == null || _deletingBook || !_canDeleteCurrentBook) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('从明台删除这本书？'),
+        content: Text(
+          '《${book.title}》的公共文件、章节缓存、公开痕迹和短评都会一并删除。\n\n你本地书架里的原始书籍不会受到影响。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('确认删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _deletingBook = true);
+    try {
+      await BookService.deleteMyMingtaiBook(book.id);
+      if (!mounted) return;
+      Navigator.of(context).pop<String>(book.id);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _deletingBook = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('删除失败：$e')));
+    }
   }
 
   Future<void> _showReviewDialog() async {
@@ -1776,7 +2031,31 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
         ? const <MingtaiFeedItem>[]
         : _recentTraces(detail);
     return Scaffold(
-      appBar: AppBar(title: const Text('明台')),
+      appBar: AppBar(
+        title: const Text('明台'),
+        actions: [
+          if (_canDeleteCurrentBook)
+            PopupMenuButton<String>(
+              enabled: !_deletingBook,
+              tooltip: '管理这本书',
+              onSelected: (value) {
+                if (value == 'delete') _deleteCurrentBook();
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_outline, size: 19),
+                      SizedBox(width: 10),
+                      Text('删除我上传的书'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
       bottomNavigationBar: detail == null || _error != null
           ? null
           : Container(
@@ -2519,15 +2798,21 @@ class _ThoughtPreviewCard extends StatelessWidget {
 class _MingtaiShelfSection extends StatelessWidget {
   final List<MingtaiPublicBook> books;
   final ValueChanged<MingtaiPublicBook> onBookTap;
+  final VoidCallback onViewAll;
 
-  const _MingtaiShelfSection({required this.books, required this.onBookTap});
+  const _MingtaiShelfSection({
+    required this.books,
+    required this.onBookTap,
+    required this.onViewAll,
+  });
 
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
     return _MingtaiSection(
       title: '✦ 明台书架',
-      subtitle: '所有已经公开、可以阅读的书都在这里',
+      subtitle: '从最近来到明台的书中慢慢翻看',
+      action: TextButton(onPressed: onViewAll, child: const Text('查看全部')),
       children: [
         if (books.isEmpty)
           Text(
@@ -2710,11 +2995,13 @@ class _MingtaiSection extends StatelessWidget {
   final String title;
   final String subtitle;
   final List<Widget> children;
+  final Widget? action;
 
   const _MingtaiSection({
     required this.title,
     required this.subtitle,
     required this.children,
+    this.action,
   });
 
   @override
@@ -2725,7 +3012,12 @@ class _MingtaiSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SectionTitle(title: title),
+          Row(
+            children: [
+              Expanded(child: _SectionTitle(title: title)),
+              action ?? const SizedBox.shrink(),
+            ],
+          ),
           const SizedBox(height: 4),
           Text(
             subtitle,

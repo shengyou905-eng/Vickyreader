@@ -2171,6 +2171,24 @@ async function deletePublishedBooks(userId) {
   }));
 }
 
+async function deletePublishedBook(userId, publicBookId) {
+  const result = await query(
+    `DELETE FROM public_books
+     WHERE id = $2
+       AND COALESCE(uploader_user_id, publisher_user_id) = $1
+     RETURNING id, storage_path, cover_url`,
+    [userId, publicBookId],
+  );
+
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    storage_path: row.storage_path || '',
+    cover_url: row.cover_url || '',
+  };
+}
+
 module.exports = {
   publishBook,
   publishEntries,
@@ -2202,5 +2220,6 @@ module.exports = {
   countUnreadNotifications,
   markNotificationRead,
   markAllNotificationsRead,
+  deletePublishedBook,
   deletePublishedBooks,
 };

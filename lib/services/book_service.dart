@@ -175,6 +175,7 @@ class XiaouHomeInsight {
 
 class MingtaiPublicBook {
   final String id;
+  final String uploaderUserId;
   final String sourceBookId;
   final String title;
   final String author;
@@ -202,6 +203,7 @@ class MingtaiPublicBook {
 
   const MingtaiPublicBook({
     required this.id,
+    required this.uploaderUserId,
     required this.sourceBookId,
     required this.title,
     required this.author,
@@ -235,6 +237,10 @@ class MingtaiPublicBook {
     final originalFileUrl = (row['original_file_url']?.toString() ?? '').trim();
     return MingtaiPublicBook(
       id: row['id']?.toString() ?? '',
+      uploaderUserId:
+          row['uploader_user_id']?.toString() ??
+          row['publisher_user_id']?.toString() ??
+          '',
       sourceBookId: row['source_book_id']?.toString() ?? '',
       title: title,
       author: author,
@@ -1623,6 +1629,11 @@ class BookService {
     final data = await BmobApi.instance.deleteMyMingtaiBooks();
     await clearMingtaiHomeCache();
     return int.tryParse(data['deleted_count']?.toString() ?? '') ?? 0;
+  }
+
+  static Future<void> deleteMyMingtaiBook(String bookId) async {
+    await BmobApi.instance.deleteMyMingtaiBook(bookId);
+    await clearMingtaiHomeCache();
   }
 
   static Future<MingtaiHomeData?> restoreCachedMingtaiHome() async {

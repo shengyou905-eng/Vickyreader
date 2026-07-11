@@ -556,6 +556,26 @@ async function recordBookRead(req, res, next) {
   }
 }
 
+async function deleteMyBook(req, res, next) {
+  try {
+    assertUuid(req.params.id, 'book id');
+    const deletedBook = await mingtaiRepository.deletePublishedBook(
+      req.user.id,
+      req.params.id,
+    );
+    if (!deletedBook) {
+      throw httpError(404, 'Book not found or you are not its uploader');
+    }
+    await deletePublicBookFile(deletedBook.storage_path);
+    await deletePublicBookFile(
+      storagePathFromPublicUrl(deletedBook.cover_url),
+    );
+    return res.json({ deleted: true, book_id: deletedBook.id });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function getMyProfile(req, res, next) {
   try {
     await mingtaiRepository.getMyProfile(req.user.id);
@@ -897,6 +917,7 @@ module.exports = {
   getHome,
   getBook,
   deleteMyBooks,
+  deleteMyBook,
   borrowBook,
   recordBookRead,
   getMyProfile,

@@ -481,6 +481,25 @@ class BmobApi {
     throw Exception('清理明台书籍失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
+  Future<void> deleteMyMingtaiBook(String bookId) async {
+    await init();
+    final res = await http
+        .delete(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId'),
+          headers: _authHeaders(),
+        )
+        .timeout(_mingtaiTimeout);
+
+    if (res.statusCode == 200) return;
+    if (res.statusCode == 401) {
+      throw Exception('登录已过期，请重新登录');
+    }
+    if (res.statusCode == 404) {
+      throw Exception('没有找到这本书，或你不是这本书的上传者');
+    }
+    throw Exception('删除明台书籍失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
   void _assertPublishedBookReadable(Map<String, dynamic> data) {
     final rawBook = data['book'];
     final book = rawBook is Map ? Map<String, dynamic>.from(rawBook) : data;

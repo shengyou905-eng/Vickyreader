@@ -42,6 +42,7 @@ router.patch(
 );
 router.post('/books', auth, publicBookUpload, mingtaiController.publishBook);
 router.delete('/books', auth, mingtaiController.deleteMyBooks);
+router.delete('/books/:id', auth, mingtaiController.deleteMyBook);
 router.patch('/reviews/:id', auth, mingtaiController.updateBookReview);
 router.delete('/reviews/:id', auth, mingtaiController.deleteBookReview);
 router.get('/reviews/:id/comments', mingtaiController.listBookReviewComments);
