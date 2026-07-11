@@ -626,26 +626,160 @@ class BmobApi {
   Future<Map<String, dynamic>> createMingtaiBookReview({
     required String bookId,
     required String content,
+    required String clientRequestId,
   }) async {
     late final http.Response res;
     try {
-      res = await http
-          .post(
-            Uri.parse(
-              '${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/reviews',
-            ),
-            headers: _authHeaders(),
-            body: jsonEncode({'content': content}),
-          )
-          .timeout(_mingtaiTimeout);
+      res = await _postAuthorizedJsonWithRetry(
+        Uri.parse(
+          '${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/reviews',
+        ),
+        {'content': content, 'client_request_id': clientRequestId},
+      );
     } on TimeoutException {
       throw Exception('发布短评超时，请稍后重试');
+    } on SocketException catch (e) {
+      throw Exception(_friendlyError(e));
+    } on http.ClientException catch (e) {
+      throw Exception(_friendlyError(e));
     }
 
     if (res.statusCode == 201) {
       return jsonDecode(res.body) as Map<String, dynamic>;
     }
     throw Exception('发布短评失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<List<Map<String, dynamic>>> listMingtaiComments({
+    required String targetType,
+    required String targetId,
+  }) async {
+    final segment = targetType == 'review' ? 'reviews' : 'annotations';
+    final res = await http
+        .get(
+          Uri.parse(
+            '${AppConstants.apiBaseUrl}/api/mingtai/$segment/$targetId/comments',
+          ),
+          headers: _authHeaders(),
+        )
+        .timeout(_mingtaiTimeout);
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return List<Map<String, dynamic>>.from(data['comments'] ?? []);
+    }
+    throw Exception('读取回应失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>> createMingtaiComment({
+    required String targetType,
+    required String targetId,
+    required String content,
+  }) async {
+    final segment = targetType == 'review' ? 'reviews' : 'annotations';
+    late final http.Response res;
+    try {
+      res = await _postAuthorizedJsonWithRetry(
+        Uri.parse(
+          '${AppConstants.apiBaseUrl}/api/mingtai/$segment/$targetId/comments',
+        ),
+        {'content': content},
+        retries: 0,
+      );
+    } on TimeoutException catch (e) {
+      throw Exception(_friendlyError(e));
+    } on SocketException catch (e) {
+      throw Exception(_friendlyError(e));
+    } on http.ClientException catch (e) {
+      throw Exception(_friendlyError(e));
+    }
+    if (res.statusCode == 201) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    throw Exception('发送回应失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>> createMingtaiTargetResonance({
+    required String targetType,
+    required String targetId,
+  }) async {
+    final segment = targetType == 'review' ? 'reviews' : 'annotations';
+    late final http.Response res;
+    try {
+      res = await _postAuthorizedJsonWithRetry(
+        Uri.parse(
+          '${AppConstants.apiBaseUrl}/api/mingtai/$segment/$targetId/resonance',
+        ),
+        const {},
+        retries: 0,
+      );
+    } on TimeoutException catch (e) {
+      throw Exception(_friendlyError(e));
+    } on SocketException catch (e) {
+      throw Exception(_friendlyError(e));
+    } on http.ClientException catch (e) {
+      throw Exception(_friendlyError(e));
+    }
+    if (res.statusCode == 201) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    throw Exception('发送共鸣失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>> listMingtaiNotifications() async {
+    final res = await http
+        .get(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/notifications'),
+          headers: _authHeaders(),
+        )
+        .timeout(_mingtaiTimeout);
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    throw Exception('读取回声失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<int> getMingtaiUnreadNotificationCount() async {
+    final res = await http
+        .get(
+          Uri.parse(
+            '${AppConstants.apiBaseUrl}/api/mingtai/notifications/unread-count',
+          ),
+          headers: _authHeaders(),
+        )
+        .timeout(_mingtaiTimeout);
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return int.tryParse(data['unread_count']?.toString() ?? '') ?? 0;
+    }
+    return 0;
+  }
+
+  Future<void> markMingtaiNotificationRead(String notificationId) async {
+    final res = await http
+        .patch(
+          Uri.parse(
+            '${AppConstants.apiBaseUrl}/api/mingtai/notifications/$notificationId/read',
+          ),
+          headers: _authHeaders(),
+        )
+        .timeout(_mingtaiTimeout);
+    if (res.statusCode != 200) {
+      throw Exception('更新回声失败 (HTTP ${res.statusCode}): ${res.body}');
+    }
+  }
+
+  Future<void> markAllMingtaiNotificationsRead() async {
+    final res = await http
+        .patch(
+          Uri.parse(
+            '${AppConstants.apiBaseUrl}/api/mingtai/notifications/read-all',
+          ),
+          headers: _authHeaders(),
+        )
+        .timeout(_mingtaiTimeout);
+    if (res.statusCode != 200) {
+      throw Exception('更新回声失败 (HTTP ${res.statusCode}): ${res.body}');
+    }
   }
 
   Future<Map<String, dynamic>> updateMingtaiBookReview({
@@ -1108,6 +1242,46 @@ class BmobApi {
       }
     }
 
+    throw lastError ?? Exception('请求失败');
+  }
+
+  Future<http.Response> _postAuthorizedJsonWithRetry(
+    Uri uri,
+    Map<String, dynamic> body, {
+    int retries = 1,
+  }) async {
+    Object? lastError;
+    for (var attempt = 0; attempt <= retries; attempt += 1) {
+      try {
+        final res = await http
+            .post(
+              uri,
+              headers: {
+                ..._authHeaders(),
+                'Accept': 'application/json',
+                'Connection': 'close',
+              },
+              body: jsonEncode(body),
+            )
+            .timeout(_mingtaiTimeout);
+        if (res.statusCode >= 500 && attempt < retries) {
+          await Future<void>.delayed(
+            Duration(milliseconds: 500 * (attempt + 1)),
+          );
+          continue;
+        }
+        return res;
+      } on TimeoutException catch (e) {
+        lastError = e;
+      } on SocketException catch (e) {
+        lastError = e;
+      } on http.ClientException catch (e) {
+        lastError = e;
+      }
+      if (attempt < retries) {
+        await Future<void>.delayed(Duration(milliseconds: 500 * (attempt + 1)));
+      }
+    }
     throw lastError ?? Exception('请求失败');
   }
 

@@ -647,16 +647,67 @@ async function createBookReview(req, res, next) {
   try {
     assertUuid(req.params.id, 'book id');
     const content = String(req.body?.content || '').trim();
+    const clientRequestId = String(req.body?.client_request_id || '').trim();
     if (!isMeaningfulPublicText(content, { minLength: 10 })) {
       throw httpError(400, '短评至少需要 10 个字，并且不能是测试或无意义内容');
+    }
+    if (clientRequestId.length > 120) {
+      throw httpError(400, 'client_request_id is too long');
     }
     const review = await mingtaiRepository.createBookReview(
       req.user.id,
       req.params.id,
       content,
+      clientRequestId || null,
     );
     if (!review) throw httpError(404, 'Public book not found');
     return res.status(201).json({ review });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function listBookReviewComments(req, res, next) {
+  try {
+    assertUuid(req.params.id, 'review id');
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit || 50)));
+    const comments = await mingtaiRepository.listBookReviewComments(
+      req.params.id,
+      { limit },
+    );
+    return res.json({ comments });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function createBookReviewComment(req, res, next) {
+  try {
+    assertUuid(req.params.id, 'review id');
+    const content = String(req.body?.content || '').trim();
+    if (!content) throw httpError(400, 'content is required');
+    if (content.length > 1000) throw httpError(400, 'content is too long');
+    const comment = await mingtaiRepository.createBookReviewComment(
+      req.user.id,
+      req.params.id,
+      content,
+    );
+    if (!comment) throw httpError(404, 'Review not found');
+    return res.status(201).json({ comment });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function createBookReviewResonance(req, res, next) {
+  try {
+    assertUuid(req.params.id, 'review id');
+    const resonance = await mingtaiRepository.createBookReviewResonance(
+      req.user.id,
+      req.params.id,
+    );
+    if (!resonance) throw httpError(404, 'Review not found');
+    return res.status(201).json({ resonance });
   } catch (error) {
     return next(error);
   }
@@ -753,6 +804,20 @@ async function createAnnotationComment(req, res, next) {
   }
 }
 
+async function listAnnotationComments(req, res, next) {
+  try {
+    assertUuid(req.params.id, 'annotation id');
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit || 50)));
+    const comments = await mingtaiRepository.listAnnotationComments(
+      req.params.id,
+      { limit },
+    );
+    return res.json({ comments });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function createResonance(req, res, next) {
   try {
     assertUuid(req.params.id, 'annotation id');
@@ -768,6 +833,55 @@ async function createResonance(req, res, next) {
     );
     if (!resonance) throw httpError(404, 'Annotation not found');
     return res.status(201).json({ resonance });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function listNotifications(req, res, next) {
+  try {
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit || 50)));
+    const [notifications, unreadCount] = await Promise.all([
+      mingtaiRepository.listNotifications(req.user.id, { limit }),
+      mingtaiRepository.countUnreadNotifications(req.user.id),
+    ]);
+    return res.json({ notifications, unread_count: unreadCount });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getUnreadNotificationCount(req, res, next) {
+  try {
+    const unreadCount = await mingtaiRepository.countUnreadNotifications(
+      req.user.id,
+    );
+    return res.json({ unread_count: unreadCount });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function markNotificationRead(req, res, next) {
+  try {
+    assertUuid(req.params.id, 'notification id');
+    const updated = await mingtaiRepository.markNotificationRead(
+      req.user.id,
+      req.params.id,
+    );
+    if (!updated) throw httpError(404, 'Notification not found');
+    return res.json({ read: true });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function markAllNotificationsRead(req, res, next) {
+  try {
+    const updated = await mingtaiRepository.markAllNotificationsRead(
+      req.user.id,
+    );
+    return res.json({ read: true, updated });
   } catch (error) {
     return next(error);
   }
@@ -793,7 +907,15 @@ module.exports = {
   createBookReview,
   updateBookReview,
   deleteBookReview,
+  listBookReviewComments,
+  createBookReviewComment,
+  createBookReviewResonance,
   createBookAnnotation,
+  listAnnotationComments,
   createAnnotationComment,
   createResonance,
+  listNotifications,
+  getUnreadNotificationCount,
+  markNotificationRead,
+  markAllNotificationsRead,
 };

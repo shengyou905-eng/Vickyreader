@@ -446,16 +446,77 @@ CREATE TABLE IF NOT EXISTS book_reviews (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   public_book_id UUID NOT NULL REFERENCES public_books(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  client_request_id TEXT,
   content TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE book_reviews
+  ADD COLUMN IF NOT EXISTS client_request_id TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_book_reviews_book_created
   ON book_reviews(public_book_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_book_reviews_user_created
   ON book_reviews(user_id, created_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_book_reviews_client_request
+  ON book_reviews(user_id, client_request_id)
+  WHERE client_request_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS book_review_comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  review_id UUID NOT NULL REFERENCES book_reviews(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_book_review_comments_review
+  ON book_review_comments(review_id, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS book_review_resonances (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  review_id UUID NOT NULL REFERENCES book_reviews(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(review_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_book_review_resonances_review
+  ON book_review_resonances(review_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  recipient_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  actor_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  event_type TEXT NOT NULL CHECK (
+    event_type IN (
+      'annotation_comment',
+      'annotation_resonance',
+      'review_comment',
+      'review_resonance'
+    )
+  ),
+  target_type TEXT NOT NULL CHECK (target_type IN ('annotation', 'review')),
+  target_id UUID NOT NULL,
+  public_book_id UUID REFERENCES public_books(id) ON DELETE CASCADE,
+  preview TEXT NOT NULL DEFAULT '',
+  read_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_recipient_created
+  ON notifications(recipient_user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_recipient_unread
+  ON notifications(recipient_user_id, created_at DESC)
+  WHERE read_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_unique_resonance
+  ON notifications(recipient_user_id, actor_user_id, event_type, target_id)
+  WHERE event_type IN ('annotation_resonance', 'review_resonance');
 
 CREATE TABLE IF NOT EXISTS reading_personality_profiles (
   user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

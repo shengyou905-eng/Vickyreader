@@ -3,6 +3,7 @@ import '../../../config/theme.dart';
 import '../../../services/book_service.dart';
 
 class XiaouCard extends StatefulWidget {
+  final String source;
   final String originalText;
   final String? userNote;
   final String? aiTags;
@@ -14,6 +15,7 @@ class XiaouCard extends StatefulWidget {
 
   const XiaouCard({
     super.key,
+    required this.source,
     required this.originalText,
     this.userNote,
     this.aiTags,
@@ -48,6 +50,25 @@ class _XiaouCardState extends State<XiaouCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Row(
+              children: [
+                Icon(
+                  _sourceIcon(widget.source),
+                  size: 14,
+                  color: AppTheme.textSecondary,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _sourceLabel(widget.source),
+                  style: const TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
@@ -209,6 +230,24 @@ class _XiaouCardState extends State<XiaouCard> {
         ),
       ),
     );
+  }
+
+  String _sourceLabel(String source) {
+    return switch (source) {
+      'thought' || 'manual' => '想法',
+      'highlight' => '划线',
+      'ai_explanation' => '小U解读',
+      _ => '阅读痕迹',
+    };
+  }
+
+  IconData _sourceIcon(String source) {
+    return switch (source) {
+      'thought' || 'manual' => Icons.edit_note_outlined,
+      'highlight' => Icons.format_quote_outlined,
+      'ai_explanation' => Icons.auto_awesome_outlined,
+      _ => Icons.menu_book_outlined,
+    };
   }
 
   bool _isExpandable(String original, String? note, String? understanding) {

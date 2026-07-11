@@ -530,6 +530,8 @@ class MingtaiBookReview {
   final String bookCover;
   final MingtaiUserProfile user;
   final String content;
+  final int resonanceCount;
+  final int commentCount;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -541,6 +543,8 @@ class MingtaiBookReview {
     required this.bookCover,
     required this.user,
     required this.content,
+    required this.resonanceCount,
+    required this.commentCount,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -556,8 +560,90 @@ class MingtaiBookReview {
         Map<String, dynamic>.from(row['user'] ?? {}),
       ),
       content: row['content']?.toString() ?? '',
+      resonanceCount:
+          int.tryParse(row['resonance_count']?.toString() ?? '') ?? 0,
+      commentCount: int.tryParse(row['comment_count']?.toString() ?? '') ?? 0,
       createdAt: BookService._tryParseDate(row['created_at']),
       updatedAt: BookService._tryParseDate(row['updated_at']),
+    );
+  }
+}
+
+class MingtaiInteractionComment {
+  final String id;
+  final String targetId;
+  final String content;
+  final MingtaiUserProfile user;
+  final DateTime? createdAt;
+
+  const MingtaiInteractionComment({
+    required this.id,
+    required this.targetId,
+    required this.content,
+    required this.user,
+    required this.createdAt,
+  });
+
+  factory MingtaiInteractionComment.fromRemote(Map<String, dynamic> row) {
+    return MingtaiInteractionComment(
+      id: row['id']?.toString() ?? '',
+      targetId: row['target_id']?.toString() ?? '',
+      content: row['content']?.toString() ?? '',
+      user: MingtaiUserProfile.fromRemote(
+        Map<String, dynamic>.from(row['user'] ?? {}),
+      ),
+      createdAt: BookService._tryParseDate(row['created_at']),
+    );
+  }
+}
+
+class MingtaiNotification {
+  final String id;
+  final String eventType;
+  final String targetType;
+  final String targetId;
+  final String publicBookId;
+  final String bookTitle;
+  final String bookAuthor;
+  final String bookCover;
+  final String preview;
+  final MingtaiUserProfile actor;
+  final DateTime? readAt;
+  final DateTime? createdAt;
+
+  const MingtaiNotification({
+    required this.id,
+    required this.eventType,
+    required this.targetType,
+    required this.targetId,
+    required this.publicBookId,
+    required this.bookTitle,
+    required this.bookAuthor,
+    required this.bookCover,
+    required this.preview,
+    required this.actor,
+    required this.readAt,
+    required this.createdAt,
+  });
+
+  bool get isRead => readAt != null;
+
+  factory MingtaiNotification.fromRemote(Map<String, dynamic> row) {
+    return MingtaiNotification(
+      id: row['id']?.toString() ?? '',
+      eventType: row['event_type']?.toString() ?? '',
+      targetType: row['target_type']?.toString() ?? '',
+      targetId: row['target_id']?.toString() ?? '',
+      publicBookId: row['public_book_id']?.toString() ?? '',
+      bookTitle: row['book_title']?.toString() ?? '',
+      bookAuthor: row['book_author']?.toString() ?? '',
+      bookCover: row['book_cover']?.toString() ?? '',
+      preview: row['preview']?.toString() ?? '',
+      actor: MingtaiUserProfile.fromRemote(
+        Map<String, dynamic>.from(row['actor'] ?? {}),
+      ),
+      readAt: BookService._tryParseDate(row['read_at']),
+      createdAt: BookService._tryParseDate(row['created_at']),
     );
   }
 }
@@ -1659,6 +1745,7 @@ class BookService {
     final data = await BmobApi.instance.createMingtaiBookReview(
       bookId: bookId,
       content: content,
+      clientRequestId: _uuid.v4(),
     );
     _mingtaiBookDetailCache.remove(bookId);
     _mingtaiBookDetailCacheAt.remove(bookId);
@@ -1693,6 +1780,62 @@ class BookService {
       _mingtaiBookDetailCache.remove(review.publicBookId);
       _mingtaiBookDetailCacheAt.remove(review.publicBookId);
     }
+  }
+
+  static Future<List<MingtaiInteractionComment>> listMingtaiComments({
+    required String targetType,
+    required String targetId,
+  }) async {
+    final rows = await BmobApi.instance.listMingtaiComments(
+      targetType: targetType,
+      targetId: targetId,
+    );
+    return rows.map(MingtaiInteractionComment.fromRemote).toList();
+  }
+
+  static Future<MingtaiInteractionComment> createMingtaiComment({
+    required String targetType,
+    required String targetId,
+    required String content,
+  }) async {
+    final data = await BmobApi.instance.createMingtaiComment(
+      targetType: targetType,
+      targetId: targetId,
+      content: content,
+    );
+    return MingtaiInteractionComment.fromRemote(
+      Map<String, dynamic>.from(data['comment'] ?? {}),
+    );
+  }
+
+  static Future<int> createMingtaiTargetResonance({
+    required String targetType,
+    required String targetId,
+  }) async {
+    final data = await BmobApi.instance.createMingtaiTargetResonance(
+      targetType: targetType,
+      targetId: targetId,
+    );
+    final payload = Map<String, dynamic>.from(data['resonance'] ?? {});
+    return int.tryParse(payload['resonance_count']?.toString() ?? '') ?? 0;
+  }
+
+  static Future<List<MingtaiNotification>> listMingtaiNotifications() async {
+    final data = await BmobApi.instance.listMingtaiNotifications();
+    final rows = MingtaiHomeData._remoteMaps(data['notifications']);
+    return rows.map(MingtaiNotification.fromRemote).toList();
+  }
+
+  static Future<int> getMingtaiUnreadNotificationCount() {
+    return BmobApi.instance.getMingtaiUnreadNotificationCount();
+  }
+
+  static Future<void> markMingtaiNotificationRead(String notificationId) {
+    return BmobApi.instance.markMingtaiNotificationRead(notificationId);
+  }
+
+  static Future<void> markAllMingtaiNotificationsRead() {
+    return BmobApi.instance.markAllMingtaiNotificationsRead();
   }
 
   static Future<MingtaiPublicProfile> getMingtaiMyProfile() async {

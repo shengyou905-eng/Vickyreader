@@ -514,6 +514,7 @@ class MingtaiProfileScreen extends StatefulWidget {
 
 class _MingtaiProfileScreenState extends State<MingtaiProfileScreen> {
   MingtaiPublicProfile? _profile;
+  int _unreadEchoCount = 0;
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -524,6 +525,21 @@ class _MingtaiProfileScreenState extends State<MingtaiProfileScreen> {
   void initState() {
     super.initState();
     _load();
+    if (_isMe) unawaited(_loadUnreadEchoCount());
+  }
+
+  Future<void> _loadUnreadEchoCount() async {
+    try {
+      final count = await BookService.getMingtaiUnreadNotificationCount();
+      if (mounted) setState(() => _unreadEchoCount = count);
+    } catch (_) {}
+  }
+
+  Future<void> _openEchoes() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const MingtaiEchoScreen()));
+    if (mounted) unawaited(_loadUnreadEchoCount());
   }
 
   Future<void> _load() async {
@@ -729,6 +745,11 @@ class _MingtaiProfileScreenState extends State<MingtaiProfileScreen> {
       appBar: AppBar(
         title: Text(_isMe ? '我的阅读档案' : '阅读档案'),
         actions: [
+          if (_isMe)
+            _EchoIconButton(
+              unreadCount: _unreadEchoCount,
+              onPressed: _openEchoes,
+            ),
           if (_isMe && profile != null)
             TextButton(
               onPressed: _saving ? null : _editProfile,
@@ -807,6 +828,286 @@ class _MingtaiProfileScreenState extends State<MingtaiProfileScreen> {
                 ),
               ],
             ),
+    );
+  }
+}
+
+class MingtaiEchoScreen extends StatefulWidget {
+  const MingtaiEchoScreen({super.key});
+
+  @override
+  State<MingtaiEchoScreen> createState() => _MingtaiEchoScreenState();
+}
+
+class _MingtaiEchoScreenState extends State<MingtaiEchoScreen> {
+  List<MingtaiNotification> _items = const [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = _items.isEmpty;
+      _error = null;
+    });
+    try {
+      final items = await BookService.listMingtaiNotifications();
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _markAllRead() async {
+    await BookService.markAllMingtaiNotificationsRead();
+    if (!mounted) return;
+    setState(() {
+      _items = _items
+          .map(
+            (item) => MingtaiNotification(
+              id: item.id,
+              eventType: item.eventType,
+              targetType: item.targetType,
+              targetId: item.targetId,
+              publicBookId: item.publicBookId,
+              bookTitle: item.bookTitle,
+              bookAuthor: item.bookAuthor,
+              bookCover: item.bookCover,
+              preview: item.preview,
+              actor: item.actor,
+              readAt: item.readAt ?? DateTime.now(),
+              createdAt: item.createdAt,
+            ),
+          )
+          .toList();
+    });
+  }
+
+  Future<void> _open(MingtaiNotification item) async {
+    if (!item.isRead) {
+      try {
+        await BookService.markMingtaiNotificationRead(item.id);
+      } catch (_) {}
+    }
+    if (!mounted || item.publicBookId.isEmpty) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MingtaiBookDetailScreen(bookId: item.publicBookId),
+      ),
+    );
+    if (mounted) unawaited(_load());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    final hasUnread = _items.any((item) => !item.isRead);
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('收到的回声'),
+        actions: [
+          if (hasUnread)
+            TextButton(onPressed: _markAllRead, child: const Text('全部读过')),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+          ? ListView(
+              padding: const EdgeInsets.all(18),
+              children: [_QuietError(message: _error!, onRetry: _load)],
+            )
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: _items.isEmpty
+                  ? ListView(
+                      padding: const EdgeInsets.fromLTRB(28, 120, 28, 40),
+                      children: [
+                        Icon(
+                          Icons.waves_outlined,
+                          size: 42,
+                          color: palette.illustration,
+                        ),
+                        const SizedBox(height: 18),
+                        Text(
+                          '还没有新的回声',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: palette.textPrimary,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '有人回应你的公开想法或短评时，会安静地留在这里。',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: palette.textSecondary,
+                            fontSize: 13,
+                            height: 1.6,
+                          ),
+                        ),
+                      ],
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(18, 14, 18, 34),
+                      itemCount: _items.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      itemBuilder: (_, index) {
+                        final item = _items[index];
+                        return _EchoCard(item: item, onTap: () => _open(item));
+                      },
+                    ),
+            ),
+    );
+  }
+}
+
+class _EchoIconButton extends StatelessWidget {
+  final int unreadCount;
+  final VoidCallback onPressed;
+
+  const _EchoIconButton({required this.unreadCount, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        IconButton(
+          tooltip: '收到的回声',
+          onPressed: onPressed,
+          icon: const Icon(Icons.waves_outlined),
+        ),
+        if (unreadCount > 0)
+          Positioned(
+            right: 7,
+            top: 8,
+            child: Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: palette.primary,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _EchoCard extends StatelessWidget {
+  final MingtaiNotification item;
+  final VoidCallback onTap;
+
+  const _EchoCard({required this.item, required this.onTap});
+
+  String get _actionText {
+    switch (item.eventType) {
+      case 'annotation_comment':
+        return '回应了你的公开想法';
+      case 'annotation_resonance':
+        return '在你的公开想法旁停留过';
+      case 'review_comment':
+        return '回应了你的读者短评';
+      case 'review_resonance':
+        return '与你的读者短评产生了共鸣';
+      default:
+        return '留下了一点回声';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 15),
+        decoration: BoxDecoration(
+          color: item.isRead
+              ? palette.card.withAlpha(205)
+              : palette.primaryLight.withAlpha(70),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: palette.divider.withAlpha(110)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _ProfileAvatar(profile: item.actor, size: 36),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text.rich(
+                    TextSpan(
+                      style: TextStyle(
+                        color: palette.textSecondary,
+                        fontSize: 13,
+                        height: 1.45,
+                      ),
+                      children: [
+                        TextSpan(
+                          text: item.actor.nickname,
+                          style: TextStyle(
+                            color: palette.textPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        TextSpan(text: ' $_actionText'),
+                      ],
+                    ),
+                  ),
+                  if (item.preview.trim().isNotEmpty) ...[
+                    const SizedBox(height: 7),
+                    Text(
+                      item.preview.trim(),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: palette.textPrimary,
+                        fontSize: 14,
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 7),
+                  Text(
+                    [
+                      if (item.bookTitle.isNotEmpty) '《${item.bookTitle}》',
+                      _dateLabel(item.createdAt),
+                    ].join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: palette.textSecondary,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1216,8 +1517,6 @@ class MingtaiBookDetailScreen extends StatefulWidget {
 class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
   MingtaiBookDetail? _detail;
   List<MingtaiBookReview> _reviews = [];
-  final Set<String> _resonatingIds = {};
-  final Set<String> _commentingIds = {};
   bool _descriptionExpanded = false;
   bool _hasReadingProgress = false;
   bool _loading = true;
@@ -1412,80 +1711,6 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
     }
   }
 
-  Future<void> _sendResonance(MingtaiFeedItem item) async {
-    if (_resonatingIds.contains(item.id)) return;
-    setState(() => _resonatingIds.add(item.id));
-    try {
-      await BookService.createMingtaiResonance(annotationId: item.id);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('共鸣已留下'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      _load(forceRefresh: true);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('共鸣失败：$e'), behavior: SnackBarBehavior.floating),
-      );
-    } finally {
-      if (mounted) setState(() => _resonatingIds.remove(item.id));
-    }
-  }
-
-  Future<void> _sendComment(MingtaiFeedItem item) async {
-    final controller = TextEditingController();
-    final content = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('围绕这条批注写一句'),
-        content: TextField(
-          controller: controller,
-          maxLength: 1000,
-          maxLines: 3,
-          decoration: const InputDecoration(hintText: '只回应这条页边笔记，不做普通评论区'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('发送'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (content == null || content.isEmpty) return;
-
-    setState(() => _commentingIds.add(item.id));
-    try {
-      await BookService.createMingtaiAnnotationComment(
-        annotationId: item.id,
-        content: content,
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('评论已留下'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      _load(forceRefresh: true);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('评论失败：$e'), behavior: SnackBarBehavior.floating),
-      );
-    } finally {
-      if (mounted) setState(() => _commentingIds.remove(item.id));
-    }
-  }
-
   List<MingtaiFeedItem> _thoughts(MingtaiBookDetail detail) {
     final items = detail.annotations
         .where((item) => item.source == 'thought' || item.source == 'manual')
@@ -1525,12 +1750,17 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) => _TraceDetailSheet(
-        item: item,
-        resonating: _resonatingIds.contains(item.id),
-        commenting: _commentingIds.contains(item.id),
-        onResonance: () => _sendResonance(item),
-        onComment: () => _sendComment(item),
+      builder: (_) => _InteractionDetailSheet(
+        targetType: 'annotation',
+        targetId: item.id,
+        title: item.chapterTitle.isEmpty ? '公开想法' : item.chapterTitle,
+        body: item.originalText.trim().isEmpty
+            ? _traceMainText(item)
+            : item.originalText.trim(),
+        secondaryText: item.annotationText.trim(),
+        initialResonanceCount: item.resonanceCount,
+        initialCommentCount: item.commentCount,
+        onChanged: () => unawaited(_load(forceRefresh: true)),
       ),
     );
   }
@@ -1625,6 +1855,7 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
                   submitting: _submittingReview,
                   onWrite: _showReviewDialog,
                   onOpenProfile: _openProfile,
+                  onChanged: () => unawaited(_loadReviews()),
                 ),
               ],
             ),
@@ -1794,7 +2025,7 @@ class _PublishBookSheetState extends State<_PublishBookSheet> {
                       const _PublishEmptyBooks()
                     else ...[
                       DropdownButtonFormField<Book>(
-                        value: _selectedBook,
+                        initialValue: _selectedBook,
                         items: _books
                             .map(
                               (book) => DropdownMenuItem(
@@ -1812,7 +2043,7 @@ class _PublishBookSheetState extends State<_PublishBookSheet> {
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
-                        value: _copyrightStatus,
+                        initialValue: _copyrightStatus,
                         items: const [
                           DropdownMenuItem(
                             value: 'public_domain',
@@ -3039,7 +3270,7 @@ class _TraceMemorySection extends StatelessWidget {
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   itemCount: items.length > 9 ? 8 : items.length - 1,
-                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  separatorBuilder: (_, _) => const SizedBox(width: 12),
                   itemBuilder: (context, index) {
                     final item = items[index + 1];
                     return _TracePreviewCard(
@@ -3063,6 +3294,7 @@ class _BookReviewSection extends StatelessWidget {
   final bool submitting;
   final VoidCallback onWrite;
   final ValueChanged<String> onOpenProfile;
+  final VoidCallback onChanged;
 
   const _BookReviewSection({
     required this.reviews,
@@ -3070,6 +3302,7 @@ class _BookReviewSection extends StatelessWidget {
     required this.submitting,
     required this.onWrite,
     required this.onOpenProfile,
+    required this.onChanged,
   });
 
   @override
@@ -3130,6 +3363,7 @@ class _BookReviewSection extends StatelessWidget {
                   (review) => _BookReviewCard(
                     review: review,
                     onOpenProfile: () => onOpenProfile(review.user.userId),
+                    onChanged: onChanged,
                   ),
                 ),
         ],
@@ -3141,8 +3375,13 @@ class _BookReviewSection extends StatelessWidget {
 class _BookReviewCard extends StatelessWidget {
   final MingtaiBookReview review;
   final VoidCallback onOpenProfile;
+  final VoidCallback onChanged;
 
-  const _BookReviewCard({required this.review, required this.onOpenProfile});
+  const _BookReviewCard({
+    required this.review,
+    required this.onOpenProfile,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -3207,6 +3446,16 @@ class _BookReviewCard extends StatelessWidget {
                 height: 1.65,
               ),
             ),
+            if (review.resonanceCount > 0 || review.commentCount > 0) ...[
+              const SizedBox(height: 10),
+              Text(
+                [
+                  if (review.resonanceCount > 0) '${review.resonanceCount} 次共鸣',
+                  if (review.commentCount > 0) '${review.commentCount} 句回应',
+                ].join(' · '),
+                style: TextStyle(color: palette.textSecondary, fontSize: 11),
+              ),
+            ],
           ],
         ),
       ),
@@ -3216,57 +3465,23 @@ class _BookReviewCard extends StatelessWidget {
   void _showFullReview(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) {
-        final palette = context.appPalette;
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 6, 20, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                InkWell(
-                  borderRadius: BorderRadius.circular(999),
-                  onTap: () {
-                    Navigator.pop(context);
-                    onOpenProfile();
-                  },
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _ProfileAvatar(profile: review.user, size: 34),
-                      const SizedBox(width: 10),
-                      Text(
-                        review.user.nickname,
-                        style: TextStyle(
-                          color: palette.textPrimary,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  review.content,
-                  style: TextStyle(
-                    color: palette.textPrimary,
-                    fontSize: 15,
-                    height: 1.75,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  _dateLabel(review.createdAt),
-                  style: TextStyle(color: palette.textSecondary, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+      builder: (_) => _InteractionDetailSheet(
+        targetType: 'review',
+        targetId: review.id,
+        title: '读者短评',
+        body: review.content,
+        author: review.user,
+        createdAt: review.createdAt,
+        initialResonanceCount: review.resonanceCount,
+        initialCommentCount: review.commentCount,
+        onChanged: onChanged,
+        onOpenProfile: () {
+          Navigator.pop(context);
+          onOpenProfile();
+        },
+      ),
     );
   }
 }
@@ -3495,64 +3710,235 @@ class _TracePreviewCard extends StatelessWidget {
   }
 }
 
-class _TraceDetailSheet extends StatelessWidget {
-  final MingtaiFeedItem item;
-  final bool resonating;
-  final bool commenting;
-  final VoidCallback onResonance;
-  final VoidCallback onComment;
+class _InteractionDetailSheet extends StatefulWidget {
+  final String targetType;
+  final String targetId;
+  final String title;
+  final String body;
+  final String secondaryText;
+  final MingtaiUserProfile? author;
+  final DateTime? createdAt;
+  final int initialResonanceCount;
+  final int initialCommentCount;
+  final VoidCallback? onOpenProfile;
+  final VoidCallback? onChanged;
 
-  const _TraceDetailSheet({
-    required this.item,
-    required this.resonating,
-    required this.commenting,
-    required this.onResonance,
-    required this.onComment,
+  const _InteractionDetailSheet({
+    required this.targetType,
+    required this.targetId,
+    required this.title,
+    required this.body,
+    this.secondaryText = '',
+    this.author,
+    this.createdAt,
+    this.initialResonanceCount = 0,
+    this.initialCommentCount = 0,
+    this.onOpenProfile,
+    this.onChanged,
   });
+
+  @override
+  State<_InteractionDetailSheet> createState() =>
+      _InteractionDetailSheetState();
+}
+
+class _InteractionDetailSheetState extends State<_InteractionDetailSheet> {
+  List<MingtaiInteractionComment> _comments = const [];
+  late int _resonanceCount;
+  bool _loadingComments = true;
+  bool _resonating = false;
+  bool _commenting = false;
+  String? _commentsError;
+
+  @override
+  void initState() {
+    super.initState();
+    _resonanceCount = widget.initialResonanceCount;
+    _loadComments();
+  }
+
+  Future<void> _loadComments() async {
+    try {
+      final comments = await BookService.listMingtaiComments(
+        targetType: widget.targetType,
+        targetId: widget.targetId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _comments = comments;
+        _loadingComments = false;
+        _commentsError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadingComments = false;
+        _commentsError = e.toString();
+      });
+    }
+  }
+
+  Future<bool> _ensureLoggedIn() async {
+    await AuthService.init();
+    if (AuthService.isLoggedIn) return true;
+    if (!mounted) return false;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('请先登录，再留下回应')));
+    return false;
+  }
+
+  Future<void> _sendResonance() async {
+    if (_resonating || !await _ensureLoggedIn()) return;
+    setState(() => _resonating = true);
+    try {
+      final count = await BookService.createMingtaiTargetResonance(
+        targetType: widget.targetType,
+        targetId: widget.targetId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _resonanceCount = count > 0 ? count : _resonanceCount;
+      });
+      widget.onChanged?.call();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('共鸣已留下'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('共鸣失败：$e')));
+    } finally {
+      if (mounted) setState(() => _resonating = false);
+    }
+  }
+
+  Future<void> _sendComment() async {
+    if (_commenting || !await _ensureLoggedIn() || !mounted) return;
+    final controller = TextEditingController();
+    final content = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('留下一句回应'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 1000,
+          minLines: 2,
+          maxLines: 5,
+          decoration: const InputDecoration(hintText: '回应这段文字本身…'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('发送'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (content == null || content.isEmpty || !mounted) return;
+    setState(() => _commenting = true);
+    try {
+      final comment = await BookService.createMingtaiComment(
+        targetType: widget.targetType,
+        targetId: widget.targetId,
+        content: content,
+      );
+      if (!mounted) return;
+      setState(() => _comments = [..._comments, comment]);
+      widget.onChanged?.call();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('回应失败：$e')));
+    } finally {
+      if (mounted) setState(() => _commenting = false);
+    }
+  }
+
+  void _openCommentProfile(MingtaiUserProfile profile) {
+    if (profile.userId.isEmpty) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MingtaiProfileScreen(userId: profile.userId),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
-    final annotation = item.annotationText.trim();
-    return SafeArea(
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return FractionallySizedBox(
+      heightFactor: 0.82,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 22),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+        padding: EdgeInsets.only(bottom: bottomInset),
+        child: SafeArea(
+          top: false,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 6, 20, 24),
             children: [
-              Text(
-                item.chapterTitle.isEmpty ? '公开痕迹' : item.chapterTitle,
-                style: TextStyle(
-                  color: palette.textSecondary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
+              if (widget.author != null) ...[
+                InkWell(
+                  borderRadius: BorderRadius.circular(999),
+                  onTap: widget.onOpenProfile,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _ProfileAvatar(profile: widget.author!, size: 34),
+                      const SizedBox(width: 10),
+                      Text(
+                        widget.author!.nickname,
+                        style: TextStyle(
+                          color: palette.textPrimary,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 14),
+                const SizedBox(height: 16),
+              ] else ...[
+                Text(
+                  widget.title,
+                  style: TextStyle(
+                    color: palette.textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               Text(
-                item.originalText.trim().isEmpty
-                    ? _traceMainText(item)
-                    : item.originalText.trim(),
+                widget.body,
                 style: TextStyle(
                   color: palette.textPrimary,
                   fontSize: 16,
                   height: 1.75,
                 ),
               ),
-              if (annotation.isNotEmpty) ...[
-                const SizedBox(height: 18),
+              if (widget.secondaryText.trim().isNotEmpty) ...[
+                const SizedBox(height: 16),
                 Container(
-                  width: double.infinity,
                   padding: const EdgeInsets.fromLTRB(15, 13, 15, 14),
                   decoration: BoxDecoration(
                     color: palette.background,
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: palette.divider),
                   ),
                   child: Text(
-                    annotation,
+                    widget.secondaryText.trim(),
                     style: TextStyle(
                       color: palette.textSecondary,
                       fontSize: 14,
@@ -3561,27 +3947,120 @@ class _TraceDetailSheet extends StatelessWidget {
                   ),
                 ),
               ],
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
+              if (widget.createdAt != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _dateLabel(widget.createdAt),
+                  style: TextStyle(color: palette.textSecondary, fontSize: 12),
+                ),
+              ],
+              const SizedBox(height: 18),
+              Row(
                 children: [
                   _QuietAction(
                     icon: Icons.favorite_border,
-                    label: resonating ? '发送中' : '共鸣',
-                    onTap: resonating ? null : onResonance,
+                    label: _resonating ? '发送中' : '共鸣',
+                    onTap: _resonating ? null : _sendResonance,
                   ),
+                  const SizedBox(width: 8),
                   _QuietAction(
                     icon: Icons.mode_comment_outlined,
-                    label: commenting ? '发送中' : '评论',
-                    onTap: commenting ? null : onComment,
+                    label: _commenting ? '发送中' : '回应',
+                    onTap: _commenting ? null : _sendComment,
                   ),
-                  if (item.resonanceCount > 0)
-                    _MetaPill(text: '已有 ${item.resonanceCount} 人停留'),
-                  if (item.commentCount > 0)
-                    _MetaPill(text: '${item.commentCount} 句回应'),
+                  const Spacer(),
+                  if (_resonanceCount > 0)
+                    Text(
+                      '$_resonanceCount 次共鸣',
+                      style: TextStyle(
+                        color: palette.textSecondary,
+                        fontSize: 11,
+                      ),
+                    ),
                 ],
               ),
+              const SizedBox(height: 24),
+              Text(
+                '回应',
+                style: TextStyle(
+                  color: palette.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 10),
+              if (_loadingComments)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Center(
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                )
+              else if (_commentsError != null)
+                TextButton(
+                  onPressed: _loadComments,
+                  child: const Text('重新读取回应'),
+                )
+              else if (_comments.isEmpty)
+                Text(
+                  '还没有回应。',
+                  style: TextStyle(color: palette.textSecondary, fontSize: 13),
+                )
+              else
+                ..._comments.map(
+                  (comment) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 9),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        InkWell(
+                          onTap: () => _openCommentProfile(comment.user),
+                          child: _ProfileAvatar(
+                            profile: comment.user,
+                            size: 30,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                comment.user.nickname,
+                                style: TextStyle(
+                                  color: palette.textPrimary,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                comment.content,
+                                style: TextStyle(
+                                  color: palette.textPrimary,
+                                  fontSize: 13,
+                                  height: 1.55,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                _dateLabel(comment.createdAt),
+                                style: TextStyle(
+                                  color: palette.textSecondary,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
@@ -3700,8 +4179,8 @@ class _ProfileAvatar extends StatelessWidget {
         width: size,
         height: size,
         fit: BoxFit.cover,
-        placeholder: (_, __) => fallback,
-        errorWidget: (_, __, ___) => fallback,
+        placeholder: (_, _) => fallback,
+        errorWidget: (_, _, _) => fallback,
       ),
     );
   }
@@ -3743,12 +4222,12 @@ class _BookCover extends StatelessWidget {
                 memCacheWidth: displayLarge ? 240 : 120,
                 maxWidthDiskCache: displayLarge ? 480 : 240,
                 fadeInDuration: const Duration(milliseconds: 160),
-                placeholder: (_, __) => _BookCoverFallback(
+                placeholder: (_, _) => _BookCoverFallback(
                   title: title,
                   author: author,
                   large: displayLarge,
                 ),
-                errorWidget: (_, __, ___) => _BookCoverFallback(
+                errorWidget: (_, _, _) => _BookCoverFallback(
                   title: title,
                   author: author,
                   large: displayLarge,

@@ -24,6 +24,7 @@ class XiaouHomeScreen extends StatefulWidget {
 }
 
 class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
+  final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _items = [];
   List<Map<String, dynamic>> _allItems = [];
   XiaouHomeInsight _homeInsight = XiaouHomeInsight.empty();
@@ -34,6 +35,8 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   bool _reloadAfterCurrent = false;
   DateTime? _lastLoadCompletedAt;
   int _presencePulseKey = 0;
+  String _searchQuery = '';
+  String _sourceFilter = 'all';
   final Set<String> _deletingIds = {};
   final Set<String> _publishingIds = {};
 
@@ -51,6 +54,12 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     if (widget.refreshSignal != oldWidget.refreshSignal) {
       _load();
     }
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _load({bool forceRefresh = false}) async {
@@ -106,9 +115,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
             });
           })
           .catchError((_) {}),
-      BookService.getMingtaiOverview(
-            forceRefresh: forceRefresh,
-          )
+      BookService.getMingtaiOverview(forceRefresh: forceRefresh)
           .then((overview) {
             if (!mounted) return;
             setState(() {
@@ -214,9 +221,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         final palette = context.appPalette;
         return AlertDialog(
           title: const Text('让其他读者也看见？'),
-          content: const Text(
-            '这段话会出现在书页边缘。\n\n未发布的记录仍只属于你。',
-          ),
+          content: const Text('这段话会出现在书页边缘。\n\n未发布的记录仍只属于你。'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -295,58 +300,33 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     );
   }
 
-  Widget _buildEmpty() {
-    final palette = context.appPalette;
-    return SizedBox(
-      height: 280,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.lightbulb_outline, size: 64, color: palette.illustration),
-          const SizedBox(height: 16),
-          const Text(
-            '小U还在等待你的阅读痕迹',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            '划线、想法和小U解释会被慢慢记住',
-            style: TextStyle(color: AppTheme.textSecondary),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildContent() {
+    final visibleItems = _visibleItems();
     return RefreshIndicator(
       onRefresh: _load,
       child: CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         slivers: [
-          SliverToBoxAdapter(
-            child: _homeInsight.hasActiveDiscovery
-                ? _buildDiscoveryCard(_homeInsight.activeDiscovery)
-                : _buildQuietObservation(),
-          ),
-          const SliverToBoxAdapter(child: SizedBox(height: 8)),
-          if (_items.isEmpty)
-            SliverToBoxAdapter(child: _buildEmpty())
+          if (_homeInsight.hasActiveDiscovery) ...[
+            SliverToBoxAdapter(
+              child: _buildDiscoveryCard(_homeInsight.activeDiscovery),
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: 4)),
+          ],
+          SliverToBoxAdapter(child: _buildMemoryTools()),
+          if (visibleItems.isEmpty)
+            SliverToBoxAdapter(child: _buildFilteredEmpty())
           else ...[
-            SliverToBoxAdapter(child: _buildRecentRememberedHeader()),
             SliverList(
               delegate: SliverChildBuilderDelegate((_, i) {
-                final item = _items[i];
+                final item = visibleItems[i];
                 final id = (item['id'] as String?) ?? '';
                 final source = (item['source'] as String?) ?? '';
                 final canPublishToMingtai =
                     source == 'thought' || source == 'manual';
                 return XiaouCard(
+                  source: source,
                   originalText: (item['original_text'] as String?) ?? '',
                   userNote: (item['user_note'] as String?) ?? '',
                   aiTags: (item['ai_tags'] as String?) ?? '',
@@ -360,11 +340,145 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
                       ? null
                       : () => _deleteItem(id),
                 );
-              }, childCount: _items.length),
+              }, childCount: visibleItems.length),
             ),
           ],
           const SliverToBoxAdapter(child: SizedBox(height: 112)),
         ],
+      ),
+    );
+  }
+
+  List<Map<String, dynamic>> _visibleItems() {
+    final sourceItems = _allItems.isNotEmpty ? _allItems : _items;
+    final query = _searchQuery.trim().toLowerCase();
+    return sourceItems.where((item) {
+      final source = item['source']?.toString() ?? '';
+      final sourceMatches = switch (_sourceFilter) {
+        'thought' => source == 'thought' || source == 'manual',
+        'highlight' => source == 'highlight',
+        'ai_explanation' => source == 'ai_explanation',
+        _ => true,
+      };
+      if (!sourceMatches) return false;
+      if (query.isEmpty) return true;
+      final searchable = [
+        item['original_text'],
+        item['user_note'],
+        item['ai_understanding'],
+        item['book_title'],
+        item['chapter_title'],
+        item['ai_tags'],
+      ].map((value) => value?.toString() ?? '').join('\n').toLowerCase();
+      return searchable.contains(query);
+    }).toList();
+  }
+
+  Widget _buildMemoryTools() {
+    final palette = context.appPalette;
+    const filters = <(String, String)>[
+      ('all', '全部'),
+      ('thought', '想法'),
+      ('highlight', '划线'),
+      ('ai_explanation', '小U解读'),
+    ];
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        16,
+        _homeInsight.hasActiveDiscovery ? 6 : 16,
+        16,
+        10,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '阅读痕迹',
+            style: TextStyle(
+              color: palette.textPrimary,
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _searchController,
+            onChanged: (value) => setState(() => _searchQuery = value),
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              hintText: '找一句话、一本书或一个想法',
+              prefixIcon: const Icon(Icons.search, size: 20),
+              suffixIcon: _searchQuery.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: '清空搜索',
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _searchQuery = '');
+                      },
+                      icon: const Icon(Icons.close, size: 18),
+                    ),
+              filled: true,
+              fillColor: palette.card.withAlpha(220),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+                borderSide: BorderSide(color: palette.divider),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+                borderSide: BorderSide(color: palette.divider.withAlpha(120)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: filters.map((filter) {
+                final selected = _sourceFilter == filter.$1;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text(filter.$2),
+                    selected: selected,
+                    showCheckmark: false,
+                    onSelected: (_) =>
+                        setState(() => _sourceFilter = filter.$1),
+                    backgroundColor: palette.card.withAlpha(180),
+                    selectedColor: palette.primaryLight.withAlpha(105),
+                    side: BorderSide(
+                      color: selected
+                          ? palette.primary.withAlpha(90)
+                          : palette.divider.withAlpha(100),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilteredEmpty() {
+    final palette = context.appPalette;
+    final hasAnyItems = (_allItems.isNotEmpty ? _allItems : _items).isNotEmpty;
+    return SizedBox(
+      height: 230,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 30),
+          child: Text(
+            hasAnyItems ? '这里暂时没有找到对应的阅读痕迹。' : '划线、想法和小U解读会被安静地记在这里。',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: palette.textSecondary,
+              fontSize: 14,
+              height: 1.6,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -443,74 +557,12 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     );
   }
 
-  Widget _buildQuietObservation() {
-    final palette = context.appPalette;
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
-      decoration: BoxDecoration(
-        color: palette.card.withAlpha(190),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: palette.divider.withAlpha(120)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.nights_stay_outlined, color: palette.icon, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '小U还在观察',
-                  style: TextStyle(
-                    color: palette.textPrimary,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '今天没有新的发现，我还在继续观察你的阅读。',
-                  style: TextStyle(
-                    color: palette.textSecondary,
-                    fontSize: 13,
-                    height: 1.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   String _cleanDiscoveryBody(String text) {
-    return text
-        .replaceFirst(RegExp(r'^✦\s*小U发现了一件事\s*'), '')
-        .trim();
+    return text.replaceFirst(RegExp(r'^✦\s*小U发现了一件事\s*'), '').trim();
   }
 
   bool _shouldShowDiscoveryToggle(String text) {
     return text.trim().length > 90 || text.trim().split('\n').length > 3;
-  }
-
-  Widget _buildRecentRememberedHeader() {
-    final palette = context.appPalette;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 6, 18, 8),
-      child: Text(
-        '最近记住',
-        style: TextStyle(
-          color: palette.textPrimary,
-          fontSize: 17,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
   }
 }
 
@@ -547,7 +599,9 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
     final text = (preset ?? _controller.text).trim();
     if (text.isEmpty || _loading) return;
     await _subscription?.cancel();
-    final history = _messages.where((m) => m.content.trim().isNotEmpty).toList();
+    final history = _messages
+        .where((m) => m.content.trim().isNotEmpty)
+        .toList();
     final userMessage = AiMessage(
       role: 'user',
       content: text,
@@ -566,42 +620,43 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
     _scrollToBottom();
 
     final buffer = StringBuffer();
-    _subscription = AiService.xiaouAgentStream(
-      message: text,
-      conversationHistory: history,
-    ).listen(
-      (chunk) {
-        if (!mounted) return;
-        buffer.write(chunk);
-        setState(() {
-          _messages[_messages.length - 1] = AiMessage(
-            role: 'assistant',
-            content: buffer.toString(),
-            timestamp: assistantTime,
-          );
-        });
-        _scrollToBottom();
-      },
-      onError: (Object error) {
-        if (!mounted) return;
-        setState(() {
-          _loading = false;
-          _error = AiService.friendlyError(error);
-          _removeEmptyAssistantTail();
-        });
-      },
-      onDone: () {
-        if (!mounted) return;
-        setState(() {
-          _loading = false;
-          if (buffer.isEmpty) {
-            _error = '小U暂时还没有看清，可以换一种问法再试一次。';
-            _removeEmptyAssistantTail();
-          }
-        });
-      },
-      cancelOnError: true,
-    );
+    _subscription =
+        AiService.xiaouAgentStream(
+          message: text,
+          conversationHistory: history,
+        ).listen(
+          (chunk) {
+            if (!mounted) return;
+            buffer.write(chunk);
+            setState(() {
+              _messages[_messages.length - 1] = AiMessage(
+                role: 'assistant',
+                content: buffer.toString(),
+                timestamp: assistantTime,
+              );
+            });
+            _scrollToBottom();
+          },
+          onError: (Object error) {
+            if (!mounted) return;
+            setState(() {
+              _loading = false;
+              _error = AiService.friendlyError(error);
+              _removeEmptyAssistantTail();
+            });
+          },
+          onDone: () {
+            if (!mounted) return;
+            setState(() {
+              _loading = false;
+              if (buffer.isEmpty) {
+                _error = '小U暂时还没有看清，可以换一种问法再试一次。';
+                _removeEmptyAssistantTail();
+              }
+            });
+          },
+          cancelOnError: true,
+        );
   }
 
   Future<void> _cancel() async {
@@ -685,10 +740,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                       ),
                     ),
                     if (_loading)
-                      TextButton(
-                        onPressed: _cancel,
-                        child: const Text('停止'),
-                      ),
+                      TextButton(onPressed: _cancel, child: const Text('停止')),
                     IconButton(
                       onPressed: () => Navigator.pop(context),
                       icon: const Icon(Icons.close),

@@ -123,8 +123,49 @@ function shapeBookReview(row = {}) {
       bio: row.bio,
     }),
     content: row.content || '',
+    resonance_count: Number(row.resonance_count || 0),
+    comment_count: Number(row.comment_count || 0),
     created_at: row.created_at,
     updated_at: row.updated_at,
+  };
+}
+
+function shapeInteractionComment(row = {}) {
+  return {
+    id: row.id || '',
+    target_id: row.target_id || row.annotation_id || row.review_id || '',
+    content: row.content || '',
+    user: shapeUserProfile({
+      user_id: row.user_id,
+      email: row.email,
+      nickname: row.nickname,
+      avatar_url: row.avatar_url,
+      bio: row.bio,
+    }),
+    created_at: row.created_at,
+  };
+}
+
+function shapeNotification(row = {}) {
+  return {
+    id: row.id || '',
+    event_type: row.event_type || '',
+    target_type: row.target_type || '',
+    target_id: row.target_id || '',
+    public_book_id: row.public_book_id || '',
+    book_title: row.book_title || '',
+    book_author: row.book_author || '',
+    book_cover: row.book_cover || '',
+    preview: row.preview || '',
+    actor: shapeUserProfile({
+      user_id: row.actor_user_id,
+      email: row.actor_email,
+      nickname: row.actor_nickname,
+      avatar_url: row.actor_avatar_url,
+      bio: row.actor_bio,
+    }),
+    read_at: row.read_at || null,
+    created_at: row.created_at,
   };
 }
 
@@ -1281,7 +1322,7 @@ async function createPublicAnnotation(userId, publicBookId, payload) {
 async function createAnnotationComment(userId, annotationId, content) {
   const result = await query(
     `WITH target AS (
-       SELECT id, public_book_id, original_text
+       SELECT id, public_book_id, original_text, user_id AS recipient_user_id
        FROM public_annotations
        WHERE id = $1
      ),
@@ -1289,7 +1330,7 @@ async function createAnnotationComment(userId, annotationId, content) {
        INSERT INTO annotation_comments (annotation_id, user_id, content)
        SELECT id, $2, $3
        FROM target
-       RETURNING id, annotation_id, content, created_at
+       RETURNING id, annotation_id, user_id, content, created_at
      ),
      discussion AS (
        INSERT INTO book_discussions (
@@ -1309,18 +1350,75 @@ async function createAnnotationComment(userId, annotationId, content) {
          $3
        FROM target
        RETURNING id
+     ),
+     notification AS (
+       INSERT INTO notifications (
+         recipient_user_id,
+         actor_user_id,
+         event_type,
+         target_type,
+         target_id,
+         public_book_id,
+         preview
+       )
+       SELECT
+         target.recipient_user_id,
+         $2,
+         'annotation_comment',
+         'annotation',
+         target.id,
+         target.public_book_id,
+         LEFT($3, 180)
+       FROM target
+       WHERE target.recipient_user_id <> $2
+       RETURNING id
      )
-     SELECT id, annotation_id, content, created_at
-     FROM created`,
+     SELECT
+       created.id,
+       created.annotation_id AS target_id,
+       created.user_id,
+       u.email,
+       p.nickname,
+       p.avatar_url,
+       p.bio,
+       created.content,
+       created.created_at
+     FROM created
+     INNER JOIN users u ON u.id = created.user_id
+     LEFT JOIN user_profiles p ON p.user_id = created.user_id`,
     [annotationId, userId, content],
   );
 
-  return result.rows[0] || null;
+  return result.rows[0] ? shapeInteractionComment(result.rows[0]) : null;
+}
+
+async function listAnnotationComments(annotationId, { limit = 50 } = {}) {
+  const result = await query(
+    `SELECT
+       c.id,
+       c.annotation_id AS target_id,
+       c.user_id,
+       u.email,
+       p.nickname,
+       p.avatar_url,
+       p.bio,
+       c.content,
+       c.created_at
+     FROM annotation_comments c
+     INNER JOIN users u ON u.id = c.user_id
+     LEFT JOIN user_profiles p ON p.user_id = c.user_id
+     WHERE c.annotation_id = $1
+     ORDER BY c.created_at ASC
+     LIMIT $2`,
+    [annotationId, limit],
+  );
+
+  return result.rows.map(shapeInteractionComment);
 }
 
 async function createResonance(userId, annotationId, content = '') {
   const target = await query(
-    `SELECT id
+    `SELECT id, user_id AS recipient_user_id, public_book_id
      FROM public_annotations
      WHERE id = $1
      LIMIT 1`,
@@ -1328,12 +1426,31 @@ async function createResonance(userId, annotationId, content = '') {
   );
   if (target.rows.length === 0) return null;
 
-  await query(
+  const inserted = await query(
     `INSERT INTO annotation_resonances (annotation_id, user_id)
      VALUES ($1, $2)
-     ON CONFLICT (annotation_id, user_id) DO NOTHING`,
+     ON CONFLICT (annotation_id, user_id) DO NOTHING
+     RETURNING id`,
     [annotationId, userId],
   );
+
+  const targetRow = target.rows[0];
+  if (inserted.rowCount > 0 && targetRow.recipient_user_id !== userId) {
+    await query(
+      `INSERT INTO notifications (
+         recipient_user_id,
+         actor_user_id,
+         event_type,
+         target_type,
+         target_id,
+         public_book_id,
+         preview
+       )
+       VALUES ($1, $2, 'annotation_resonance', 'annotation', $3, $4, '')
+       ON CONFLICT DO NOTHING`,
+      [targetRow.recipient_user_id, userId, annotationId, targetRow.public_book_id],
+    );
+  }
 
   const text = String(content || '').trim();
   if (text) {
@@ -1576,6 +1693,8 @@ async function listBookReviews(publicBookId, { limit = 20 } = {}) {
        p.avatar_url,
        p.bio,
        r.content,
+       (SELECT COUNT(*) FROM book_review_resonances rr WHERE rr.review_id = r.id) AS resonance_count,
+       (SELECT COUNT(*) FROM book_review_comments rc WHERE rc.review_id = r.id) AS comment_count,
        r.created_at,
        r.updated_at
      FROM book_reviews r
@@ -1591,7 +1710,7 @@ async function listBookReviews(publicBookId, { limit = 20 } = {}) {
   return result.rows.map(shapeBookReview);
 }
 
-async function createBookReview(userId, publicBookId, content) {
+async function createBookReview(userId, publicBookId, content, clientRequestId = null) {
   const result = await query(
     `WITH book AS (
        SELECT id
@@ -1606,9 +1725,17 @@ async function createBookReview(userId, publicBookId, content) {
        ON CONFLICT (user_id) DO NOTHING
      ),
      created AS (
-       INSERT INTO book_reviews (public_book_id, user_id, content)
-       SELECT book.id, $1, $3
+       INSERT INTO book_reviews (
+         public_book_id,
+         user_id,
+         client_request_id,
+         content
+       )
+       SELECT book.id, $1, NULLIF($4, ''), $3
        FROM book
+       ON CONFLICT (user_id, client_request_id)
+       WHERE client_request_id IS NOT NULL
+       DO UPDATE SET content = EXCLUDED.content
        RETURNING id
      )
      SELECT
@@ -1623,6 +1750,8 @@ async function createBookReview(userId, publicBookId, content) {
        p.avatar_url,
        p.bio,
        r.content,
+       (SELECT COUNT(*) FROM book_review_resonances rr WHERE rr.review_id = r.id) AS resonance_count,
+       (SELECT COUNT(*) FROM book_review_comments rc WHERE rc.review_id = r.id) AS comment_count,
        r.created_at,
        r.updated_at
      FROM book_reviews r
@@ -1630,7 +1759,7 @@ async function createBookReview(userId, publicBookId, content) {
      INNER JOIN public_books b ON b.id = r.public_book_id
      INNER JOIN users u ON u.id = r.user_id
      LEFT JOIN user_profiles p ON p.user_id = r.user_id`,
-    [userId, publicBookId, content],
+    [userId, publicBookId, content, String(clientRequestId || '').trim()],
   );
 
   return result.rows[0] ? shapeBookReview(result.rows[0]) : null;
@@ -1657,6 +1786,8 @@ async function updateBookReview(userId, reviewId, content) {
        p.avatar_url,
        p.bio,
        r.content,
+       (SELECT COUNT(*) FROM book_review_resonances rr WHERE rr.review_id = r.id) AS resonance_count,
+       (SELECT COUNT(*) FROM book_review_comments rc WHERE rc.review_id = r.id) AS comment_count,
        r.created_at,
        r.updated_at
      FROM updated r
@@ -1678,6 +1809,197 @@ async function deleteBookReview(userId, reviewId) {
   );
 
   return result.rowCount > 0;
+}
+
+async function listBookReviewComments(reviewId, { limit = 50 } = {}) {
+  const result = await query(
+    `SELECT
+       c.id,
+       c.review_id AS target_id,
+       c.user_id,
+       u.email,
+       p.nickname,
+       p.avatar_url,
+       p.bio,
+       c.content,
+       c.created_at
+     FROM book_review_comments c
+     INNER JOIN users u ON u.id = c.user_id
+     LEFT JOIN user_profiles p ON p.user_id = c.user_id
+     WHERE c.review_id = $1
+     ORDER BY c.created_at ASC
+     LIMIT $2`,
+    [reviewId, limit],
+  );
+
+  return result.rows.map(shapeInteractionComment);
+}
+
+async function createBookReviewComment(userId, reviewId, content) {
+  const result = await query(
+    `WITH target AS (
+       SELECT id, public_book_id, user_id AS recipient_user_id
+       FROM book_reviews
+       WHERE id = $1
+     ),
+     created AS (
+       INSERT INTO book_review_comments (review_id, user_id, content)
+       SELECT target.id, $2, $3
+       FROM target
+       RETURNING id, review_id, user_id, content, created_at
+     ),
+     notification AS (
+       INSERT INTO notifications (
+         recipient_user_id,
+         actor_user_id,
+         event_type,
+         target_type,
+         target_id,
+         public_book_id,
+         preview
+       )
+       SELECT
+         target.recipient_user_id,
+         $2,
+         'review_comment',
+         'review',
+         target.id,
+         target.public_book_id,
+         LEFT($3, 180)
+       FROM target
+       WHERE target.recipient_user_id <> $2
+       RETURNING id
+     )
+     SELECT
+       created.id,
+       created.review_id AS target_id,
+       created.user_id,
+       u.email,
+       p.nickname,
+       p.avatar_url,
+       p.bio,
+       created.content,
+       created.created_at
+     FROM created
+     INNER JOIN users u ON u.id = created.user_id
+     LEFT JOIN user_profiles p ON p.user_id = created.user_id`,
+    [reviewId, userId, content],
+  );
+
+  return result.rows[0] ? shapeInteractionComment(result.rows[0]) : null;
+}
+
+async function createBookReviewResonance(userId, reviewId) {
+  const target = await query(
+    `SELECT id, public_book_id, user_id AS recipient_user_id
+     FROM book_reviews
+     WHERE id = $1
+     LIMIT 1`,
+    [reviewId],
+  );
+  if (target.rows.length === 0) return null;
+
+  const inserted = await query(
+    `INSERT INTO book_review_resonances (review_id, user_id)
+     VALUES ($1, $2)
+     ON CONFLICT (review_id, user_id) DO NOTHING
+     RETURNING id`,
+    [reviewId, userId],
+  );
+
+  const targetRow = target.rows[0];
+  if (inserted.rowCount > 0 && targetRow.recipient_user_id !== userId) {
+    await query(
+      `INSERT INTO notifications (
+         recipient_user_id,
+         actor_user_id,
+         event_type,
+         target_type,
+         target_id,
+         public_book_id,
+         preview
+       )
+       VALUES ($1, $2, 'review_resonance', 'review', $3, $4, '')
+       ON CONFLICT DO NOTHING`,
+      [targetRow.recipient_user_id, userId, reviewId, targetRow.public_book_id],
+    );
+  }
+
+  const countResult = await query(
+    `SELECT COUNT(*) AS resonance_count
+     FROM book_review_resonances
+     WHERE review_id = $1`,
+    [reviewId],
+  );
+
+  return {
+    review_id: reviewId,
+    resonance_count: Number(countResult.rows[0]?.resonance_count || 0),
+  };
+}
+
+async function listNotifications(userId, { limit = 50 } = {}) {
+  const result = await query(
+    `SELECT
+       n.id,
+       n.event_type,
+       n.target_type,
+       n.target_id,
+       n.public_book_id,
+       n.preview,
+       n.read_at,
+       n.created_at,
+       actor.id AS actor_user_id,
+       actor.email AS actor_email,
+       profile.nickname AS actor_nickname,
+       profile.avatar_url AS actor_avatar_url,
+       profile.bio AS actor_bio,
+       book.title AS book_title,
+       book.author AS book_author,
+       book.cover_url AS book_cover
+     FROM notifications n
+     INNER JOIN users actor ON actor.id = n.actor_user_id
+     LEFT JOIN user_profiles profile ON profile.user_id = actor.id
+     LEFT JOIN public_books book ON book.id = n.public_book_id
+     WHERE n.recipient_user_id = $1
+     ORDER BY n.created_at DESC
+     LIMIT $2`,
+    [userId, limit],
+  );
+
+  return result.rows.map(shapeNotification);
+}
+
+async function countUnreadNotifications(userId) {
+  const result = await query(
+    `SELECT COUNT(*) AS unread_count
+     FROM notifications
+     WHERE recipient_user_id = $1 AND read_at IS NULL`,
+    [userId],
+  );
+  return Number(result.rows[0]?.unread_count || 0);
+}
+
+async function markNotificationRead(userId, notificationId) {
+  const result = await query(
+    `UPDATE notifications
+     SET read_at = COALESCE(read_at, now())
+     WHERE id = $2 AND recipient_user_id = $1
+     RETURNING id`,
+    [userId, notificationId],
+  );
+  return result.rowCount > 0;
+}
+
+async function markAllNotificationsRead(userId) {
+  const result = await query(
+    `UPDATE notifications
+     SET read_at = now()
+     WHERE recipient_user_id = $1 AND read_at IS NULL
+     RETURNING id`,
+    [userId],
+  );
+  return result.rowCount;
 }
 
 async function getPublicProfile(userId) {
@@ -1711,6 +2033,8 @@ async function getPublicProfile(userId) {
            p.avatar_url,
            p.bio,
            r.content,
+           (SELECT COUNT(*) FROM book_review_resonances rr WHERE rr.review_id = r.id) AS resonance_count,
+           (SELECT COUNT(*) FROM book_review_comments rc WHERE rc.review_id = r.id) AS comment_count,
            r.created_at,
            r.updated_at
          FROM book_reviews r
@@ -1739,8 +2063,8 @@ async function getPublicProfile(userId) {
            a.auto_tags,
            a.metadata_json,
            a.position_json,
-           0 AS resonance_count,
-           0 AS comment_count,
+           (SELECT COUNT(*) FROM annotation_resonances ar2 WHERE ar2.annotation_id = a.id) AS resonance_count,
+           (SELECT COUNT(*) FROM annotation_comments ac WHERE ac.annotation_id = a.id) AS comment_count,
            a.created_at
          FROM public_annotations a
          WHERE a.user_id = $1
@@ -1859,6 +2183,7 @@ module.exports = {
   getBook,
   updateBookIntroduction,
   createPublicAnnotation,
+  listAnnotationComments,
   createAnnotationComment,
   createResonance,
   borrowBook,
@@ -1870,5 +2195,12 @@ module.exports = {
   createBookReview,
   updateBookReview,
   deleteBookReview,
+  listBookReviewComments,
+  createBookReviewComment,
+  createBookReviewResonance,
+  listNotifications,
+  countUnreadNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
   deletePublishedBooks,
 };
