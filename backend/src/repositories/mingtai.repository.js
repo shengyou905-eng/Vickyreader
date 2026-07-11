@@ -1723,6 +1723,7 @@ async function createBookReview(userId, publicBookId, content, clientRequestId =
        SELECT book.id, $1, NULLIF($4, ''), $3
        FROM book
        ON CONFLICT (user_id, client_request_id)
+       WHERE client_request_id IS NOT NULL
        DO UPDATE SET content = EXCLUDED.content
        RETURNING id
      )

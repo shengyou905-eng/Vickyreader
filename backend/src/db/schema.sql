@@ -465,18 +465,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_book_reviews_client_request
   ON book_reviews(user_id, client_request_id)
   WHERE client_request_id IS NOT NULL;
 
--- PostgreSQL unique constraints allow multiple NULL values. Keeping a full
--- constraint here lets both current and older API builds infer the same
--- ON CONFLICT target while preserving optional client request ids.
-DO $$
-BEGIN
-  ALTER TABLE book_reviews
-    ADD CONSTRAINT book_reviews_user_client_request_unique
-    UNIQUE (user_id, client_request_id);
-EXCEPTION
-  WHEN duplicate_object THEN NULL;
-END $$;
-
 CREATE TABLE IF NOT EXISTS book_review_comments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   review_id UUID NOT NULL REFERENCES book_reviews(id) ON DELETE CASCADE,
