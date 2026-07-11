@@ -9,6 +9,7 @@ const {
   saveProfileAvatar,
 } = require('../utils/publicBookStorage');
 const { parsePublicBookChapters } = require('../utils/publicBookParser');
+const { isMeaningfulPublicText } = require('../utils/publicText');
 const { buildBookIntroduction } = require('../services/bookIntroduction.service');
 
 const uuidPattern =

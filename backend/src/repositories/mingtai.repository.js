@@ -1701,19 +1701,7 @@ async function listBookReviews(publicBookId, { limit = 20 } = {}) {
 
 async function createBookReview(userId, publicBookId, content, clientRequestId = null) {
   const result = await query(
-    `WITH book AS (
-       SELECT id
-       FROM public_books
-       WHERE id = $2
-     ),
-     profile AS (
-       INSERT INTO user_profiles (user_id, nickname)
-       SELECT id, split_part(email, '@', 1)
-       FROM users
-       WHERE id = $1
-       ON CONFLICT (user_id) DO NOTHING
-     ),
-     created AS (
+    `WITH created AS (
        INSERT INTO book_reviews (
          public_book_id,
          user_id,
@@ -1721,11 +1709,12 @@ async function createBookReview(userId, publicBookId, content, clientRequestId =
          content
        )
        SELECT book.id, $1, NULLIF($4, ''), $3
-       FROM book
+       FROM public_books book
+       WHERE book.id = $2
        ON CONFLICT (user_id, client_request_id)
        WHERE client_request_id IS NOT NULL
        DO UPDATE SET content = EXCLUDED.content
-       RETURNING id
+       RETURNING *
      )
      SELECT
        r.id,
@@ -1743,8 +1732,7 @@ async function createBookReview(userId, publicBookId, content, clientRequestId =
        (SELECT COUNT(*) FROM book_review_comments rc WHERE rc.review_id = r.id) AS comment_count,
        r.created_at,
        r.updated_at
-     FROM book_reviews r
-     INNER JOIN created c ON c.id = r.id
+     FROM created r
      INNER JOIN public_books b ON b.id = r.public_book_id
      INNER JOIN users u ON u.id = r.user_id
      LEFT JOIN user_profiles p ON p.user_id = r.user_id`,
