@@ -70,7 +70,7 @@ function parseEpubChapters(buffer) {
 
 function parseTxtChapters(buffer, { title = '' } = {}) {
   const text = decodeText(buffer).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  const chunks = splitTxtChapters(text);
+  const chunks = splitOversizedTxtChapters(splitTxtChapters(text), 8000);
   const fallbackTitle = cleanText(title) || '正文';
   return chunks.map((chunk, index) => {
     const chapterTitleText = cleanText(chunk.title) || (
@@ -85,6 +85,25 @@ function parseTxtChapters(buffer, { title = '' } = {}) {
       href: '',
     };
   }).filter((chapter) => chapter.plain_text);
+}
+
+function splitOversizedTxtChapters(chapters, maxLength) {
+  const result = [];
+  for (const chapter of chapters) {
+    if (chapter.content.length <= maxLength) {
+      result.push(chapter);
+      continue;
+    }
+
+    const parts = splitTextByLength(chapter.content, maxLength);
+    for (let index = 0; index < parts.length; index += 1) {
+      result.push({
+        title: index === 0 ? chapter.title : `${chapter.title}（续${index}）`,
+        content: parts[index].content,
+      });
+    }
+  }
+  return result;
 }
 
 function splitTxtChapters(text) {
@@ -344,7 +363,61 @@ function joinArchivePath(base, href) {
 }
 
 function decodeText(buffer) {
-  return Buffer.from(buffer || []).toString('utf8').replace(/^\uFEFF/, '');
+  const bytes = Buffer.from(buffer || []);
+  if (bytes.length === 0) return '';
+
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return new TextDecoder('utf-8').decode(bytes.subarray(3));
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return new TextDecoder('utf-16le').decode(bytes.subarray(2));
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    return new TextDecoder('utf-16be').decode(bytes.subarray(2));
+  }
+
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (_) {
+    // Most legacy Chinese TXT files are GBK/GB18030. Big5 remains a candidate
+    // for traditional Chinese files; choose the decoding with the cleanest,
+    // most natural text rather than accepting replacement characters.
+  }
+
+  const utf16 = likelyUtf16Encoding(bytes);
+  if (utf16) return new TextDecoder(utf16).decode(bytes).replace(/^\uFEFF/, '');
+
+  return ['gb18030', 'big5']
+    .map((encoding) => new TextDecoder(encoding).decode(bytes))
+    .sort((a, b) => textDecodeScore(b) - textDecodeScore(a))[0]
+    .replace(/^\uFEFF/, '');
+}
+
+function likelyUtf16Encoding(bytes) {
+  const sampleLength = Math.min(bytes.length, 4096);
+  let evenZeros = 0;
+  let oddZeros = 0;
+  for (let index = 0; index < sampleLength; index += 1) {
+    if (bytes[index] !== 0) continue;
+    if (index % 2 === 0) evenZeros += 1;
+    else oddZeros += 1;
+  }
+  const pairs = Math.max(1, Math.floor(sampleLength / 2));
+  if (oddZeros / pairs > 0.25 && evenZeros / pairs < 0.05) return 'utf-16le';
+  if (evenZeros / pairs > 0.25 && oddZeros / pairs < 0.05) return 'utf-16be';
+  return '';
+}
+
+function textDecodeScore(value) {
+  const text = String(value || '');
+  const replacement = (text.match(/\uFFFD/g) || []).length;
+  const controls = (text.match(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g) || []).length;
+  const cjk = (text.match(/[\u3400-\u9FFF]/g) || []).length;
+  const commonHan = (
+    text.match(/[的一是在不了有和人这中大为上个国我以要他时来用们生到作地于出就分对成会可主发年动同工也能下过子说产种面而方后多定行学法所民得经十之进着等]/g) || []
+  ).length;
+  const punctuation = (text.match(/[，。！？；：“”‘’《》]/g) || []).length;
+  return cjk + commonHan * 5 + punctuation * 2 - replacement * 100 - controls * 30;
 }
 
 module.exports = {

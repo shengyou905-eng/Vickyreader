@@ -841,29 +841,18 @@ async function listBooks({ limit = 50, search = '', section = '' } = {}) {
 }
 
 async function getHome() {
-  const [
-    todayPage,
-    encounterPool,
-    recentThoughts,
-    recentDiscussions,
-    readingNow,
-    latestBooks,
-  ] =
-    await Promise.all([
-      getTodayPage(),
-      listEncounterMoments({ limit: 12 }),
-      listRecentThoughts({ limit: 4 }),
-      listRecentDiscussions({ limit: 4 }),
-      listBooks({ limit: 5, section: 'reading' }),
-      listBooks({ limit: 6 }),
-    ]);
+  const [encounterPool, recentThoughts, latestBooks] = await Promise.all([
+    listEncounterMoments({ limit: 12 }),
+    listRecentThoughts({ limit: 4 }),
+    listBooks({ limit: 6 }),
+  ]);
 
   return {
-    today_page: todayPage,
+    today_page: encounterPool[0] || null,
     encounter_pool: encounterPool,
     recent_thoughts: recentThoughts,
-    recent_discussions: recentDiscussions,
-    reading_now: readingNow.filter((book) => book.read_count > 0),
+    recent_discussions: [],
+    reading_now: [],
     latest_books: latestBooks,
   };
 }
@@ -1734,7 +1723,6 @@ async function createBookReview(userId, publicBookId, content, clientRequestId =
        SELECT book.id, $1, NULLIF($4, ''), $3
        FROM book
        ON CONFLICT (user_id, client_request_id)
-       WHERE client_request_id IS NOT NULL
        DO UPDATE SET content = EXCLUDED.content
        RETURNING id
      )

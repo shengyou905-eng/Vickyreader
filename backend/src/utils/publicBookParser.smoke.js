@@ -87,4 +87,18 @@ const chapters = parsePublicBookChapters(parsed.files.file.buffer, {
 });
 assert.strictEqual(chapters.length, 1);
 assert(chapters[0].plain_text.includes('hello world'));
-console.log('Mingtai multipart EPUB smoke test: ok');
+
+const gbkTxt = Buffer.from(
+  'b5dad2bbd5c20ad5e2cac7d6d0cec4c4dac8dd',
+  'hex',
+);
+const txtChapters = parsePublicBookChapters(gbkTxt, { fileType: 'txt' });
+assert.strictEqual(txtChapters.length, 1);
+assert(txtChapters[0].plain_text.includes('这是中文内容'));
+
+const longTxt = Buffer.from(`第一章\n${'这是较长的正文。'.repeat(1600)}`, 'utf8');
+const longTxtChapters = parsePublicBookChapters(longTxt, { fileType: 'txt' });
+assert(longTxtChapters.length > 1, 'oversized TXT chapter was not split');
+assert(longTxtChapters.every((chapter) => chapter.plain_text.length <= 8100));
+
+console.log('Mingtai EPUB/TXT parser smoke test: ok');

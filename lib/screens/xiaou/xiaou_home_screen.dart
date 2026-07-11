@@ -71,12 +71,18 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
       return;
     }
     _loadInFlight = true;
-    final cached =
-        BookService.cachedMingtaiOverview() ??
-        await BookService.restoreCachedMingtaiOverview();
-    final cachedHome =
-        BookService.cachedXiaouHomeInsight() ??
-        await BookService.restoreCachedXiaouHomeInsight();
+    final memoryOverview = BookService.cachedMingtaiOverview();
+    final memoryInsight = BookService.cachedXiaouHomeInsight();
+    final restored = await Future.wait<Object?>([
+      memoryOverview == null
+          ? BookService.restoreCachedMingtaiOverview()
+          : Future<MingtaiOverview?>.value(memoryOverview),
+      memoryInsight == null
+          ? BookService.restoreCachedXiaouHomeInsight()
+          : Future<XiaouHomeInsight?>.value(memoryInsight),
+    ]);
+    final cached = restored[0] as MingtaiOverview?;
+    final cachedHome = restored[1] as XiaouHomeInsight?;
     if (!mounted) {
       _loadInFlight = false;
       return;

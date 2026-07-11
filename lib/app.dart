@@ -58,27 +58,49 @@ class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
   int _xiaouRefreshSignal = 0;
   int _freeNotesRefreshSignal = 0;
+  int _mingtaiRefreshSignal = 0;
+  final Set<int> _initializedTabs = {0};
+  final Map<int, DateTime> _lastTabActivatedAt = {0: DateTime.now()};
 
-  List<Widget> get _pages => [
-    const BookshelfScreen(),
-    XiaouHomeScreen(refreshSignal: _xiaouRefreshSignal, autoLoad: false),
-    NotesFreeScreen(refreshSignal: _freeNotesRefreshSignal),
-    const MingtaiScreen(),
-  ];
+  Widget _pageAt(int index) {
+    if (!_initializedTabs.contains(index)) return const SizedBox.shrink();
+    return switch (index) {
+      0 => const BookshelfScreen(),
+      1 => XiaouHomeScreen(refreshSignal: _xiaouRefreshSignal),
+      2 => NotesFreeScreen(refreshSignal: _freeNotesRefreshSignal),
+      3 => MingtaiScreen(refreshSignal: _mingtaiRefreshSignal),
+      _ => const SizedBox.shrink(),
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(index: _currentIndex, children: _pages),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: List.generate(4, _pageAt, growable: false),
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
-        onDestinationSelected: (i) => setState(() {
-          final wasOnXiaou = _currentIndex == 1;
-          final wasOnFreeNotes = _currentIndex == 2;
-          _currentIndex = i;
-          if (i == 1 && !wasOnXiaou) _xiaouRefreshSignal++;
-          if (i == 2 && !wasOnFreeNotes) _freeNotesRefreshSignal++;
-        }),
+        onDestinationSelected: (i) {
+          if (i == _currentIndex) return;
+          final now = DateTime.now();
+          final wasInitialized = _initializedTabs.contains(i);
+          final lastActivatedAt = _lastTabActivatedAt[i];
+          final shouldCheckForUpdates =
+              wasInitialized &&
+              (lastActivatedAt == null ||
+                  now.difference(lastActivatedAt) >
+                      const Duration(seconds: 30));
+          setState(() {
+            _initializedTabs.add(i);
+            _lastTabActivatedAt[i] = now;
+            if (shouldCheckForUpdates && i == 1) _xiaouRefreshSignal++;
+            if (shouldCheckForUpdates && i == 2) _freeNotesRefreshSignal++;
+            if (shouldCheckForUpdates && i == 3) _mingtaiRefreshSignal++;
+            _currentIndex = i;
+          });
+        },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.menu_book_outlined),

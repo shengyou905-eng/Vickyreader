@@ -502,6 +502,30 @@ class MingtaiFeedItem {
       createdAt: BookService._tryParseDate(row['created_at']),
     );
   }
+
+  MingtaiFeedItem copyWithInteractionCounts({
+    int? resonanceCount,
+    int? commentCount,
+  }) {
+    return MingtaiFeedItem(
+      id: id,
+      entryId: entryId,
+      source: source,
+      bookId: bookId,
+      bookTitle: bookTitle,
+      bookAuthor: bookAuthor,
+      bookCover: bookCover,
+      chapterIndex: chapterIndex,
+      chapterTitle: chapterTitle,
+      originalText: originalText,
+      annotationText: annotationText,
+      tags: tags,
+      metadata: metadata,
+      resonanceCount: resonanceCount ?? this.resonanceCount,
+      commentCount: commentCount ?? this.commentCount,
+      createdAt: createdAt,
+    );
+  }
 }
 
 class MingtaiUserProfile {
@@ -571,6 +595,25 @@ class MingtaiBookReview {
       commentCount: int.tryParse(row['comment_count']?.toString() ?? '') ?? 0,
       createdAt: BookService._tryParseDate(row['created_at']),
       updatedAt: BookService._tryParseDate(row['updated_at']),
+    );
+  }
+
+  MingtaiBookReview copyWithInteractionCounts({
+    int? resonanceCount,
+    int? commentCount,
+  }) {
+    return MingtaiBookReview(
+      id: id,
+      publicBookId: publicBookId,
+      bookTitle: bookTitle,
+      bookAuthor: bookAuthor,
+      bookCover: bookCover,
+      user: user,
+      content: content,
+      resonanceCount: resonanceCount ?? this.resonanceCount,
+      commentCount: commentCount ?? this.commentCount,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
     );
   }
 }
@@ -710,6 +753,7 @@ class BookService {
   static DateTime? _mingtaiBooksCacheAt;
   static MingtaiHomeData? _mingtaiHomeCache;
   static DateTime? _mingtaiHomeCacheAt;
+  static Future<MingtaiHomeData>? _mingtaiHomeInFlight;
   static final Map<String, MingtaiBookDetail> _mingtaiBookDetailCache = {};
   static final Map<String, DateTime> _mingtaiBookDetailCacheAt = {};
   static final Map<String, Future<String>> _publicBookDownloadTasks = {};
@@ -717,8 +761,10 @@ class BookService {
   static final Map<String, Future<void>> _mingtaiOpeningPrefetchTasks = {};
   static MingtaiOverview? _mingtaiOverviewCache;
   static DateTime? _mingtaiOverviewCacheAt;
+  static Future<MingtaiOverview>? _mingtaiOverviewInFlight;
   static XiaouHomeInsight? _xiaouHomeInsightCache;
   static DateTime? _xiaouHomeInsightCacheAt;
+  static Future<XiaouHomeInsight>? _xiaouHomeInsightInFlight;
   static const Duration _mingtaiBooksCacheTtl = Duration(seconds: 90);
   static const Duration _mingtaiBookDetailCacheTtl = Duration(seconds: 60);
   static const Duration _mingtaiOverviewCacheTtl = Duration(seconds: 60);
@@ -1577,18 +1623,32 @@ class BookService {
         DateTime.now().difference(cacheAt) < _xiaouHomeInsightCacheTtl;
     if (!forceRefresh && cacheFresh) return cached;
 
+    final running = _xiaouHomeInsightInFlight;
+    if (running != null) return running;
+
+    late final Future<XiaouHomeInsight> request;
+    request = (() async {
+      try {
+        final row = await BmobApi.instance.getXiaouHomeInsight();
+        final insight = XiaouHomeInsight.fromRemote(row);
+        _xiaouHomeInsightCache = insight;
+        _xiaouHomeInsightCacheAt = DateTime.now();
+        unawaited(_writeDiskMap(_xiaouHomeDiskCacheKey, row));
+        return insight;
+      } catch (_) {
+        if (cached != null) return cached;
+        final disk = await restoreCachedXiaouHomeInsight();
+        if (disk != null) return disk;
+        rethrow;
+      }
+    })();
+    _xiaouHomeInsightInFlight = request;
     try {
-      final row = await BmobApi.instance.getXiaouHomeInsight();
-      final insight = XiaouHomeInsight.fromRemote(row);
-      _xiaouHomeInsightCache = insight;
-      _xiaouHomeInsightCacheAt = DateTime.now();
-      unawaited(_writeDiskMap(_xiaouHomeDiskCacheKey, row));
-      return insight;
-    } catch (_) {
-      if (cached != null) return cached;
-      final disk = await restoreCachedXiaouHomeInsight();
-      if (disk != null) return disk;
-      rethrow;
+      return await request;
+    } finally {
+      if (identical(_xiaouHomeInsightInFlight, request)) {
+        _xiaouHomeInsightInFlight = null;
+      }
     }
   }
 
@@ -1659,20 +1719,34 @@ class BookService {
         DateTime.now().difference(cacheAt) < _mingtaiBooksCacheTtl;
     if (!forceRefresh && cacheFresh) return cached;
 
-    try {
-      final data = await BmobApi.instance.getMingtaiHome();
-      final home = MingtaiHomeData.fromRemote(data);
-      _mingtaiHomeCache = home;
-      _mingtaiHomeCacheAt = DateTime.now();
-      unawaited(_writeDiskMap(_mingtaiHomeDiskCacheKey, data));
-      return home;
-    } catch (_) {
-      if (!forceRefresh) {
-        if (cached != null) return cached;
-        final disk = await restoreCachedMingtaiHome();
-        if (disk != null) return disk;
+    final running = _mingtaiHomeInFlight;
+    if (running != null) return running;
+
+    late final Future<MingtaiHomeData> request;
+    request = (() async {
+      try {
+        final data = await BmobApi.instance.getMingtaiHome();
+        final home = MingtaiHomeData.fromRemote(data);
+        _mingtaiHomeCache = home;
+        _mingtaiHomeCacheAt = DateTime.now();
+        unawaited(_writeDiskMap(_mingtaiHomeDiskCacheKey, data));
+        return home;
+      } catch (_) {
+        if (!forceRefresh) {
+          if (cached != null) return cached;
+          final disk = await restoreCachedMingtaiHome();
+          if (disk != null) return disk;
+        }
+        rethrow;
       }
-      rethrow;
+    })();
+    _mingtaiHomeInFlight = request;
+    try {
+      return await request;
+    } finally {
+      if (identical(_mingtaiHomeInFlight, request)) {
+        _mingtaiHomeInFlight = null;
+      }
     }
   }
 
@@ -2240,6 +2314,7 @@ class BookService {
       rows = await BmobApi.instance.listMingtaiBookChapters(publicBookId);
     } catch (_) {
       final titles = await EpubService.getChapterTitles(bookId);
+      if (titles.isEmpty) rethrow;
       return [
         for (var i = 0; i < titles.length; i++)
           EpubChapter(title: titles[i], content: '', index: i),
@@ -2747,23 +2822,37 @@ class BookService {
       return _filterMingtaiOverview(cached, tag);
     }
 
-    List<Map<String, dynamic>> rows;
-    try {
-      rows = await api.listUserEntries(limit: 300);
-    } catch (_) {
-      if (cached != null) {
-        return _filterMingtaiOverview(cached, tag);
-      }
-      final disk = await restoreCachedMingtaiOverview(tag: tag);
-      if (disk != null) return disk;
-      rethrow;
+    final running = _mingtaiOverviewInFlight;
+    if (running != null) {
+      return _filterMingtaiOverview(await running, tag);
     }
-    unawaited(_writeDiskMapList(_xiaouOverviewDiskCacheKey, rows));
 
-    final overview = _buildMingtaiOverviewFromRows(rows);
-    _mingtaiOverviewCache = overview;
-    _mingtaiOverviewCacheAt = DateTime.now();
-    return _filterMingtaiOverview(overview, tag);
+    late final Future<MingtaiOverview> request;
+    request = (() async {
+      List<Map<String, dynamic>> rows;
+      try {
+        rows = await api.listUserEntries(limit: 300);
+      } catch (_) {
+        if (cached != null) return cached;
+        final disk = await restoreCachedMingtaiOverview();
+        if (disk != null) return disk;
+        rethrow;
+      }
+      unawaited(_writeDiskMapList(_xiaouOverviewDiskCacheKey, rows));
+
+      final overview = _buildMingtaiOverviewFromRows(rows);
+      _mingtaiOverviewCache = overview;
+      _mingtaiOverviewCacheAt = DateTime.now();
+      return overview;
+    })();
+    _mingtaiOverviewInFlight = request;
+    try {
+      return _filterMingtaiOverview(await request, tag);
+    } finally {
+      if (identical(_mingtaiOverviewInFlight, request)) {
+        _mingtaiOverviewInFlight = null;
+      }
+    }
   }
 
   static MingtaiOverview _buildMingtaiOverviewFromRows(

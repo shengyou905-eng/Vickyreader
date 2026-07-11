@@ -15,7 +15,9 @@ import '../../services/book_service.dart';
 import '../reader/reader_screen.dart';
 
 class MingtaiScreen extends StatefulWidget {
-  const MingtaiScreen({super.key});
+  final int refreshSignal;
+
+  const MingtaiScreen({super.key, this.refreshSignal = 0});
 
   @override
   State<MingtaiScreen> createState() => _MingtaiScreenState();
@@ -40,6 +42,14 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant MingtaiScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.refreshSignal != oldWidget.refreshSignal) {
+      _load();
+    }
   }
 
   Future<void> _load({bool forceRefresh = false}) async {
@@ -2000,6 +2010,41 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
     return fromBook > fromItems ? fromBook : fromItems;
   }
 
+  void _updateTraceInteractionCounts(
+    String itemId,
+    int resonanceCount,
+    int commentCount,
+  ) {
+    final detail = _detail;
+    if (detail == null) return;
+    final annotations = detail.annotations.map((item) {
+      if (item.id != itemId) return item;
+      return item.copyWithInteractionCounts(
+        resonanceCount: resonanceCount,
+        commentCount: commentCount,
+      );
+    }).toList();
+    setState(() {
+      _detail = MingtaiBookDetail(book: detail.book, annotations: annotations);
+    });
+  }
+
+  void _updateReviewInteractionCounts(
+    String reviewId,
+    int resonanceCount,
+    int commentCount,
+  ) {
+    setState(() {
+      _reviews = _reviews.map((review) {
+        if (review.id != reviewId) return review;
+        return review.copyWithInteractionCounts(
+          resonanceCount: resonanceCount,
+          commentCount: commentCount,
+        );
+      }).toList();
+    });
+  }
+
   void _openTraceSheet(MingtaiFeedItem item) {
     showModalBottomSheet<void>(
       context: context,
@@ -2015,7 +2060,12 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
         secondaryText: item.annotationText.trim(),
         initialResonanceCount: item.resonanceCount,
         initialCommentCount: item.commentCount,
-        onChanged: () => unawaited(_load(forceRefresh: true)),
+        onChanged: (resonanceCount, commentCount) =>
+            _updateTraceInteractionCounts(
+              item.id,
+              resonanceCount,
+              commentCount,
+            ),
       ),
     );
   }
@@ -2134,7 +2184,7 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
                   submitting: _submittingReview,
                   onWrite: _showReviewDialog,
                   onOpenProfile: _openProfile,
-                  onChanged: () => unawaited(_loadReviews()),
+                  onChanged: _updateReviewInteractionCounts,
                 ),
               ],
             ),
@@ -3586,7 +3636,8 @@ class _BookReviewSection extends StatelessWidget {
   final bool submitting;
   final VoidCallback onWrite;
   final ValueChanged<String> onOpenProfile;
-  final VoidCallback onChanged;
+  final void Function(String reviewId, int resonanceCount, int commentCount)
+  onChanged;
 
   const _BookReviewSection({
     required this.reviews,
@@ -3655,7 +3706,8 @@ class _BookReviewSection extends StatelessWidget {
                   (review) => _BookReviewCard(
                     review: review,
                     onOpenProfile: () => onOpenProfile(review.user.userId),
-                    onChanged: onChanged,
+                    onChanged: (resonanceCount, commentCount) =>
+                        onChanged(review.id, resonanceCount, commentCount),
                   ),
                 ),
         ],
@@ -3667,7 +3719,7 @@ class _BookReviewSection extends StatelessWidget {
 class _BookReviewCard extends StatelessWidget {
   final MingtaiBookReview review;
   final VoidCallback onOpenProfile;
-  final VoidCallback onChanged;
+  final void Function(int resonanceCount, int commentCount) onChanged;
 
   const _BookReviewCard({
     required this.review,
@@ -4013,7 +4065,7 @@ class _InteractionDetailSheet extends StatefulWidget {
   final int initialResonanceCount;
   final int initialCommentCount;
   final VoidCallback? onOpenProfile;
-  final VoidCallback? onChanged;
+  final void Function(int resonanceCount, int commentCount)? onChanged;
 
   const _InteractionDetailSheet({
     required this.targetType,
@@ -4037,6 +4089,7 @@ class _InteractionDetailSheet extends StatefulWidget {
 class _InteractionDetailSheetState extends State<_InteractionDetailSheet> {
   List<MingtaiInteractionComment> _comments = const [];
   late int _resonanceCount;
+  late int _commentCount;
   bool _loadingComments = true;
   bool _resonating = false;
   bool _commenting = false;
@@ -4046,6 +4099,7 @@ class _InteractionDetailSheetState extends State<_InteractionDetailSheet> {
   void initState() {
     super.initState();
     _resonanceCount = widget.initialResonanceCount;
+    _commentCount = widget.initialCommentCount;
     _loadComments();
   }
 
@@ -4058,6 +4112,7 @@ class _InteractionDetailSheetState extends State<_InteractionDetailSheet> {
       if (!mounted) return;
       setState(() {
         _comments = comments;
+        if (comments.length > _commentCount) _commentCount = comments.length;
         _loadingComments = false;
         _commentsError = null;
       });
@@ -4092,7 +4147,7 @@ class _InteractionDetailSheetState extends State<_InteractionDetailSheet> {
       setState(() {
         _resonanceCount = count > 0 ? count : _resonanceCount;
       });
-      widget.onChanged?.call();
+      widget.onChanged?.call(_resonanceCount, _commentCount);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('共鸣已留下'),
@@ -4147,8 +4202,11 @@ class _InteractionDetailSheetState extends State<_InteractionDetailSheet> {
         content: content,
       );
       if (!mounted) return;
-      setState(() => _comments = [..._comments, comment]);
-      widget.onChanged?.call();
+      setState(() {
+        _comments = [..._comments, comment];
+        _commentCount++;
+      });
+      widget.onChanged?.call(_resonanceCount, _commentCount);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(

@@ -12,6 +12,7 @@ import '../services/epub_service.dart';
 import '../services/auth_service.dart';
 
 class ReaderProvider extends ChangeNotifier {
+  static const _publicBookOpenTimeout = Duration(seconds: 30);
   Book? _book;
   List<EpubChapter> _chapters = [];
   int _currentChapterIndex = 0;
@@ -79,7 +80,11 @@ class ReaderProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final readableBook = await BookService.prepareBookForReading(book);
+      final readableBook = await BookService.prepareBookForReading(book)
+          .timeout(
+            _publicBookOpenTimeout,
+            onTimeout: () => throw TimeoutException('明台书籍准备超时'),
+          );
       if (token != _openBookToken || _disposed) return;
       _book = readableBook;
       _loadingMessage = '正在整理章节…';
@@ -112,7 +117,10 @@ class ReaderProvider extends ChangeNotifier {
       );
       _loadingMessage = '正在加载当前章节…';
       notifyListeners();
-      await _loadChapterContent(restored.chapterIndex, notify: false);
+      await _loadChapterContent(restored.chapterIndex, notify: false).timeout(
+        _publicBookOpenTimeout,
+        onTimeout: () => throw TimeoutException('章节内容加载超时'),
+      );
       if (token != _openBookToken || _disposed) return;
       _checkBookmarkStatus();
       _isLoading = false;
@@ -130,7 +138,9 @@ class ReaderProvider extends ChangeNotifier {
     } catch (e) {
       if (token != _openBookToken || _disposed) return;
       _isLoading = false;
-      _loadError = '打开书籍失败：$e';
+      _loadError = e is TimeoutException
+          ? '打开书籍超时。网络或服务器响应较慢，请稍后重试。'
+          : '打开书籍失败：$e';
       notifyListeners();
     }
   }
@@ -153,9 +163,13 @@ class ReaderProvider extends ChangeNotifier {
       return chapter;
     }
 
-    final content = BookService.isMingtaiShelfBook(book)
+    final isMingtaiBook = BookService.isMingtaiShelfBook(book);
+    final content = isMingtaiBook
         ? await BookService.getMingtaiChapterContent(book.id, index)
         : await EpubService.getChapterContent(book.id, index);
+    if (isMingtaiBook && content.trim().isEmpty) {
+      throw Exception('服务器返回的章节内容为空，请重新发布这本书');
+    }
     if (_disposed ||
         _book?.id != book.id ||
         index < 0 ||
