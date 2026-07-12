@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../config/constants.dart';
 import '../models/ai_conversation.dart';
+import '../models/ai_explain_mode.dart';
 import 'auth_service.dart';
 
 class AiService {
@@ -13,9 +14,12 @@ class AiService {
   static Stream<String> explainStream({
     required String selectedText,
     required String contextBefore,
+    required String paragraph,
     required String contextAfter,
     required String bookTitle,
     required String bookAuthor,
+    required String chapterTitle,
+    required AiExplainMode mode,
     List<AiMessage>? conversationHistory,
   }) {
     final history = (conversationHistory ?? [])
@@ -25,9 +29,12 @@ class AiService {
     return _sseStream('/api/ai/explain', {
       'selectedText': selectedText,
       'contextBefore': contextBefore,
+      'paragraph': paragraph,
       'contextAfter': contextAfter,
       'bookTitle': bookTitle,
       'bookAuthor': bookAuthor,
+      'chapterTitle': chapterTitle,
+      'mode': mode.apiValue,
       'history': history,
     });
   }
@@ -56,10 +63,7 @@ class AiService {
         .map((m) => {'role': m.role, 'content': m.content})
         .toList();
 
-    return _sseStream('/api/ai/chat', {
-      'message': message,
-      'history': history,
-    });
+    return _sseStream('/api/ai/chat', {'message': message, 'history': history});
   }
 
   /// 连接后端 SSE，逐 chunk yield
@@ -95,9 +99,10 @@ class AiService {
         throw Exception(errorMsg);
       }
 
-      await for (final line in streamed.stream
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())) {
+      await for (final line
+          in streamed.stream
+              .transform(utf8.decoder)
+              .transform(const LineSplitter())) {
         if (!line.startsWith('data: ')) continue;
         final data = line.substring(6).trim();
         if (data == '[DONE]') return;
@@ -131,7 +136,8 @@ class AiService {
         raw.contains('小U已收敛')) {
       return '小U现在支持自由提问。如果这里还出现旧提示，请部署最新后端并重启服务。';
     }
-    if (raw.contains('TimeoutException') || raw.contains('Future not completed')) {
+    if (raw.contains('TimeoutException') ||
+        raw.contains('Future not completed')) {
       return '这段内容有些复杂，小U思考得久了一点。请稍后重试。';
     }
     if (raw.contains('SocketException') ||

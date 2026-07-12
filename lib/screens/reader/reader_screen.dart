@@ -574,9 +574,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     bottom: 0,
                     left: 0,
                     right: 0,
-                    height: (MediaQuery.of(context).size.height * 0.36).clamp(
-                      260.0,
-                      380.0,
+                    height: (MediaQuery.of(context).size.height * 0.4).clamp(
+                      310.0,
+                      430.0,
                     ),
                     child: AiExplanationCard(
                       onClose: () => _closeAiExplanation(reader),

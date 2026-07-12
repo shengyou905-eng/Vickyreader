@@ -417,6 +417,70 @@ class EpubService {
     return (before: before, after: after);
   }
 
+  static ({String before, String paragraph, String after}) getReadingContext(
+    String htmlContent,
+    String selectedText, {
+    int surroundingChars = 600,
+  }) {
+    final context = getContext(htmlContent, selectedText, surroundingChars);
+    final document = html_parser.parse(htmlContent);
+    final normalizedSelection = _normalizeReadingText(selectedText);
+    var paragraph = '';
+
+    if (normalizedSelection.isNotEmpty) {
+      for (final element in document.querySelectorAll(
+        'p, li, blockquote, h1, h2, h3, h4, h5, h6',
+      )) {
+        final candidate = _normalizeReadingText(element.text);
+        if (candidate.contains(normalizedSelection)) {
+          paragraph = candidate;
+          break;
+        }
+      }
+    }
+
+    if (paragraph.isEmpty) {
+      final plainText = _normalizeReadingText(document.body?.text ?? '');
+      final index = plainText.indexOf(normalizedSelection);
+      if (index >= 0) {
+        final start = _readingBoundaryBefore(plainText, index);
+        final end = _readingBoundaryAfter(
+          plainText,
+          index + normalizedSelection.length,
+        );
+        paragraph = plainText.substring(start, end).trim();
+      }
+    }
+
+    if (paragraph.length > 1800) {
+      paragraph = '${paragraph.substring(0, 1800)}……';
+    }
+    return (before: context.before, paragraph: paragraph, after: context.after);
+  }
+
+  static String _normalizeReadingText(String value) {
+    return value.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  static int _readingBoundaryBefore(String text, int index) {
+    var start = index;
+    while (start > 0 && index - start < 900) {
+      if ('。！？\n'.contains(text[start - 1])) break;
+      start -= 1;
+    }
+    return start;
+  }
+
+  static int _readingBoundaryAfter(String text, int index) {
+    var end = index.clamp(0, text.length).toInt();
+    while (end < text.length && end - index < 900) {
+      final character = text[end];
+      end += 1;
+      if ('。！？\n'.contains(character)) break;
+    }
+    return end;
+  }
+
   // ---- Internal ----
 
   static ArchiveFile? _findContainerFile(Archive archive) {

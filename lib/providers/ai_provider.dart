@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../models/ai_conversation.dart';
+import '../models/ai_explain_mode.dart';
 import '../models/user_entry.dart';
 import '../services/auth_service.dart';
 import '../services/ai_service.dart';
@@ -20,6 +21,7 @@ class AiProvider extends ChangeNotifier {
   Completer<void>? _activeCompleter;
   int _activeGeneration = 0;
   bool _cancelRequested = false;
+  final Map<String, String> _explanationCache = {};
 
   List<AiMessage> get messages => _messages;
   bool get isLoading => _isLoading;
@@ -39,17 +41,32 @@ class AiProvider extends ChangeNotifier {
     required String chapterContent,
     required String chapterIndex,
     String chapterTitle = '',
+    AiExplainMode mode = AiExplainMode.auto,
   }) async {
-    final generation = _startGeneration('小U正在阅读这一段…');
+    final generation = _startGeneration(mode.loadingText);
     notifyListeners();
 
     try {
-      final context = EpubService.getContext(chapterContent, selectedText, 200);
+      final context = EpubService.getReadingContext(
+        chapterContent,
+        selectedText,
+      );
+      final cacheKey = [
+        _bookId ?? '',
+        chapterIndex,
+        mode.apiValue,
+        selectedText,
+        context.paragraph,
+      ].join('|');
+      final cached = _explanationCache[cacheKey];
 
-      // 先加用户消息
+      final previousHistory = _messages.length > 6
+          ? _messages.sublist(_messages.length - 6)
+          : List<AiMessage>.from(_messages);
+
       final userMsg = AiMessage(
         role: 'user',
-        content: '「$selectedText」',
+        content: '「$selectedText」\n${mode.fullLabel}',
         timestamp: DateTime.now(),
       );
       _messages.add(userMsg);
@@ -63,21 +80,29 @@ class AiProvider extends ChangeNotifier {
       _messages.add(aiMsg);
       notifyListeners();
 
-      final history = _messages.length > 6
-          ? _messages.sublist(_messages.length - 6)
-          : _messages;
-      // 去掉刚加的占位消息
-      final historyWithoutLast =
-          history.where((m) => m.content.isNotEmpty).toList();
+      if (cached != null && cached.trim().isNotEmpty) {
+        _messages[_messages.length - 1] = AiMessage(
+          role: 'assistant',
+          content: cached,
+          timestamp: aiMsg.timestamp,
+        );
+        _finishGeneration(generation);
+        return;
+      }
 
       final buffer = StringBuffer();
       final stream = AiService.explainStream(
         selectedText: selectedText,
         contextBefore: context.before,
+        paragraph: context.paragraph,
         contextAfter: context.after,
         bookTitle: bookTitle,
         bookAuthor: bookAuthor,
-        conversationHistory: historyWithoutLast,
+        chapterTitle: chapterTitle,
+        mode: mode,
+        conversationHistory: previousHistory
+            .where((message) => message.content.trim().isNotEmpty)
+            .toList(growable: false),
       );
 
       final completed = await _consumeStream(
@@ -91,6 +116,10 @@ class AiProvider extends ChangeNotifier {
       final result = buffer.toString();
       if (result.trim().isEmpty) {
         throw Exception('小U暂时没有想好，请稍后重试。');
+      }
+      _explanationCache[cacheKey] = result;
+      if (_explanationCache.length > 24) {
+        _explanationCache.remove(_explanationCache.keys.first);
       }
 
       // 保存到本地
@@ -115,9 +144,12 @@ class AiProvider extends ChangeNotifier {
             chapterTitle: chapterTitle,
             originalText: selectedText,
             aiExplanation: result,
-            autoTags: const ['小U解释'],
+            autoTags: ['小U解释', mode.fullLabel],
             autoSummary: _summaryOf(result),
-            metadataJson: jsonEncode({'book_author': bookAuthor}),
+            metadataJson: jsonEncode({
+              'book_author': bookAuthor,
+              'explain_mode': mode.apiValue,
+            }),
             createdAt: DateTime.now(),
             updatedAt: DateTime.now().toUtc().toIso8601String(),
           ),
@@ -166,9 +198,7 @@ class AiProvider extends ChangeNotifier {
       _messages.add(aiMsg);
       notifyListeners();
 
-      final history = _messages
-          .where((m) => m.content.isNotEmpty)
-          .toList();
+      final history = _messages.where((m) => m.content.isNotEmpty).toList();
       history.removeLast(); // 去掉刚加的占位
 
       final buffer = StringBuffer();

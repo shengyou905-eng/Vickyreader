@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../../config/theme.dart';
 import '../../../models/ai_conversation.dart';
+import '../../../models/ai_explain_mode.dart';
 import '../../../providers/ai_provider.dart';
 import '../../../providers/reader_provider.dart';
 import '../../../services/book_service.dart';
@@ -29,6 +30,13 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
   bool _published = false;
   int _sessionStartIndex = 0;
   String? _setupError;
+  AiExplainMode _activeMode = AiExplainMode.auto;
+  String _selectedText = '';
+  String _bookTitle = '';
+  String _bookAuthor = '';
+  String _chapterContent = '';
+  String _chapterIndex = '';
+  String _chapterTitle = '';
 
   @override
   void initState() {
@@ -58,18 +66,16 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
     try {
       await ai.loadHistory(book.id);
       if (!mounted) return;
-      _sessionStartIndex = ai.messages.length;
       final chapter = await reader.ensureChapterLoaded();
       if (!mounted) return;
+      _selectedText = selectedText;
+      _bookTitle = book.title;
+      _bookAuthor = book.author;
+      _chapterContent = chapter?.content ?? '';
+      _chapterIndex = reader.currentChapterIndex.toString();
+      _chapterTitle = chapter?.title ?? '';
       setState(() => _preparing = false);
-      await ai.explain(
-        selectedText: selectedText,
-        bookTitle: book.title,
-        bookAuthor: book.author,
-        chapterContent: chapter?.content ?? '',
-        chapterIndex: reader.currentChapterIndex.toString(),
-        chapterTitle: chapter?.title ?? '',
-      );
+      await _runExplanation(ai);
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -80,10 +86,43 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
   }
 
   void _retry() {
-    context.read<AiProvider>().clearError();
-    _initialized = false;
-    _sessionStartIndex = 0;
-    _loadExplanation();
+    final ai = context.read<AiProvider>();
+    ai.clearError();
+    if (_selectedText.isEmpty) {
+      _initialized = false;
+      _loadExplanation();
+      return;
+    }
+    _runExplanation(ai);
+  }
+
+  Future<void> _runExplanation(AiProvider ai) async {
+    if (_selectedText.isEmpty) return;
+    _sessionStartIndex = ai.messages.length;
+    if (mounted) {
+      setState(() => _setupError = null);
+    }
+    await ai.explain(
+      selectedText: _selectedText,
+      bookTitle: _bookTitle,
+      bookAuthor: _bookAuthor,
+      chapterContent: _chapterContent,
+      chapterIndex: _chapterIndex,
+      chapterTitle: _chapterTitle,
+      mode: _activeMode,
+    );
+  }
+
+  Future<void> _selectMode(AiExplainMode mode) async {
+    if (_activeMode == mode) return;
+    setState(() {
+      _activeMode = mode;
+      _setupError = null;
+    });
+    final ai = context.read<AiProvider>();
+    await ai.cancelGeneration();
+    if (!mounted || _preparing) return;
+    await _runExplanation(ai);
   }
 
   void _sendFollowUp() {
@@ -207,6 +246,9 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
                         palette: palette,
                         primary: primary,
                       ),
+                      if (_selectedText.isNotEmpty)
+                        _buildSelectedText(palette, primary),
+                      _buildModeSelector(palette, primary),
                       Expanded(
                         child: error != null
                             ? _buildError(error, palette, primary)
@@ -267,7 +309,7 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
         ? '小U正在读这一段'
         : ai.isLoading
         ? ai.loadingText ?? '小U正在组织语言'
-        : '小U解读';
+        : _activeMode.fullLabel;
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 5, 10, 8),
       child: Row(
@@ -327,6 +369,87 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
     );
   }
 
+  Widget _buildSelectedText(AppPalette palette, Color primary) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '“',
+            style: TextStyle(
+              fontSize: 18,
+              height: 1.1,
+              color: primary.withAlpha(115),
+            ),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              _selectedText.replaceAll(RegExp(r'\s+'), ' ').trim(),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12.5,
+                height: 1.45,
+                color: palette.textSecondary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModeSelector(AppPalette palette, Color primary) {
+    return SizedBox(
+      height: 38,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(18, 0, 18, 7),
+        itemCount: AiExplainMode.values.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 5),
+        itemBuilder: (context, index) {
+          final mode = AiExplainMode.values[index];
+          final selected = mode == _activeMode;
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => _selectMode(mode),
+              borderRadius: BorderRadius.circular(12),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                constraints: const BoxConstraints(minWidth: 52),
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(horizontal: 11),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? primary.withAlpha(24)
+                      : Colors.white.withAlpha(52),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: selected
+                        ? primary.withAlpha(48)
+                        : Colors.white.withAlpha(80),
+                    width: 0.5,
+                  ),
+                ),
+                child: Text(
+                  mode.label,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    color: selected ? primary : palette.textSecondary,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildMessages({
     required List<AiMessage> messages,
     required bool isWorking,
@@ -369,14 +492,10 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
         if (!isUser) {
           return Padding(
             padding: const EdgeInsets.only(bottom: 14),
-            child: Text(
-              content,
-              style: TextStyle(
-                fontSize: 14.5,
-                fontWeight: FontWeight.w400,
-                height: 1.72,
-                color: palette.textPrimary,
-              ),
+            child: _StructuredExplanationText(
+              content: content,
+              textColor: palette.textPrimary,
+              accent: primary,
             ),
           );
         }
@@ -536,6 +655,79 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
     _followUpController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+}
+
+class _StructuredExplanationText extends StatelessWidget {
+  static const _headings = {
+    '难点在哪里',
+    '核心解释',
+    '文本依据',
+    '核心意思',
+    '换成日常语言',
+    '需要留意',
+    '核心命题',
+    '句法骨架',
+    '修饰与指代',
+    '逻辑关系',
+    '论证位置',
+    '通俗改写',
+    '关键概念',
+    '本文中的含义',
+    '容易混淆',
+    '概念之间的关系',
+    '放回原句',
+    '这段的作用',
+    '作者的主张',
+    '前提与依据',
+    '推理链条',
+    '限定与潜在异议',
+    '结论边界',
+  };
+
+  final String content;
+  final Color textColor;
+  final Color accent;
+
+  const _StructuredExplanationText({
+    required this.content,
+    required this.textColor,
+    required this.accent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = content.split('\n');
+    return Text.rich(
+      TextSpan(
+        children: [
+          for (var index = 0; index < lines.length; index++) ...[
+            TextSpan(
+              text: lines[index],
+              style: _isHeading(lines[index])
+                  ? TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                      height: index == 0 ? 1.5 : 2.25,
+                      color: Color.lerp(textColor, accent, 0.24),
+                    )
+                  : TextStyle(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w400,
+                      height: 1.72,
+                      color: textColor,
+                    ),
+            ),
+            if (index < lines.length - 1) const TextSpan(text: '\n'),
+          ],
+        ],
+      ),
+    );
+  }
+
+  bool _isHeading(String line) {
+    final normalized = line.trim().replaceFirst(RegExp(r'[：:]$'), '');
+    return _headings.contains(normalized);
   }
 }
 
