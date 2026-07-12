@@ -1,0 +1,64 @@
+name: Build iOS Internal IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/ios-unsigned.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios:
+    name: Build unsigned iOS IPA
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.38.9
+          cache: true
+
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+
+      - name: Configure internal iOS build
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 知读（内部测试）" ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" ios/Runner/Info.plist
+
+      - name: Build iOS app without code signing
+        run: |
+          flutter build ios \
+            --release \
+            --no-codesign \
+            --dart-define=API_BASE_URL=http://101.32.186.151:3000 \
+            --dart-define=ALLOW_INSECURE_HTTP=true
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p build/ios/ipa/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ios/ipa/Payload/
+          cd build/ios/ipa
+          zip -qry "zhidu-ios-unsigned-${GITHUB_SHA::7}.ipa" Payload
+          shasum -a 256 "zhidu-ios-unsigned-${GITHUB_SHA::7}.ipa" > SHA256SUMS.txt
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zhidu-ios-unsigned-${{ github.sha }}
+          path: |
+            build/ios/ipa/*.ipa
+            build/ios/ipa/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
