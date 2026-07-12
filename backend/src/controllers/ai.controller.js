@@ -5,6 +5,7 @@ const httpError = require('../utils/httpError');
 
 const DEEPSEEK_URL = 'https://api.deepseek.com/v1/chat/completions';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
 
 const EXPLAIN_MODES = new Set(['auto', 'plain', 'structure', 'concept', 'argument']);
 
@@ -279,7 +280,8 @@ async function streamDeepSeek(req, res, messages, options = {}) {
         Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'deepseek-chat',
+        model: DEEPSEEK_MODEL,
+        thinking: { type: 'disabled' },
         messages,
         temperature: options.temperature ?? 0.7,
         max_tokens: options.maxTokens ?? 1200,

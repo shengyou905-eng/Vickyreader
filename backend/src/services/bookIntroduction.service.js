@@ -1,5 +1,6 @@
 const DEEPSEEK_URL = 'https://api.deepseek.com/v1/chat/completions';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
 
 const USER_AGENT = 'ZhiDuReader/1.0 (public reading library)';
 
@@ -168,7 +169,8 @@ async function generateGuideWithAi({ title, author, text, source }) {
         Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'deepseek-chat',
+        model: DEEPSEEK_MODEL,
+        thinking: { type: 'disabled' },
         temperature: 0.2,
         max_tokens: 520,
         messages: [

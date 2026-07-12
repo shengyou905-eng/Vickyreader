@@ -10,7 +10,7 @@ import '../../providers/reader_provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/book_service.dart';
 import '../../services/sync_service.dart';
-import '../mingtai/mingtai_screen.dart';
+import '../mingtai/community_mingtai_screen.dart';
 import '../reader/reader_screen.dart';
 import 'widgets/book_grid_tile.dart';
 import 'widgets/empty_bookshelf.dart';
@@ -71,27 +71,8 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
   }
 
   void _openBook(Book book) {
-    if (BookService.isMingtaiShelfBook(book)) {
-      final readerProvider = context.read<ReaderProvider>();
-      unawaited(readerProvider.openBook(book));
-      if (mounted) {
-        Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => const ReaderScreen()));
-      }
-      return;
-    }
-    if (book.format == 'public') {
-      final publicBookId = _publicBookIdFromShelfBook(book);
-      if (publicBookId.isEmpty) {
-        _showError('找不到明台书籍 id');
-        return;
-      }
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => MingtaiBookDetailScreen(bookId: publicBookId),
-        ),
-      );
+    if (BookService.isMingtaiShelfBook(book) || book.format == 'public') {
+      _showError('旧明台借阅入口已停用。请在私人书架重新导入你合法获得的电子书。');
       return;
     }
     final readerProvider = context.read<ReaderProvider>();
@@ -101,18 +82,6 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
         context,
       ).push(MaterialPageRoute(builder: (_) => const ReaderScreen()));
     }
-  }
-
-  String _publicBookIdFromShelfBook(Book book) {
-    const legacyPrefix = 'mingtai:';
-    const prefix = 'mingtai_';
-    if (book.id.startsWith(legacyPrefix)) {
-      return book.id.substring(legacyPrefix.length);
-    }
-    if (book.id.startsWith(prefix)) {
-      return book.id.substring(prefix.length);
-    }
-    return '';
   }
 
   void _showError(String error) {
@@ -160,11 +129,11 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.public_outlined),
-              title: const Text('发布到明台'),
-              subtitle: const Text('上传书籍文件，不默认公开私密笔记'),
+              leading: const Icon(Icons.edit_note_rounded),
+              title: const Text('分享阅读想法'),
+              subtitle: const Text('只关联书籍信息，不上传电子书文件'),
               enabled: !BookService.isMingtaiShelfBook(book),
-              onTap: () => Navigator.pop(ctx, 'publish'),
+              onTap: () => Navigator.pop(ctx, 'share'),
             ),
             ListTile(
               leading: const Icon(Icons.delete_outline),
@@ -177,101 +146,15 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
     );
 
     if (!mounted || action == null) return;
-    if (action == 'publish') {
-      _confirmPublishBook(book);
+    if (action == 'share') {
+      final created = await showCommunityPostComposer(context, localBook: book);
+      if (created == true && mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('已发布到明台')));
+      }
     } else if (action == 'delete') {
       _confirmDelete(book);
-    }
-  }
-
-  Future<void> _confirmPublishBook(Book book) async {
-    var copyrightStatus = 'public_domain';
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('发布到明台'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('是否公开《${book.title}》？'),
-              const SizedBox(height: 10),
-              const Text(
-                '公开后：\n- 书籍文件会保存到明台公共书库\n- 其他用户可打开阅读并查看公共讨论\n- 不会公开你的私密笔记',
-                style: TextStyle(fontSize: 13, height: 1.5),
-              ),
-              const SizedBox(height: 14),
-              DropdownButtonFormField<String>(
-                value: copyrightStatus,
-                decoration: const InputDecoration(labelText: '版权状态'),
-                items: const [
-                  DropdownMenuItem(
-                    value: 'public_domain',
-                    child: Text('公版书 public_domain'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'original',
-                    child: Text('原创内容 original'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'authorized',
-                    child: Text('已获授权 authorized'),
-                  ),
-                ],
-                onChanged: (value) {
-                  if (value != null) {
-                    setDialogState(() => copyrightStatus = value);
-                  }
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('确认公开'),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (confirmed != true) return;
-    await AuthService.init();
-    if (!AuthService.isLoggedIn) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('请先登录后再发布到明台'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    try {
-      await BookService.publishBookToMingtai(
-        book: book,
-        copyrightStatus: copyrightStatus,
-        entryIds: const [],
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('已发布到明台'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('发布失败：$e'), behavior: SnackBarBehavior.floating),
-      );
     }
   }
 

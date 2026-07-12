@@ -6,7 +6,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/sync_service.dart';
 import '../auth/auth_screen.dart';
-import '../mingtai/mingtai_screen.dart';
+import '../mingtai/community_mingtai_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -177,7 +177,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        '头像、昵称、公开短评与阅读痕迹',
+                        '头像、昵称、在读书籍与公开想法',
                         style: TextStyle(
                           color: palette.textSecondary,
                           fontSize: 12,
@@ -230,7 +230,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _openMingtaiProfile() {
     Navigator.of(
       context,
-    ).push(MaterialPageRoute(builder: (_) => const MingtaiProfileScreen()));
+    ).push(MaterialPageRoute(builder: (_) => const CommunityProfileScreen()));
   }
 
   Future<void> _onLoginSuccess() async {

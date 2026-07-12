@@ -9,7 +9,7 @@ import 'providers/ai_provider.dart';
 import 'providers/settings_provider.dart';
 import 'screens/bookmarks/bookmarks_screen.dart';
 import 'screens/bookshelf/bookshelf_screen.dart';
-import 'screens/mingtai/mingtai_screen.dart';
+import 'screens/mingtai/community_mingtai_screen.dart';
 import 'screens/xiaou/xiaou_home_screen.dart';
 import 'screens/notes/notes_screen.dart';
 import 'screens/notes_free/notes_free_screen.dart';
@@ -68,7 +68,7 @@ class _MainScreenState extends State<MainScreen> {
       0 => const BookshelfScreen(),
       1 => XiaouHomeScreen(refreshSignal: _xiaouRefreshSignal),
       2 => NotesFreeScreen(refreshSignal: _freeNotesRefreshSignal),
-      3 => MingtaiScreen(refreshSignal: _mingtaiRefreshSignal),
+      3 => CommunityMingtaiScreen(refreshSignal: _mingtaiRefreshSignal),
       _ => const SizedBox.shrink(),
     };
   }

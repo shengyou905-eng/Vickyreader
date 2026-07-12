@@ -1,22 +1,26 @@
 const express = require('express');
 const auth = require('../middleware/auth');
+const optionalAuth = require('../middleware/optionalAuth');
 const mingtaiController = require('../controllers/mingtai.controller');
+const communityController = require('../controllers/community.controller');
 
 const router = express.Router();
 
-const publicBookUpload = express.raw({
-  type: (req) => {
-    const contentType = String(req.headers['content-type'] || '').toLowerCase();
-    return (
-      contentType.startsWith('application/octet-stream') ||
-      contentType.startsWith('application/epub+zip') ||
-      contentType.startsWith('application/pdf') ||
-      contentType.startsWith('text/plain') ||
-      contentType.startsWith('multipart/form-data')
-    );
-  },
-  limit: '100mb',
-});
+router.get('/community/feed', optionalAuth, communityController.feed);
+router.get('/community/search', optionalAuth, communityController.search);
+router.post('/community/books/resolve', auth, communityController.resolveBook);
+router.get('/community/books/:id', optionalAuth, communityController.getBook);
+router.put('/community/books/:id/state', auth, communityController.setBookState);
+router.post('/community/posts', auth, communityController.createPost);
+router.delete('/community/posts/:id', auth, communityController.deletePost);
+router.get('/community/posts/:id/comments', communityController.listComments);
+router.post('/community/posts/:id/comments', auth, communityController.createComment);
+router.post('/community/posts/:id/resonance', auth, communityController.toggleResonance);
+router.get('/community/profiles/:userId', optionalAuth, communityController.getProfile);
+router.post('/community/profiles/:userId/follow', auth, communityController.follow);
+router.delete('/community/profiles/:userId/follow', auth, communityController.unfollow);
+router.get('/community/notifications', auth, communityController.notifications);
+router.patch('/community/notifications/read-all', auth, communityController.markNotificationsRead);
 
 router.get('/books', mingtaiController.listBooks);
 router.get('/home', mingtaiController.getHome);
@@ -40,7 +44,11 @@ router.patch(
   auth,
   mingtaiController.markNotificationRead,
 );
-router.post('/books', auth, publicBookUpload, mingtaiController.publishBook);
+router.post('/books', auth, (_req, res) => {
+  res.status(410).json({
+    error: '明台已停止接收电子书文件，请发布关联书籍的阅读想法。',
+  });
+});
 router.delete('/books', auth, mingtaiController.deleteMyBooks);
 router.delete('/books/:id', auth, mingtaiController.deleteMyBook);
 router.patch('/reviews/:id', auth, mingtaiController.updateBookReview);

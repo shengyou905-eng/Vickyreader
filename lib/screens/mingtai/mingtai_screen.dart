@@ -157,17 +157,6 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
     }
   }
 
-  Future<void> _openPublishSheet() async {
-    final published = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => const _PublishBookSheet(),
-    );
-    if (published == true && mounted) {
-      _load(forceRefresh: true);
-    }
-  }
-
   Future<void> _openBookById(
     String bookId, {
     MingtaiPublicBook? initialBook,
@@ -455,13 +444,6 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
       appBar: AppBar(
         title: const Text('明台'),
         centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.upload_file_outlined),
-            tooltip: '发布到明台',
-            onPressed: _openPublishSheet,
-          ),
-        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())

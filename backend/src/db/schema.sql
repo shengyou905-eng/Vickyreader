@@ -518,6 +518,137 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_unique_resonance
   ON notifications(recipient_user_id, actor_user_id, event_type, target_id)
   WHERE event_type IN ('annotation_resonance', 'review_resonance');
 
+CREATE TABLE IF NOT EXISTS community_books (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  normalized_key TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  author TEXT NOT NULL DEFAULT '佚名',
+  cover_url TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  isbn TEXT NOT NULL DEFAULT '',
+  created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_community_books_updated
+  ON community_books(updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_community_books_title_author
+  ON community_books(title, author);
+
+CREATE TABLE IF NOT EXISTS community_readable_assets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  book_id UUID NOT NULL REFERENCES community_books(id) ON DELETE CASCADE,
+  rights_status TEXT NOT NULL CHECK (
+    rights_status IN ('public_domain', 'original', 'authorized')
+  ),
+  file_url TEXT NOT NULL,
+  storage_path TEXT NOT NULL DEFAULT '',
+  authorization_note TEXT NOT NULL DEFAULT '',
+  active BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_community_readable_assets_book
+  ON community_readable_assets(book_id, active);
+
+CREATE TABLE IF NOT EXISTS community_book_states (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  book_id UUID NOT NULL REFERENCES community_books(id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK (status IN ('want_to_read', 'reading', 'finished')),
+  visibility TEXT NOT NULL DEFAULT 'public' CHECK (
+    visibility IN ('public', 'private')
+  ),
+  started_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, book_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_community_book_states_book
+  ON community_book_states(book_id, status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_community_book_states_user
+  ON community_book_states(user_id, status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS community_follows (
+  follower_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  followed_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (follower_user_id, followed_user_id),
+  CHECK (follower_user_id <> followed_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_community_follows_followed
+  ON community_follows(followed_user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS community_posts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  book_id UUID NOT NULL REFERENCES community_books(id) ON DELETE CASCADE,
+  post_type TEXT NOT NULL DEFAULT 'thought' CHECK (
+    post_type IN ('reading_update', 'thought', 'question', 'excerpt')
+  ),
+  content TEXT NOT NULL,
+  quoted_text TEXT NOT NULL DEFAULT '',
+  chapter_label TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_community_posts_created
+  ON community_posts(created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_community_posts_book
+  ON community_posts(book_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_community_posts_user
+  ON community_posts(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS community_post_comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  post_id UUID NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_community_post_comments_post
+  ON community_post_comments(post_id, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS community_post_resonances (
+  post_id UUID NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (post_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS community_notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  recipient_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  actor_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  event_type TEXT NOT NULL CHECK (
+    event_type IN ('follow', 'post_comment', 'post_resonance')
+  ),
+  post_id UUID REFERENCES community_posts(id) ON DELETE CASCADE,
+  book_id UUID REFERENCES community_books(id) ON DELETE CASCADE,
+  preview TEXT NOT NULL DEFAULT '',
+  read_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_community_notifications_recipient
+  ON community_notifications(recipient_user_id, created_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_community_notifications_unique_event
+  ON community_notifications(recipient_user_id, actor_user_id, event_type, post_id)
+  WHERE event_type IN ('post_resonance');
+
 CREATE TABLE IF NOT EXISTS reading_personality_profiles (
   user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   personality_type TEXT,
