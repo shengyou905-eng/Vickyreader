@@ -1739,6 +1739,7 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
   bool _borrowing = false;
   bool _submittingReview = false;
   bool _deletingBook = false;
+  final Set<String> _deletingReviewIds = {};
   String? _error;
 
   @override
@@ -1806,6 +1807,53 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
 
   bool _isMeaningfulReview(MingtaiBookReview review) {
     return _isMeaningfulPublicText(review.content);
+  }
+
+  Future<void> _deleteReview(MingtaiBookReview review) async {
+    final currentUserId = AuthService.userId?.trim() ?? '';
+    if (review.id.isEmpty ||
+        review.user.userId != currentUserId ||
+        _deletingReviewIds.contains(review.id)) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('删除这条短评？'),
+        content: const Text('删除后，这条短评以及它下面的回应和共鸣都不会再出现在明台。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _deletingReviewIds.add(review.id));
+    try {
+      await BookService.deleteMingtaiBookReview(review);
+      if (!mounted) return;
+      setState(() {
+        _reviews.removeWhere((item) => item.id == review.id);
+        _deletingReviewIds.remove(review.id);
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('短评已删除')));
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _deletingReviewIds.remove(review.id));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('删除失败：$error')));
+    }
   }
 
   void _openProfile(String userId) {
@@ -2182,9 +2230,12 @@ class _MingtaiBookDetailScreenState extends State<MingtaiBookDetailScreen> {
                   reviews: _reviews,
                   loading: _loadingReviews,
                   submitting: _submittingReview,
+                  currentUserId: AuthService.userId?.trim() ?? '',
+                  deletingReviewIds: _deletingReviewIds,
                   onWrite: _showReviewDialog,
                   onOpenProfile: _openProfile,
                   onChanged: _updateReviewInteractionCounts,
+                  onDelete: _deleteReview,
                 ),
               ],
             ),
@@ -3634,8 +3685,11 @@ class _BookReviewSection extends StatelessWidget {
   final List<MingtaiBookReview> reviews;
   final bool loading;
   final bool submitting;
+  final String currentUserId;
+  final Set<String> deletingReviewIds;
   final VoidCallback onWrite;
   final ValueChanged<String> onOpenProfile;
+  final ValueChanged<MingtaiBookReview> onDelete;
   final void Function(String reviewId, int resonanceCount, int commentCount)
   onChanged;
 
@@ -3643,9 +3697,12 @@ class _BookReviewSection extends StatelessWidget {
     required this.reviews,
     required this.loading,
     required this.submitting,
+    required this.currentUserId,
+    required this.deletingReviewIds,
     required this.onWrite,
     required this.onOpenProfile,
     required this.onChanged,
+    required this.onDelete,
   });
 
   @override
@@ -3705,7 +3762,12 @@ class _BookReviewSection extends StatelessWidget {
                 .map(
                   (review) => _BookReviewCard(
                     review: review,
+                    canManage:
+                        currentUserId.isNotEmpty &&
+                        review.user.userId == currentUserId,
+                    deleting: deletingReviewIds.contains(review.id),
                     onOpenProfile: () => onOpenProfile(review.user.userId),
+                    onDelete: () => onDelete(review),
                     onChanged: (resonanceCount, commentCount) =>
                         onChanged(review.id, resonanceCount, commentCount),
                   ),
@@ -3718,12 +3780,18 @@ class _BookReviewSection extends StatelessWidget {
 
 class _BookReviewCard extends StatelessWidget {
   final MingtaiBookReview review;
+  final bool canManage;
+  final bool deleting;
   final VoidCallback onOpenProfile;
+  final VoidCallback onDelete;
   final void Function(int resonanceCount, int commentCount) onChanged;
 
   const _BookReviewCard({
     required this.review,
+    required this.canManage,
+    required this.deleting,
     required this.onOpenProfile,
+    required this.onDelete,
     required this.onChanged,
   });
 
@@ -3744,40 +3812,81 @@ class _BookReviewCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            InkWell(
-              borderRadius: BorderRadius.circular(999),
-              onTap: onOpenProfile,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _ProfileAvatar(profile: review.user, size: 30),
-                  const SizedBox(width: 9),
-                  Flexible(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+            Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(999),
+                    onTap: onOpenProfile,
+                    child: Row(
                       children: [
-                        Text(
-                          review.user.nickname,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: palette.textPrimary,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        Text(
-                          _dateLabel(review.createdAt),
-                          style: TextStyle(
-                            color: palette.textSecondary,
-                            fontSize: 11,
+                        _ProfileAvatar(profile: review.user, size: 30),
+                        const SizedBox(width: 9),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                review.user.nickname,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: palette.textPrimary,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              Text(
+                                _dateLabel(review.createdAt),
+                                style: TextStyle(
+                                  color: palette.textSecondary,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
                   ),
-                ],
-              ),
+                ),
+                if (canManage)
+                  deleting
+                      ? Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.8,
+                              color: palette.primary,
+                            ),
+                          ),
+                        )
+                      : PopupMenuButton<String>(
+                          tooltip: '管理短评',
+                          icon: Icon(
+                            Icons.more_horiz_rounded,
+                            size: 20,
+                            color: palette.textSecondary,
+                          ),
+                          onSelected: (value) {
+                            if (value == 'delete') onDelete();
+                          },
+                          itemBuilder: (_) => const [
+                            PopupMenuItem<String>(
+                              value: 'delete',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.delete_outline_rounded, size: 18),
+                                  SizedBox(width: 9),
+                                  Text('删除短评'),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+              ],
             ),
             const SizedBox(height: 12),
             Text(
