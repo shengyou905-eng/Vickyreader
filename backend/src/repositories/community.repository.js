@@ -188,11 +188,34 @@ async function listPosts({
         AND f.followed_user_id = p.user_id
     )`);
   } else if (tab === 'same_book') {
-    conditions.push(`$1::uuid IS NOT NULL AND EXISTS (
-      SELECT 1 FROM community_book_states s
-      WHERE s.user_id = $1::uuid
-        AND s.book_id = p.book_id
-        AND s.status = 'reading'
+    conditions.push(`$1::uuid IS NOT NULL AND (
+      EXISTS (
+        SELECT 1 FROM community_book_states s
+        WHERE s.user_id = $1::uuid
+          AND s.book_id = p.book_id
+          AND s.status IN ('reading', 'finished', 'want_to_read')
+      )
+      OR EXISTS (
+        SELECT 1 FROM user_entries e
+        WHERE e.user_id = $1::uuid
+          AND e.book_title IS NOT NULL
+          AND lower(trim(e.book_title)) = lower(trim(b.title))
+      )
+      OR EXISTS (
+        SELECT 1 FROM community_posts interacted
+        WHERE interacted.book_id = p.book_id
+          AND (
+            interacted.user_id = $1::uuid
+            OR EXISTS (
+              SELECT 1 FROM community_post_comments c
+              WHERE c.post_id = interacted.id AND c.user_id = $1::uuid
+            )
+            OR EXISTS (
+              SELECT 1 FROM community_post_resonances r
+              WHERE r.post_id = interacted.id AND r.user_id = $1::uuid
+            )
+          )
+      )
     )`);
   }
   if (conditions.length) whereSql = `WHERE ${conditions.join(' AND ')}`;
@@ -200,8 +223,49 @@ async function listPosts({
   return result.rows;
 }
 
+async function listSuggestedReaders(viewerId, limit = 6) {
+  const result = await query(
+    `SELECT u.id AS user_id,
+       COALESCE(NULLIF(up.nickname, ''), split_part(u.email, '@', 1)) AS nickname,
+       COALESCE(up.avatar_url, '') AS avatar_url,
+       COALESCE(up.bio, '') AS bio,
+       COUNT(p.id)::text || ' 条公开阅读' AS status
+     FROM users u
+     LEFT JOIN user_profiles up ON up.user_id = u.id
+     JOIN community_posts p
+       ON p.user_id = u.id AND p.moderation_status = 'published'
+     WHERE u.account_status = 'active'
+       AND ($1::uuid IS NULL OR u.id <> $1::uuid)
+       AND NOT EXISTS (
+         SELECT 1 FROM community_follows f
+         WHERE $1::uuid IS NOT NULL
+           AND f.follower_user_id = $1::uuid
+           AND f.followed_user_id = u.id
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM community_blocks cb
+         WHERE $1::uuid IS NOT NULL
+           AND ((cb.blocker_user_id = $1::uuid AND cb.blocked_user_id = u.id)
+             OR (cb.blocked_user_id = $1::uuid AND cb.blocker_user_id = u.id))
+       )
+     GROUP BY u.id, up.nickname, up.avatar_url, up.bio
+     ORDER BY MAX(p.created_at) DESC, COUNT(p.id) DESC
+     LIMIT $2`,
+    [viewerId, limit],
+  );
+  return result.rows;
+}
+
 async function getFeed(viewerId, tab, limit) {
-  const posts = await listPosts({ viewerId, tab, limit });
+  let posts = await listPosts({ viewerId, tab, limit });
+  let isFallback = false;
+  if (tab !== 'discover' && posts.length === 0) {
+    posts = await listPosts({ viewerId, tab: 'discover', limit });
+    isFallback = posts.length > 0;
+  }
+  const suggestedReaders = tab === 'following'
+    ? await listSuggestedReaders(viewerId, 6)
+    : [];
   const booksResult = await query(
     `SELECT b.*,
        EXISTS (
@@ -218,7 +282,12 @@ async function getFeed(viewerId, tab, limit) {
      ORDER BY b.updated_at DESC
      LIMIT 12`,
   );
-  return { posts, books: booksResult.rows };
+  return {
+    posts,
+    books: booksResult.rows,
+    fallback: isFallback,
+    suggested_readers: suggestedReaders,
+  };
 }
 
 async function getBook(bookId, viewerId) {

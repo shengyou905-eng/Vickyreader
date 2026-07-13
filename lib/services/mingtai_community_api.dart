@@ -13,14 +13,28 @@ class MingtaiCommunityApi {
   const MingtaiCommunityApi();
 
   Future<
-    ({List<CommunityPost> posts, List<CommunityBook> books, bool requiresAuth})
+    ({
+      List<CommunityPost> posts,
+      List<CommunityBook> books,
+      List<CommunityReader> suggestedReaders,
+      bool requiresAuth,
+      bool fallback,
+    })
   >
   getFeed(String tab) async {
     final data = await _get('$_root/feed?tab=$tab&limit=40');
     return (
       posts: _posts(data['posts']),
       books: _books(data['books']),
+      suggestedReaders: (data['suggested_readers'] as List? ?? const [])
+          .map(
+            (item) => CommunityReader.fromJson(
+              Map<String, dynamic>.from(item as Map),
+            ),
+          )
+          .toList(growable: false),
       requiresAuth: data['requires_auth'] == true,
+      fallback: data['fallback'] == true,
     );
   }
 

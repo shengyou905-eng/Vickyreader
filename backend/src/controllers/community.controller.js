@@ -9,7 +9,13 @@ const {
 } = require('../utils/communityPolicy');
 
 const bookStates = new Set(['want_to_read', 'reading', 'finished', 'none']);
-const postTypes = new Set(['reading_update', 'thought', 'question', 'excerpt']);
+const postTypes = new Set([
+  'reading_update',
+  'thought',
+  'question',
+  'excerpt',
+  'review',
+]);
 
 async function resolveBook(req, res, next) {
   try {
@@ -55,18 +61,23 @@ async function search(req, res, next) {
 
 async function feed(req, res, next) {
   try {
-    const tab = ['following', 'discover', 'same_book'].includes(req.query.tab)
-      ? req.query.tab
-      : 'discover';
-    if ((tab === 'following' || tab === 'same_book') && !req.user?.id) {
-      return res.json({ posts: [], books: [], requires_auth: true });
-    }
+    const aliases = {
+      recommend: 'discover',
+      discover: 'discover',
+      following: 'following',
+      same_read: 'same_book',
+      same_book: 'same_book',
+    };
+    const tab = aliases[req.query.tab] || 'discover';
     const result = await communityRepository.getFeed(
       req.user?.id || null,
       tab,
       limit(req.query.limit, 30),
     );
-    return res.json(result);
+    return res.json({
+      ...result,
+      requires_auth: (tab === 'following' || tab === 'same_book') && !req.user?.id,
+    });
   } catch (error) {
     return next(error);
   }
@@ -112,8 +123,14 @@ async function createPost(req, res, next) {
     const postType = postTypes.has(req.body.post_type)
       ? req.body.post_type
       : 'thought';
-    const content = assertSafePublicText(req.body.content, { minLength: 5, maxLength: 4000 });
+    const content = assertSafePublicText(req.body.content, {
+      minLength: postType === 'review' ? 10 : 5,
+      maxLength: 4000,
+    });
     const quotedText = text(req.body.quoted_text);
+    if (postType === 'excerpt' && !quotedText) {
+      throw httpError(400, '公开划线需要包含一段短摘录');
+    }
     if (quotedText.length > 240) {
       throw httpError(400, '公开摘录不能超过 240 个字符');
     }

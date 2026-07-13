@@ -660,7 +660,7 @@ CREATE TABLE IF NOT EXISTS community_posts (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   book_id UUID NOT NULL REFERENCES community_books(id) ON DELETE CASCADE,
   post_type TEXT NOT NULL DEFAULT 'thought' CHECK (
-    post_type IN ('reading_update', 'thought', 'question', 'excerpt')
+    post_type IN ('reading_update', 'thought', 'question', 'excerpt', 'review')
   ),
   content TEXT NOT NULL,
   quoted_text TEXT NOT NULL DEFAULT '',
@@ -671,6 +671,14 @@ CREATE TABLE IF NOT EXISTS community_posts (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE community_posts
+  DROP CONSTRAINT IF EXISTS community_posts_post_type_check;
+
+ALTER TABLE community_posts
+  ADD CONSTRAINT community_posts_post_type_check CHECK (
+    post_type IN ('reading_update', 'thought', 'question', 'excerpt', 'review')
+  );
 
 ALTER TABLE community_posts
   ADD COLUMN IF NOT EXISTS moderation_status TEXT NOT NULL DEFAULT 'published' CHECK (

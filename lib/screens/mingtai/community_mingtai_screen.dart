@@ -18,6 +18,7 @@ Future<bool?> showCommunityPostComposer(
   BuildContext context, {
   Book? localBook,
   CommunityBook? communityBook,
+  String initialType = 'thought',
 }) {
   return showModalBottomSheet<bool>(
     context: context,
@@ -26,6 +27,7 @@ Future<bool?> showCommunityPostComposer(
     builder: (_) => _CommunityPostComposer(
       initialLocalBook: localBook,
       initialCommunityBook: communityBook,
+      initialType: initialType,
     ),
   );
 }
@@ -42,7 +44,7 @@ class CommunityMingtaiScreen extends StatefulWidget {
 class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
   final _searchController = TextEditingController();
   Timer? _searchDebounce;
-  int _tabIndex = 1;
+  int _tabIndex = 0;
   bool _loading = true;
   bool _refreshing = false;
   bool _searching = false;
@@ -50,10 +52,14 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
   String _searchQuery = '';
   List<CommunityPost> _posts = const [];
   List<CommunityBook> _books = const [];
+  List<CommunityReader> _suggestedReaders = const [];
+  bool _usingFallback = false;
+  bool _requiresAuth = false;
+  int _feedRequestVersion = 0;
   List<CommunityPost> _searchPosts = const [];
   List<CommunityBook> _searchBooks = const [];
 
-  String get _tab => const ['following', 'discover', 'same_book'][_tabIndex];
+  String get _tab => const ['recommend', 'following', 'same_read'][_tabIndex];
 
   @override
   void initState() {
@@ -78,22 +84,27 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
 
   Future<void> _load({bool quiet = false}) async {
     if (quiet && _refreshing) return;
+    final requestVersion = ++_feedRequestVersion;
+    final requestedTab = _tab;
     setState(() {
       if (_posts.isEmpty && !quiet) _loading = true;
       _refreshing = quiet || _posts.isNotEmpty;
       _error = null;
     });
     try {
-      final result = await _communityApi.getFeed(_tab);
-      if (!mounted) return;
+      final result = await _communityApi.getFeed(requestedTab);
+      if (!mounted || requestVersion != _feedRequestVersion) return;
       setState(() {
         _posts = result.posts;
         _books = result.books;
+        _suggestedReaders = result.suggestedReaders;
+        _usingFallback = result.fallback;
+        _requiresAuth = result.requiresAuth;
         _loading = false;
         _refreshing = false;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || requestVersion != _feedRequestVersion) return;
       setState(() {
         _error = _friendly(error);
         _loading = false;
@@ -108,6 +119,9 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
       _tabIndex = index;
       _posts = const [];
       _books = const [];
+      _suggestedReaders = const [];
+      _usingFallback = false;
+      _requiresAuth = false;
       _error = null;
     });
     _load();
@@ -146,9 +160,27 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
     });
   }
 
-  Future<void> _compose() async {
-    final created = await showCommunityPostComposer(context);
+  Future<void> _compose({
+    String initialType = 'thought',
+    CommunityBook? book,
+  }) async {
+    final created = await showCommunityPostComposer(
+      context,
+      communityBook: book,
+      initialType: initialType,
+    );
     if (created == true) await _load(quiet: true);
+  }
+
+  Future<void> _openComposeActions() async {
+    if (!await _requireLogin() || !mounted) return;
+    final type = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _ComposeActionSheet(),
+    );
+    if (type == null || !mounted) return;
+    await _compose(initialType: type);
   }
 
   Future<void> _openNotifications() async {
@@ -211,11 +243,6 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
             onPressed: _openNotifications,
             icon: const Icon(Icons.notifications_none_rounded),
           ),
-          IconButton(
-            tooltip: '写阅读动态',
-            onPressed: _compose,
-            icon: const Icon(Icons.edit_note_rounded),
-          ),
         ],
       ),
       body: Column(
@@ -230,6 +257,22 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
               decoration: InputDecoration(
                 hintText: '找一本书、作者或一句话',
                 prefixIcon: const Icon(Icons.search_rounded),
+                filled: true,
+                fillColor: palette.surface.withValues(alpha: 0.82),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(
+                    color: palette.primary.withValues(alpha: 0.34),
+                  ),
+                ),
                 suffixIcon: searching
                     ? IconButton(
                         tooltip: '清除',
@@ -244,22 +287,10 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
             ),
           ),
           if (!searching)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
-              child: SegmentedButton<int>(
-                segments: const [
-                  ButtonSegment(value: 0, label: Text('关注')),
-                  ButtonSegment(value: 1, label: Text('发现')),
-                  ButtonSegment(value: 2, label: Text('同书')),
-                ],
-                selected: {_tabIndex},
-                showSelectedIcon: false,
-                onSelectionChanged: (value) => _changeTab(value.first),
-              ),
-            ),
+            _CommunityTabBar(selectedIndex: _tabIndex, onChanged: _changeTab),
           Expanded(
             child: _loading
-                ? const Center(child: CircularProgressIndicator())
+                ? const _FeedLoading()
                 : RefreshIndicator(
                     onRefresh: () => _load(quiet: true),
                     child: searching
@@ -283,19 +314,36 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
                                   action: '再试一次',
                                   onAction: _load,
                                 )
-                              else if (_posts.isEmpty)
-                                _FeedEmpty(
-                                  tabIndex: _tabIndex,
-                                  onCompose: _compose,
-                                  onLogin: () => Navigator.of(
-                                    context,
-                                  ).pushNamed('/settings'),
-                                )
                               else ...[
-                                if (_tabIndex == 1 && _books.isNotEmpty)
-                                  _CommunityBooksStrip(
-                                    books: _books,
-                                    onOpen: _openBook,
+                                if (_tabIndex == 0 && _books.isNotEmpty)
+                                  _DailyReadingQuestion(
+                                    book: _books.first,
+                                    onAnswer: () => _compose(
+                                      initialType: 'question',
+                                      book: _books.first,
+                                    ),
+                                    onBook: () => _openBook(_books.first),
+                                  ),
+                                if (_tabIndex == 1 &&
+                                    _suggestedReaders.isNotEmpty)
+                                  _SuggestedReadersStrip(
+                                    readers: _suggestedReaders,
+                                    onOpen: (reader) =>
+                                        _openProfile(reader.userId),
+                                  ),
+                                if (_requiresAuth)
+                                  _LoginContextHint(
+                                    tabIndex: _tabIndex,
+                                    onLogin: () => Navigator.of(
+                                      context,
+                                    ).pushNamed('/settings'),
+                                  ),
+                                if (_usingFallback)
+                                  _FallbackFeedIntro(tabIndex: _tabIndex),
+                                if (_posts.isEmpty)
+                                  _CompactFeedStart(
+                                    hasBookContext: _books.isNotEmpty,
+                                    onCompose: () => _compose(),
                                   ),
                                 ...List.generate(
                                   _posts.length,
@@ -335,6 +383,10 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
           ),
         ],
       ),
+      floatingActionButton: searching
+          ? null
+          : _LeaveReadingButton(onPressed: _openComposeActions),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       backgroundColor: palette.background,
     );
   }
@@ -367,6 +419,429 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(_friendly(error))));
+  }
+}
+
+class _CommunityTabBar extends StatelessWidget {
+  final int selectedIndex;
+  final ValueChanged<int> onChanged;
+
+  const _CommunityTabBar({
+    required this.selectedIndex,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    const labels = ['推荐', '关注', '同读'];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+      child: SizedBox(
+        height: 42,
+        child: Row(
+          children: List.generate(labels.length, (index) {
+            final selected = index == selectedIndex;
+            return Expanded(
+              child: InkWell(
+                onTap: () => onChanged(index),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Text(
+                      labels[index],
+                      style: TextStyle(
+                        color: selected
+                            ? palette.textPrimary
+                            : palette.textSecondary,
+                        fontSize: 14,
+                        fontWeight: selected
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                      ),
+                    ),
+                    const SizedBox(height: 9),
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      width: selected ? 24 : 0,
+                      height: 2,
+                      decoration: BoxDecoration(
+                        color: palette.primary,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+}
+
+class _FeedLoading extends StatelessWidget {
+  const _FeedLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 110),
+      itemCount: 3,
+      separatorBuilder: (_, _) => const SizedBox(height: 14),
+      itemBuilder: (_, index) => Container(
+        height: index == 0 ? 164 : 208,
+        decoration: BoxDecoration(
+          color: palette.surface.withValues(alpha: 0.72),
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
+    );
+  }
+}
+
+class _LeaveReadingButton extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _LeaveReadingButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Material(
+      color: palette.surface.withValues(alpha: 0.94),
+      elevation: 2,
+      shadowColor: palette.primary.withValues(alpha: 0.18),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.edit_outlined, size: 17, color: palette.icon),
+              const SizedBox(width: 8),
+              Text(
+                '留下一段阅读',
+                style: TextStyle(
+                  color: palette.textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ComposeActionSheet extends StatelessWidget {
+  const _ComposeActionSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    const actions = [
+      ('reading_update', '分享正在读', '说说此刻读到哪里'),
+      ('excerpt', '公开划线', '分享一小段原文与停留的原因'),
+      ('thought', '写下想法', '留下你对这本书的理解'),
+      ('review', '写书评', '写一段完整而克制的读后回声'),
+    ];
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
+        decoration: BoxDecoration(
+          color: palette.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 32,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: palette.divider,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              '留下一段阅读',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '每一条公开内容都需要关联一本书。',
+              style: TextStyle(color: palette.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 14),
+            ...actions.map(
+              (action) => InkWell(
+                onTap: () => Navigator.pop(context, action.$1),
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              action.$2,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              action.$3,
+                              style: TextStyle(
+                                color: palette.textSecondary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(
+                        Icons.arrow_forward_rounded,
+                        size: 17,
+                        color: palette.icon.withValues(alpha: 0.72),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DailyReadingQuestion extends StatelessWidget {
+  final CommunityBook book;
+  final VoidCallback onAnswer;
+  final VoidCallback onBook;
+
+  const _DailyReadingQuestion({
+    required this.book,
+    required this.onAnswer,
+    required this.onBook,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    const questions = [
+      '这本书里，哪一句话改变了你理解它的方式？',
+      '你在这本书的哪一处停了下来？',
+      '读到现在，你最想和同书读者确认什么？',
+      '如果只留下一个问题，你会把什么带出这本书？',
+    ];
+    final seed = DateTime.now().day + book.title.hashCode.abs();
+    final question = questions[seed % questions.length];
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.fromLTRB(18, 17, 18, 14),
+      decoration: BoxDecoration(
+        color: palette.primaryLight.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '今日问题 · 《${book.title}》',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: palette.textSecondary,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            question,
+            style: TextStyle(
+              color: palette.textPrimary,
+              fontSize: 17,
+              height: 1.55,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              TextButton(onPressed: onAnswer, child: const Text('留下回应')),
+              TextButton(onPressed: onBook, child: const Text('进入书页')),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SuggestedReadersStrip extends StatelessWidget {
+  final List<CommunityReader> readers;
+  final ValueChanged<CommunityReader> onOpen;
+
+  const _SuggestedReadersStrip({required this.readers, required this.onOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '也许可以先认识这些读者',
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 88,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: readers.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 18),
+              itemBuilder: (_, index) {
+                final reader = readers[index];
+                return InkWell(
+                  onTap: () => onOpen(reader),
+                  child: SizedBox(
+                    width: 78,
+                    child: Column(
+                      children: [
+                        CommunityAvatar(
+                          name: reader.nickname,
+                          imageUrl: reader.avatarUrl,
+                          radius: 21,
+                        ),
+                        const SizedBox(height: 7),
+                        Text(
+                          reader.nickname,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        Text(
+                          reader.status,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: context.appPalette.textSecondary,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LoginContextHint extends StatelessWidget {
+  final int tabIndex;
+  final VoidCallback onLogin;
+
+  const _LoginContextHint({required this.tabIndex, required this.onLogin});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              tabIndex == 1 ? '登录后，这里会优先出现你关注的读者。' : '登录后，明台会寻找与你读过同一本书的人。',
+              style: TextStyle(color: palette.textSecondary, fontSize: 12),
+            ),
+          ),
+          TextButton(onPressed: onLogin, child: const Text('登录')),
+        ],
+      ),
+    );
+  }
+}
+
+class _FallbackFeedIntro extends StatelessWidget {
+  final int tabIndex;
+
+  const _FallbackFeedIntro({required this.tabIndex});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Text(
+        tabIndex == 1 ? '关注的读者暂时没有更新，先从这些公开阅读痕迹开始。' : '同读的新回应还很少，先看看明台里最近留下的话。',
+        style: TextStyle(color: palette.textSecondary, fontSize: 12),
+      ),
+    );
+  }
+}
+
+class _CompactFeedStart extends StatelessWidget {
+  final bool hasBookContext;
+  final VoidCallback onCompose;
+
+  const _CompactFeedStart({
+    required this.hasBookContext,
+    required this.onCompose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 12, 4, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            hasBookContext ? '还没有人回应今天的问题。' : '明台还在等第一句话。',
+            style: TextStyle(
+              color: palette.textPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            '从一本正在读的书开始，留下一个真实的问题或想法。',
+            style: TextStyle(color: palette.textSecondary, height: 1.5),
+          ),
+          const SizedBox(height: 8),
+          TextButton(onPressed: onCompose, child: const Text('留下一段阅读')),
+        ],
+      ),
+    );
   }
 }
 
@@ -1032,9 +1507,8 @@ class CommunityPostCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: palette.card,
+        color: palette.card.withValues(alpha: 0.78),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: palette.divider.withValues(alpha: 0.72)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1097,19 +1571,23 @@ class CommunityPostCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          if (post.quotedText.isNotEmpty) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(13, 11, 13, 11),
-              decoration: BoxDecoration(
-                color: palette.primaryLight.withValues(alpha: 0.16),
-                border: Border(
-                  left: BorderSide(color: palette.primary, width: 2),
-                ),
+          if (post.postType == 'excerpt' && post.quotedText.isNotEmpty) ...[
+            Text(
+              '“${post.quotedText}”',
+              maxLines: 5,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: palette.textPrimary,
+                fontSize: 16,
+                height: 1.72,
+                fontWeight: FontWeight.w500,
               ),
-              child: Text(
-                post.quotedText,
-                maxLines: 4,
+            ),
+            if (post.content.trim().isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                post.content,
+                maxLines: 3,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: palette.textSecondary,
@@ -1117,20 +1595,39 @@ class CommunityPostCard extends StatelessWidget {
                   height: 1.6,
                 ),
               ),
+            ],
+          ] else ...[
+            Text(
+              post.content,
+              maxLines: 6,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: palette.textPrimary,
+                fontSize: 16,
+                height: 1.72,
+                fontWeight: FontWeight.w500,
+              ),
             ),
-            const SizedBox(height: 12),
+            if (post.quotedText.isNotEmpty) ...[
+              const SizedBox(height: 11),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
+                color: palette.primaryLight.withValues(alpha: 0.12),
+                child: Text(
+                  '原文 · ${post.quotedText}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette.textSecondary,
+                    fontSize: 12,
+                    height: 1.55,
+                  ),
+                ),
+              ),
+            ],
           ],
-          Text(
-            post.content,
-            maxLines: 6,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: palette.textPrimary,
-              fontSize: 15,
-              height: 1.65,
-            ),
-          ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 18),
           InkWell(
             onTap: onBook,
             child: Row(
@@ -1184,7 +1681,7 @@ class CommunityPostCard extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Row(
             children: [
               TextButton.icon(
@@ -1206,7 +1703,7 @@ class CommunityPostCard extends StatelessWidget {
                 onPressed: onComments,
                 icon: const Icon(Icons.chat_bubble_outline_rounded, size: 17),
                 label: Text(
-                  post.commentCount == 0 ? '讨论' : '${post.commentCount} 条讨论',
+                  post.commentCount == 0 ? '回应' : '${post.commentCount} 条回应',
                 ),
               ),
             ],
@@ -1252,10 +1749,12 @@ class CommunityPostCard extends StatelessWidget {
 class _CommunityPostComposer extends StatefulWidget {
   final Book? initialLocalBook;
   final CommunityBook? initialCommunityBook;
+  final String initialType;
 
   const _CommunityPostComposer({
     this.initialLocalBook,
     this.initialCommunityBook,
+    this.initialType = 'thought',
   });
 
   @override
@@ -1268,7 +1767,7 @@ class _CommunityPostComposerState extends State<_CommunityPostComposer> {
   final _chapterController = TextEditingController();
   List<Book> _localBooks = const [];
   Book? _selectedLocalBook;
-  String _type = 'thought';
+  late String _type;
   bool _loading = true;
   bool _submitting = false;
   String? _error;
@@ -1276,6 +1775,7 @@ class _CommunityPostComposerState extends State<_CommunityPostComposer> {
   @override
   void initState() {
     super.initState();
+    _type = widget.initialType;
     _selectedLocalBook = widget.initialLocalBook;
     _loadBooks();
   }
@@ -1325,6 +1825,14 @@ class _CommunityPostComposerState extends State<_CommunityPostComposer> {
     final content = _contentController.text.trim();
     if (content.length < 5) {
       setState(() => _error = '请至少写下 5 个字的完整想法');
+      return;
+    }
+    if (_type == 'review' && content.length < 10) {
+      setState(() => _error = '公开书评至少需要 10 个字');
+      return;
+    }
+    if (_type == 'excerpt' && _quoteController.text.trim().isEmpty) {
+      setState(() => _error = '公开划线需要包含一段短摘录');
       return;
     }
     if (_quoteController.text.trim().length > 240) {
@@ -1413,7 +1921,7 @@ class _CommunityPostComposerState extends State<_CommunityPostComposer> {
                     ),
                     const SizedBox(height: 18),
                     const Text(
-                      '写下正在读的这一刻',
+                      '留下一段阅读',
                       style: TextStyle(
                         fontSize: 21,
                         fontWeight: FontWeight.w700,
@@ -1453,27 +1961,43 @@ class _CommunityPostComposerState extends State<_CommunityPostComposer> {
                             setState(() => _selectedLocalBook = value),
                       ),
                     const SizedBox(height: 14),
-                    SegmentedButton<String>(
-                      segments: const [
-                        ButtonSegment(value: 'thought', label: Text('想法')),
-                        ButtonSegment(value: 'question', label: Text('问题')),
-                        ButtonSegment(
+                    DropdownButtonFormField<String>(
+                      initialValue: _type,
+                      decoration: const InputDecoration(labelText: '这是一段'),
+                      items: [
+                        const DropdownMenuItem(
                           value: 'reading_update',
-                          label: Text('进度'),
+                          child: Text('正在读'),
                         ),
+                        const DropdownMenuItem(
+                          value: 'excerpt',
+                          child: Text('公开划线'),
+                        ),
+                        const DropdownMenuItem(
+                          value: 'thought',
+                          child: Text('阅读想法'),
+                        ),
+                        const DropdownMenuItem(
+                          value: 'review',
+                          child: Text('短书评'),
+                        ),
+                        if (_type == 'question')
+                          const DropdownMenuItem(
+                            value: 'question',
+                            child: Text('同书讨论'),
+                          ),
                       ],
-                      selected: {_type},
-                      showSelectedIcon: false,
-                      onSelectionChanged: (value) =>
-                          setState(() => _type = value.first),
+                      onChanged: (value) {
+                        if (value != null) setState(() => _type = value);
+                      },
                     ),
                     const SizedBox(height: 14),
                     TextField(
                       controller: _quoteController,
                       maxLines: 3,
                       maxLength: 240,
-                      decoration: const InputDecoration(
-                        labelText: '短摘录（可选）',
+                      decoration: InputDecoration(
+                        labelText: _type == 'excerpt' ? '短摘录' : '短摘录（可选）',
                         hintText: '只摘录讨论所需的一小段原文',
                       ),
                     ),
@@ -1483,8 +2007,8 @@ class _CommunityPostComposerState extends State<_CommunityPostComposer> {
                       minLines: 5,
                       maxLines: 10,
                       maxLength: 4000,
-                      decoration: const InputDecoration(
-                        labelText: '你的想法或问题',
+                      decoration: InputDecoration(
+                        labelText: _composerContentLabel(_type),
                         alignLabelWithHint: true,
                       ),
                     ),
@@ -1789,57 +2313,6 @@ class _SearchResults extends StatelessWidget {
   }
 }
 
-class _CommunityBooksStrip extends StatelessWidget {
-  final List<CommunityBook> books;
-  final ValueChanged<CommunityBook> onOpen;
-
-  const _CommunityBooksStrip({required this.books, required this.onOpen});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _SectionHeader(title: '最近出现的书'),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 150,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: books.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 16),
-              itemBuilder: (context, index) {
-                final book = books[index];
-                return InkWell(
-                  onTap: () => onOpen(book),
-                  child: SizedBox(
-                    width: 78,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        CommunityBookCover(book: book, width: 72, height: 102),
-                        const SizedBox(height: 7),
-                        Text(
-                          book.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 12, height: 1.25),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _ProfileBookSection extends StatelessWidget {
   final String title;
   final List<CommunityBook> books;
@@ -2042,43 +2515,6 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-class _FeedEmpty extends StatelessWidget {
-  final int tabIndex;
-  final VoidCallback onCompose;
-  final VoidCallback onLogin;
-
-  const _FeedEmpty({
-    required this.tabIndex,
-    required this.onCompose,
-    required this.onLogin,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final loggedIn = AuthService.isLoggedIn;
-    final title = switch (tabIndex) {
-      0 => loggedIn ? '关注的人还没有留下新动态。' : '登录后查看关注的读者。',
-      2 => loggedIn ? '你正在读的书还没有新讨论。' : '登录后查看同书读者。',
-      _ => '明台还很安静。',
-    };
-    final message = switch (tabIndex) {
-      0 => '关注一位读者后，她公开的阅读想法会出现在这里。',
-      2 => '在公共书页标记“在读”，就能遇见读同一本书的人。',
-      _ => '分享一本正在读的书，以及它让你停下来的问题。',
-    };
-    return Padding(
-      padding: const EdgeInsets.only(top: 80),
-      child: _QuietMessage(
-        icon: Icons.auto_stories_outlined,
-        title: title,
-        message: message,
-        action: loggedIn ? '写下阅读动态' : '去登录',
-        onAction: loggedIn ? onCompose : onLogin,
-      ),
-    );
-  }
-}
-
 class _QuietMessage extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -2153,9 +2589,18 @@ void _showError(BuildContext context, Object error) {
 
 String _postTypeLabel(String type) => switch (type) {
   'question' => '提出了一个问题',
-  'reading_update' => '更新了阅读进度',
+  'reading_update' => '分享了正在读',
   'excerpt' => '分享了一段摘录',
+  'review' => '留下了一段短评',
   _ => '写下了阅读想法',
+};
+
+String _composerContentLabel(String type) => switch (type) {
+  'reading_update' => '此刻读到哪里，为什么停下来',
+  'excerpt' => '这段原文为什么值得留下',
+  'review' => '这本书给你留下了什么',
+  'question' => '你想和同书读者讨论什么',
+  _ => '你的想法',
 };
 
 String _timeLabel(DateTime? date) {
