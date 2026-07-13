@@ -87,10 +87,11 @@ copy .env.example .env
 
 ```env
 PORT=3000
+HOST=127.0.0.1
 NODE_ENV=development
 
 JWT_SECRET=replace-with-a-long-random-secret
-JWT_EXPIRES_IN=30d
+JWT_EXPIRES_IN=7d
 
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/reader
 CORS_ORIGIN=http://localhost:3000
@@ -359,3 +360,6 @@ sudo ./scripts/install-backup-cron.sh
 
 备份默认每天 03:15 写入 `/home/ubuntu/backups/zhidu/daily`，保留 14 天，
 每次备份都会使用 `pg_restore -l` 做可读性校验。
+
+生产环境保持 `HOST=127.0.0.1`，只通过 Nginx 暴露 HTTPS API。不要把
+Node 的 `3000` 端口或 PostgreSQL 的 `5432` 端口直接暴露到公网。

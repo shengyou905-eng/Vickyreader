@@ -1,5 +1,7 @@
 require('dotenv').config();
 
+const nodeEnv = process.env.NODE_ENV || 'development';
+
 const required = ['JWT_SECRET', 'DATABASE_URL'];
 
 for (const key of required) {
@@ -10,7 +12,8 @@ for (const key of required) {
 
 module.exports = {
   port: Number(process.env.PORT || 3000),
-  nodeEnv: process.env.NODE_ENV || 'development',
+  host: process.env.HOST || (nodeEnv === 'production' ? '127.0.0.1' : '0.0.0.0'),
+  nodeEnv,
   jwtSecret: process.env.JWT_SECRET,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   databaseUrl: process.env.DATABASE_URL,
