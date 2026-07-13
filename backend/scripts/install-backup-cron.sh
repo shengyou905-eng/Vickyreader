@@ -11,5 +11,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EOF
 
 sudo chmod 644 "$CRON_FILE"
-sudo systemctl reload cron
+if ! sudo systemctl reload cron 2>/dev/null; then
+  sudo systemctl restart cron
+fi
 printf 'Installed daily backup cron: %s\n' "$CRON_FILE"
