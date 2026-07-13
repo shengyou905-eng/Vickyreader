@@ -290,6 +290,8 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
                   aiTags: (item['ai_tags'] as String?) ?? '',
                   aiUnderstanding: (item['ai_understanding'] as String?) ?? '',
                   bookTitle: (item['book_title'] as String?) ?? '',
+                  chapterTitle: (item['chapter_title'] as String?) ?? '',
+                  createdAt: (item['created_at'] as String?) ?? '',
                   onTagTap: _openTopic,
                   onDelete: _deletingIds.contains(id)
                       ? null

@@ -902,23 +902,26 @@ class BmobApi {
   }) async {
     late final http.Response res;
     try {
-      res = await http
-          .post(
-            Uri.parse(
-              '${AppConstants.apiBaseUrl}/api/mingtai/profiles/me/avatar',
-            ),
-            headers: _authHeaders(),
-            body: jsonEncode({
-              'file_name': fileName,
-              'mime_type': mimeType,
-              'image_base64': base64Encode(bytes),
-              'nickname': nickname,
-              'bio': bio,
-            }),
-          )
-          .timeout(_mingtaiUploadTimeout);
+      res = await _postAuthorizedJsonWithRetry(
+        Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/profiles/me/avatar'),
+        {
+          'file_name': fileName,
+          'mime_type': mimeType,
+          'image_base64': base64Encode(bytes),
+          'nickname': nickname,
+          'bio': bio,
+        },
+        retries: 2,
+        timeout: _mingtaiUploadTimeout,
+      );
     } on TimeoutException {
       throw Exception('头像上传有点慢，请换一张更小的图片或稍后重试');
+    } on HandshakeException {
+      throw Exception('安全连接暂时中断，请检查网络后重试');
+    } on SocketException {
+      throw Exception('网络连接暂时中断，请检查网络后重试');
+    } on http.ClientException {
+      throw Exception('服务器连接暂时中断，请稍后重试');
     }
 
     if (res.statusCode == 200 || res.statusCode == 201) {
@@ -1211,6 +1214,8 @@ class BmobApi {
         return res;
       } on TimeoutException catch (e) {
         lastError = e;
+      } on HandshakeException catch (e) {
+        lastError = e;
       } on SocketException catch (e) {
         lastError = e;
       } on http.ClientException catch (e) {
@@ -1229,6 +1234,7 @@ class BmobApi {
     Uri uri,
     Map<String, dynamic> body, {
     int retries = 1,
+    Duration timeout = _mingtaiTimeout,
   }) async {
     Object? lastError;
     for (var attempt = 0; attempt <= retries; attempt += 1) {
@@ -1243,7 +1249,7 @@ class BmobApi {
               },
               body: jsonEncode(body),
             )
-            .timeout(_mingtaiTimeout);
+            .timeout(timeout);
         if (res.statusCode >= 500 && attempt < retries) {
           await Future<void>.delayed(
             Duration(milliseconds: 500 * (attempt + 1)),
@@ -1252,6 +1258,8 @@ class BmobApi {
         }
         return res;
       } on TimeoutException catch (e) {
+        lastError = e;
+      } on HandshakeException catch (e) {
         lastError = e;
       } on SocketException catch (e) {
         lastError = e;

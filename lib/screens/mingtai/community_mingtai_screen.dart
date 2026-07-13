@@ -1715,17 +1715,7 @@ class CommunityPostCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           if (post.postType == 'excerpt' && post.quotedText.isNotEmpty) ...[
-            Text(
-              '“${post.quotedText}”',
-              maxLines: 5,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: palette.textPrimary,
-                fontSize: 16,
-                height: 1.72,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
+            _ExpandableOriginalText(text: post.quotedText, prominent: true),
             if (post.content.trim().isNotEmpty) ...[
               const SizedBox(height: 10),
               Text(
@@ -1753,21 +1743,7 @@ class CommunityPostCard extends StatelessWidget {
             ),
             if (post.quotedText.isNotEmpty) ...[
               const SizedBox(height: 11),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
-                color: palette.primaryLight.withValues(alpha: 0.12),
-                child: Text(
-                  '原文 · ${post.quotedText}',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: palette.textSecondary,
-                    fontSize: 12,
-                    height: 1.55,
-                  ),
-                ),
-              ),
+              _ExpandableOriginalText(text: post.quotedText),
             ],
           ],
           const SizedBox(height: 18),
@@ -1891,6 +1867,102 @@ class CommunityPostCard extends StatelessWidget {
       if (context.mounted) _showError(context, error);
     }
   }
+}
+
+class _ExpandableOriginalText extends StatefulWidget {
+  final String text;
+  final bool prominent;
+
+  const _ExpandableOriginalText({required this.text, this.prominent = false});
+
+  @override
+  State<_ExpandableOriginalText> createState() =>
+      _ExpandableOriginalTextState();
+}
+
+class _ExpandableOriginalTextState extends State<_ExpandableOriginalText> {
+  bool _expanded = false;
+
+  bool get _canExpand {
+    final text = widget.text.trim();
+    final limit = widget.prominent ? 130 : 56;
+    return text.length > limit || text.split('\n').length > 2;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    final prefix = widget.prominent ? '“' : '原文 · ';
+    final suffix = widget.prominent ? '”' : '';
+    final content = '$prefix${widget.text.trim()}$suffix';
+    final textStyle = widget.prominent
+        ? TextStyle(
+            color: palette.textPrimary,
+            fontSize: 16,
+            height: 1.72,
+            fontWeight: FontWeight.w500,
+          )
+        : TextStyle(color: palette.textSecondary, fontSize: 12, height: 1.55);
+
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          content,
+          maxLines: _expanded ? null : (widget.prominent ? 5 : 2),
+          overflow: _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+          style: textStyle,
+        ),
+        if (_canExpand) ...[
+          const SizedBox(height: 5),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Text(
+                _expanded ? '收起原文' : '展开原文',
+                style: TextStyle(
+                  color: palette.primaryDark,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 2),
+              Icon(
+                _expanded
+                    ? Icons.keyboard_arrow_up_rounded
+                    : Icons.keyboard_arrow_down_rounded,
+                size: 16,
+                color: palette.primaryDark,
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+
+    if (widget.prominent) {
+      return InkWell(
+        onTap: _canExpand ? _toggle : null,
+        borderRadius: BorderRadius.circular(8),
+        child: body,
+      );
+    }
+    return InkWell(
+      onTap: _canExpand ? _toggle : null,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(12, 9, 12, 8),
+        decoration: BoxDecoration(
+          color: palette.primaryLight.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: body,
+      ),
+    );
+  }
+
+  void _toggle() => setState(() => _expanded = !_expanded);
 }
 
 class _CommunityPostComposer extends StatefulWidget {
