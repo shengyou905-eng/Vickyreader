@@ -34,6 +34,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   bool _isExiting = false;
   bool _hasWebSelection = false;
   bool? _controlsBeforeAi;
+  String? _webViewLoadError;
   String? _loadedChapterKey;
   int _appliedReadingPositionRevision = -1;
   DateTime _lastChapterBoundaryAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -50,7 +51,22 @@ class _ReaderScreenState extends State<ReaderScreen> {
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
         NavigationDelegate(
+          onPageStarted: (_) {
+            if (!mounted || _webViewLoadError == null) return;
+            setState(() => _webViewLoadError = null);
+          },
           onPageFinished: (_) => _onPageReady(),
+          onWebResourceError: (error) {
+            if (!mounted ||
+                error.isForMainFrame != true ||
+                error.errorCode == -999 ||
+                error.errorCode == -3) {
+              return;
+            }
+            setState(() {
+              _webViewLoadError = '正文载入失败：${error.description}';
+            });
+          },
           onNavigationRequest: (request) {
             if (request.url.startsWith('about:blank')) {
               return NavigationDecision.navigate;
@@ -64,6 +80,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   void _onPageReady() {
     if (!mounted) return;
+    if (_webViewLoadError != null) {
+      setState(() => _webViewLoadError = null);
+    }
     _ignoreChapterMessages = false;
     final reader = context.read<ReaderProvider>();
     final settings = context.read<SettingsProvider>();
@@ -477,32 +496,66 @@ class _ReaderScreenState extends State<ReaderScreen> {
             }
 
             return Stack(
+              fit: StackFit.expand,
               children: [
-                if (isPdf)
-                  Stack(
-                    children: [
-                      PdfReaderWidget(
-                        key: ValueKey(settings.readerPagingMode),
-                        scrollDirection:
-                            settings.readerPagingMode ==
-                                ReaderPagingMode.horizontal
-                            ? Axis.horizontal
-                            : Axis.vertical,
-                      ),
-                      Positioned(
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        height: 48,
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.translucent,
-                          onTap: _toggleControls,
+                Positioned.fill(
+                  child: isPdf
+                      ? Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            PdfReaderWidget(
+                              key: ValueKey(settings.readerPagingMode),
+                              scrollDirection:
+                                  settings.readerPagingMode ==
+                                      ReaderPagingMode.horizontal
+                                  ? Axis.horizontal
+                                  : Axis.vertical,
+                            ),
+                            Positioned(
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              height: 48,
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.translucent,
+                                onTap: _toggleControls,
+                              ),
+                            ),
+                          ],
+                        )
+                      : WebViewWidget(controller: _webViewController),
+                ),
+
+                if (!isPdf && _webViewLoadError != null)
+                  ColoredBox(
+                    color: settings.backgroundColor,
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.error_outline_rounded, size: 44),
+                            const SizedBox(height: 16),
+                            Text(
+                              _webViewLoadError!,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: settings.textColor),
+                            ),
+                            const SizedBox(height: 18),
+                            TextButton.icon(
+                              onPressed: () {
+                                setState(() => _webViewLoadError = null);
+                                _loadChapter();
+                              },
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('重新载入正文'),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                  )
-                else
-                  WebViewWidget(controller: _webViewController),
+                    ),
+                  ),
 
                 if (reader.selectedText != null && !reader.showAiPanel)
                   Positioned(

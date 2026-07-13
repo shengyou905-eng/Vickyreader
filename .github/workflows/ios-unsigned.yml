@@ -7,6 +7,11 @@ on:
       - main
     paths:
       - .github/workflows/ios-unsigned.yml
+      - lib/**
+      - ios/**
+      - assets/**
+      - pubspec.yaml
+      - pubspec.lock
 
 permissions:
   contents: read
