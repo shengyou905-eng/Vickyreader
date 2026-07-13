@@ -6,23 +6,18 @@
 
 ## 🔴 架构层面
 
-### 1. `ai_service.dart` 直连 DeepSeek，应迁移到后端
+### 1. ✅ `ai_service.dart` 已迁移到后端
 
-**现状**：`lib/services/ai_service.dart` 直接从 Flutter 端调 `api.deepseek.com`，API Key 存在 SharedPreferences。
+**现状**：Flutter 只调用知读后端 `/api/ai/*`；DeepSeek API Key 仅由后端环境变量读取。AI 接口还要求登录和版本化用户授权。
 
-**问题**：
-- Key 暴露在客户端
-- 产品文档要求统一走后端 `/api/ai/*`
-- 无法做服务端缓存、用量控制、日志
-
-**方案**：在后端新增 `POST /api/ai/explain` 和 `POST /api/ai/chat`，`ai_service.dart` 改为调后端。
+**约束**：不得重新把 DeepSeek Key、模型凭据或私钥写入 Flutter assets、SharedPreferences 或构建参数。
 
 **影响文件**：
 - `lib/services/ai_service.dart`（改）
 - `backend/src/routes/`（新增 ai.routes.js）
 - `backend/src/controllers/`（新增 ai.controller.js）
 
-**优先级**：🐝 小U阶段必须做（小U对话依赖后端 AI）
+**优先级**：已完成，持续审计。
 
 ---
 

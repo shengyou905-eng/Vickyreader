@@ -2,6 +2,12 @@ class CommunityBook {
   final String id;
   final String title;
   final String author;
+  final String translator;
+  final String publisher;
+  final String publicationYear;
+  final String language;
+  final String editionLabel;
+  final String isbn;
   final String coverUrl;
   final String description;
   final bool canRead;
@@ -15,6 +21,12 @@ class CommunityBook {
     required this.id,
     required this.title,
     required this.author,
+    this.translator = '',
+    this.publisher = '',
+    this.publicationYear = '',
+    this.language = '',
+    this.editionLabel = '',
+    this.isbn = '',
     required this.coverUrl,
     required this.description,
     required this.canRead,
@@ -30,6 +42,12 @@ class CommunityBook {
       id: _text(json['id']),
       title: _text(json['title'], fallback: '未命名书籍'),
       author: _text(json['author'], fallback: '佚名'),
+      translator: _text(json['translator']),
+      publisher: _text(json['publisher']),
+      publicationYear: _text(json['publication_year']),
+      language: _text(json['language']),
+      editionLabel: _text(json['edition_label']),
+      isbn: _text(json['isbn']),
       coverUrl: _text(json['cover_url']),
       description: _text(json['description']),
       canRead: _bool(json['can_read']),

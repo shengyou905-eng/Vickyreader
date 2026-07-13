@@ -1,7 +1,8 @@
 const jwt = require('jsonwebtoken');
 const { jwtSecret } = require('../config/env');
+const userRepository = require('../repositories/user.repository');
 
-function optionalAuth(req, res, next) {
+async function optionalAuth(req, res, next) {
   const header = req.headers.authorization || '';
   if (!header) return next();
 
@@ -16,7 +17,15 @@ function optionalAuth(req, res, next) {
     if (!userId) {
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
-    req.user = { ...payload, id: userId };
+    const authUser = await userRepository.findAuthUserById(userId);
+    if (!authUser || authUser.account_status !== 'active') {
+      return res.status(401).json({ error: '账号不可用或已被封禁' });
+    }
+    if (Number(payload.tokenVersion || 0) !== Number(authUser.token_version || 0)) {
+      return res.status(401).json({ error: '登录状态已失效，请重新登录' });
+    }
+    req.authUser = authUser;
+    req.user = { ...payload, id: userId, role: authUser.role };
     return next();
   } catch (_) {
     return res.status(401).json({ error: 'Invalid or expired token' });

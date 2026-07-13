@@ -1,21 +1,56 @@
 const { query, withTransaction } = require('../config/db');
 
-function normalizeBookKey(title, author) {
+function normalizeWorkKey(title, author) {
   return `${clean(title).toLowerCase()}::${clean(author || '佚名').toLowerCase()}`
     .replace(/\s+/g, ' ')
     .slice(0, 600);
 }
 
+function normalizeEditionKey(payload) {
+  const isbn = clean(payload.isbn).replace(/[-\s]/g, '');
+  if (isbn) return `isbn::${isbn.toLowerCase()}`;
+  return [
+    clean(payload.title),
+    clean(payload.author || '佚名'),
+    clean(payload.translator),
+    clean(payload.publisher),
+    clean(payload.edition_label),
+    clean(payload.language),
+  ].map((item) => item.toLowerCase()).join('::').slice(0, 900);
+}
+
 async function resolveBook(userId, payload) {
   const title = clean(payload.title);
   const author = clean(payload.author) || '佚名';
-  const normalizedKey = normalizeBookKey(title, author);
+  const workKey = normalizeWorkKey(payload.work_title || title, payload.original_author || author);
+  const normalizedKey = normalizeEditionKey({ ...payload, title, author });
+  const workResult = await query(
+    `INSERT INTO community_book_works (
+       normalized_key, title, original_author, original_language, description
+     ) VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (normalized_key) DO UPDATE SET
+       description = CASE
+         WHEN community_book_works.description = '' THEN EXCLUDED.description
+         ELSE community_book_works.description
+       END,
+       updated_at = now()
+     RETURNING id`,
+    [
+      workKey,
+      clean(payload.work_title) || title,
+      clean(payload.original_author) || author,
+      clean(payload.original_language),
+      clean(payload.description),
+    ],
+  );
   const result = await query(
     `INSERT INTO community_books (
-       normalized_key, title, author, cover_url, description, isbn,
+       work_id, normalized_key, title, author, translator, publisher,
+       publication_year, language, edition_label, cover_url, description, isbn,
        created_by_user_id, metadata_json
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)
      ON CONFLICT (normalized_key) DO UPDATE SET
+       work_id = COALESCE(community_books.work_id, EXCLUDED.work_id),
        cover_url = CASE
          WHEN EXCLUDED.cover_url <> '' THEN EXCLUDED.cover_url
          ELSE community_books.cover_url
@@ -32,9 +67,15 @@ async function resolveBook(userId, payload) {
        updated_at = now()
      RETURNING *`,
     [
+      workResult.rows[0].id,
       normalizedKey,
       title,
       author,
+      clean(payload.translator),
+      clean(payload.publisher),
+      clean(payload.publication_year),
+      clean(payload.language),
+      clean(payload.edition_label),
       clean(payload.cover_url),
       clean(payload.description),
       clean(payload.isbn),
@@ -55,9 +96,13 @@ async function searchCommunity(search, viewerId, limit = 24) {
            WHERE a.book_id = b.id AND a.active = true
          ) AS can_read,
          (SELECT COUNT(*)::int FROM community_book_states s
-          WHERE s.book_id = b.id AND s.status = 'reading' AND s.visibility = 'public') AS reading_count,
+          WHERE s.book_id = b.id AND s.status = 'reading' AND s.visibility = 'public'
+            AND COALESCE((SELECT show_reading_status FROM community_privacy_settings ps
+                          WHERE ps.user_id = s.user_id), false) = true) AS reading_count,
          (SELECT COUNT(*)::int FROM community_book_states s
-          WHERE s.book_id = b.id AND s.status = 'finished' AND s.visibility = 'public') AS finished_count,
+          WHERE s.book_id = b.id AND s.status = 'finished' AND s.visibility = 'public'
+            AND COALESCE((SELECT show_reading_status FROM community_privacy_settings ps
+                          WHERE ps.user_id = s.user_id), false) = true) AS finished_count,
          (SELECT COUNT(*)::int FROM community_posts p WHERE p.book_id = b.id) AS post_count
        FROM community_books b
        WHERE b.title ILIKE $1
@@ -85,7 +130,8 @@ function postSelect(whereSql) {
       b.cover_url AS book_cover_url,
       COALESCE(NULLIF(up.nickname, ''), split_part(u.email, '@', 1)) AS nickname,
       COALESCE(up.avatar_url, '') AS avatar_url,
-      (SELECT COUNT(*)::int FROM community_post_comments c WHERE c.post_id = p.id) AS comment_count,
+      (SELECT COUNT(*)::int FROM community_post_comments c
+       WHERE c.post_id = p.id AND c.moderation_status = 'published') AS comment_count,
       (SELECT COUNT(*)::int FROM community_post_resonances r WHERE r.post_id = p.id) AS resonance_count,
       CASE WHEN $1::uuid IS NULL THEN false ELSE EXISTS (
         SELECT 1 FROM community_post_resonances r
@@ -116,6 +162,13 @@ async function listPosts({
     params.push(value);
     return `$${params.length}`;
   };
+  conditions.push("p.moderation_status = 'published'");
+  conditions.push(`NOT EXISTS (
+    SELECT 1 FROM community_blocks cb
+    WHERE $1::uuid IS NOT NULL
+      AND ((cb.blocker_user_id = $1::uuid AND cb.blocked_user_id = p.user_id)
+        OR (cb.blocked_user_id = $1::uuid AND cb.blocker_user_id = p.user_id))
+  )`);
   if (postId) conditions.push(`p.id = ${parameter(postId)}::uuid`);
   if (bookId) conditions.push(`p.book_id = ${parameter(bookId)}::uuid`);
   if (userId) conditions.push(`p.user_id = ${parameter(userId)}::uuid`);
@@ -156,8 +209,11 @@ async function getFeed(viewerId, tab, limit) {
          WHERE a.book_id = b.id AND a.active = true
        ) AS can_read,
        (SELECT COUNT(*)::int FROM community_book_states s
-        WHERE s.book_id = b.id AND s.status = 'reading' AND s.visibility = 'public') AS reading_count,
-       (SELECT COUNT(*)::int FROM community_posts p WHERE p.book_id = b.id) AS post_count
+        WHERE s.book_id = b.id AND s.status = 'reading' AND s.visibility = 'public'
+          AND COALESCE((SELECT show_reading_status FROM community_privacy_settings ps
+                        WHERE ps.user_id = s.user_id), false) = true) AS reading_count,
+       (SELECT COUNT(*)::int FROM community_posts p
+        WHERE p.book_id = b.id AND p.moderation_status = 'published') AS post_count
      FROM community_books b
      ORDER BY b.updated_at DESC
      LIMIT 12`,
@@ -173,12 +229,19 @@ async function getBook(bookId, viewerId) {
          WHERE a.book_id = b.id AND a.active = true
        ) AS can_read,
        (SELECT COUNT(*)::int FROM community_book_states s
-        WHERE s.book_id = b.id AND s.status = 'want_to_read' AND s.visibility = 'public') AS want_count,
+        WHERE s.book_id = b.id AND s.status = 'want_to_read' AND s.visibility = 'public'
+          AND COALESCE((SELECT show_reading_status FROM community_privacy_settings ps
+                        WHERE ps.user_id = s.user_id), false) = true) AS want_count,
        (SELECT COUNT(*)::int FROM community_book_states s
-        WHERE s.book_id = b.id AND s.status = 'reading' AND s.visibility = 'public') AS reading_count,
+        WHERE s.book_id = b.id AND s.status = 'reading' AND s.visibility = 'public'
+          AND COALESCE((SELECT show_reading_status FROM community_privacy_settings ps
+                        WHERE ps.user_id = s.user_id), false) = true) AS reading_count,
        (SELECT COUNT(*)::int FROM community_book_states s
-        WHERE s.book_id = b.id AND s.status = 'finished' AND s.visibility = 'public') AS finished_count,
-       (SELECT COUNT(*)::int FROM community_posts p WHERE p.book_id = b.id) AS post_count,
+        WHERE s.book_id = b.id AND s.status = 'finished' AND s.visibility = 'public'
+          AND COALESCE((SELECT show_reading_status FROM community_privacy_settings ps
+                        WHERE ps.user_id = s.user_id), false) = true) AS finished_count,
+       (SELECT COUNT(*)::int FROM community_posts p
+        WHERE p.book_id = b.id AND p.moderation_status = 'published') AS post_count,
        (SELECT status FROM community_book_states s
         WHERE s.book_id = b.id AND s.user_id = $2::uuid) AS viewer_status
      FROM community_books b
@@ -196,11 +259,20 @@ async function getBook(bookId, viewerId) {
        FROM community_book_states s
        JOIN users u ON u.id = s.user_id
        LEFT JOIN user_profiles up ON up.user_id = s.user_id
+       LEFT JOIN community_privacy_settings ps ON ps.user_id = s.user_id
        WHERE s.book_id = $1 AND s.visibility = 'public'
+         AND COALESCE(ps.show_reading_status, false) = true
+         AND COALESCE(ps.appear_in_same_book, false) = true
+         AND NOT EXISTS (
+           SELECT 1 FROM community_blocks cb
+           WHERE $2::uuid IS NOT NULL
+             AND ((cb.blocker_user_id = $2::uuid AND cb.blocked_user_id = s.user_id)
+               OR (cb.blocked_user_id = $2::uuid AND cb.blocker_user_id = s.user_id))
+         )
        ORDER BY CASE s.status WHEN 'reading' THEN 0 WHEN 'finished' THEN 1 ELSE 2 END,
                 s.updated_at DESC
        LIMIT 36`,
-      [bookId],
+      [bookId, viewerId],
     ),
   ]);
   return { book: bookResult.rows[0], posts, readers: readers.rows };
@@ -268,7 +340,7 @@ async function deletePost(userId, postId) {
   return result.rowCount > 0;
 }
 
-async function listComments(postId) {
+async function listComments(postId, viewerId = null) {
   const result = await query(
     `SELECT c.id, c.post_id, c.user_id, c.content, c.created_at, c.updated_at,
        COALESCE(NULLIF(up.nickname, ''), split_part(u.email, '@', 1)) AS nickname,
@@ -277,8 +349,15 @@ async function listComments(postId) {
      JOIN users u ON u.id = c.user_id
      LEFT JOIN user_profiles up ON up.user_id = c.user_id
      WHERE c.post_id = $1
+       AND c.moderation_status = 'published'
+       AND NOT EXISTS (
+         SELECT 1 FROM community_blocks cb
+         WHERE $2::uuid IS NOT NULL
+           AND ((cb.blocker_user_id = $2::uuid AND cb.blocked_user_id = c.user_id)
+             OR (cb.blocked_user_id = $2::uuid AND cb.blocker_user_id = c.user_id))
+       )
      ORDER BY c.created_at ASC`,
-    [postId],
+    [postId, viewerId],
   );
   return result.rows;
 }
@@ -290,6 +369,13 @@ async function createComment(userId, postId, content) {
       [postId],
     );
     if (!post.rows[0]) return null;
+    const blocked = await queryFn(
+      `SELECT 1 FROM community_blocks
+       WHERE (blocker_user_id = $1 AND blocked_user_id = $2)
+          OR (blocker_user_id = $2 AND blocked_user_id = $1)`,
+      [userId, post.rows[0].user_id],
+    );
+    if (blocked.rowCount) return null;
     const result = await queryFn(
       `INSERT INTO community_post_comments (post_id, user_id, content)
        VALUES ($1, $2, $3) RETURNING *`,
@@ -325,6 +411,13 @@ async function toggleResonance(userId, postId) {
       [postId],
     );
     if (!post.rows[0]) return null;
+    const blocked = await queryFn(
+      `SELECT 1 FROM community_blocks
+       WHERE (blocker_user_id = $1 AND blocked_user_id = $2)
+          OR (blocker_user_id = $2 AND blocked_user_id = $1)`,
+      [userId, post.rows[0].user_id],
+    );
+    if (blocked.rowCount) return null;
     await queryFn(
       'INSERT INTO community_post_resonances (post_id, user_id) VALUES ($1, $2)',
       [postId, userId],
@@ -344,6 +437,19 @@ async function toggleResonance(userId, postId) {
 
 async function followUser(viewerId, targetUserId) {
   return withTransaction(async (queryFn) => {
+    const privacy = await queryFn(
+      `SELECT COALESCE(allow_follows, true) AS allow_follows
+       FROM community_privacy_settings WHERE user_id = $1`,
+      [targetUserId],
+    );
+    if (privacy.rows[0]?.allow_follows === false) return { following: false, disallowed: true };
+    const blocked = await queryFn(
+      `SELECT 1 FROM community_blocks
+       WHERE (blocker_user_id = $1 AND blocked_user_id = $2)
+          OR (blocker_user_id = $2 AND blocked_user_id = $1)`,
+      [viewerId, targetUserId],
+    );
+    if (blocked.rowCount) return { following: false, blocked: true };
     const result = await queryFn(
       `INSERT INTO community_follows (follower_user_id, followed_user_id)
        VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING followed_user_id`,
@@ -370,11 +476,22 @@ async function unfollowUser(viewerId, targetUserId) {
 }
 
 async function getProfile(targetUserId, viewerId) {
+  if (viewerId && viewerId !== targetUserId) {
+    const blocked = await query(
+      `SELECT 1 FROM community_blocks
+       WHERE (blocker_user_id = $1 AND blocked_user_id = $2)
+          OR (blocker_user_id = $2 AND blocked_user_id = $1)`,
+      [viewerId, targetUserId],
+    );
+    if (blocked.rowCount) return null;
+  }
   const profileResult = await query(
     `SELECT u.id AS user_id,
        COALESCE(NULLIF(up.nickname, ''), split_part(u.email, '@', 1)) AS nickname,
        COALESCE(up.avatar_url, '') AS avatar_url,
        COALESCE(up.bio, '') AS bio,
+       COALESCE(ps.allow_follows, true) AS allow_follows,
+       COALESCE(ps.appear_in_same_book, false) AS appear_in_same_book,
        (SELECT COUNT(*)::int FROM community_follows f WHERE f.followed_user_id = u.id) AS follower_count,
        (SELECT COUNT(*)::int FROM community_follows f WHERE f.follower_user_id = u.id) AS following_count,
        CASE WHEN $2::uuid IS NULL THEN false ELSE EXISTS (
@@ -383,6 +500,7 @@ async function getProfile(targetUserId, viewerId) {
        ) END AS viewer_following
      FROM users u
      LEFT JOIN user_profiles up ON up.user_id = u.id
+     LEFT JOIN community_privacy_settings ps ON ps.user_id = u.id
      WHERE u.id = $1`,
     [targetUserId, viewerId],
   );
@@ -393,6 +511,8 @@ async function getProfile(targetUserId, viewerId) {
      JOIN community_books b ON b.id = s.book_id
      WHERE s.user_id = $1
        AND (s.visibility = 'public' OR $1 = $2::uuid)
+       AND (COALESCE((SELECT show_reading_status FROM community_privacy_settings
+                      WHERE user_id = $1), false) = true OR $1 = $2::uuid)
      ORDER BY s.updated_at DESC`,
     [targetUserId, viewerId],
   );
@@ -411,6 +531,11 @@ async function listNotifications(userId, limit = 50) {
      LEFT JOIN user_profiles up ON up.user_id = n.actor_user_id
      LEFT JOIN community_books b ON b.id = n.book_id
      WHERE n.recipient_user_id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM community_blocks cb
+         WHERE (cb.blocker_user_id = $1 AND cb.blocked_user_id = n.actor_user_id)
+            OR (cb.blocked_user_id = $1 AND cb.blocker_user_id = n.actor_user_id)
+       )
      ORDER BY n.created_at DESC
      LIMIT $2`,
     [userId, limit],
@@ -425,6 +550,175 @@ async function markNotificationsRead(userId) {
     [userId],
   );
   return result.rowCount;
+}
+
+async function getPrivacySettings(userId) {
+  const result = await query(
+    `INSERT INTO community_privacy_settings (user_id)
+     VALUES ($1) ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id
+     RETURNING *`,
+    [userId],
+  );
+  return result.rows[0];
+}
+
+async function updatePrivacySettings(userId, payload) {
+  const result = await query(
+    `INSERT INTO community_privacy_settings (
+       user_id, show_reading_status, show_reading_progress, allow_follows,
+       appear_in_same_book
+     ) VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (user_id) DO UPDATE SET
+       show_reading_status = EXCLUDED.show_reading_status,
+       show_reading_progress = EXCLUDED.show_reading_progress,
+       allow_follows = EXCLUDED.allow_follows,
+       appear_in_same_book = EXCLUDED.appear_in_same_book,
+       updated_at = now()
+     RETURNING *`,
+    [
+      userId,
+      payload.show_reading_status,
+      payload.show_reading_progress,
+      payload.allow_follows,
+      payload.appear_in_same_book,
+    ],
+  );
+  return result.rows[0];
+}
+
+async function hasGuidelineAcceptance(userId, version) {
+  const result = await query(
+    `SELECT 1 FROM community_guideline_acceptances
+     WHERE user_id = $1 AND guideline_version = $2`,
+    [userId, version],
+  );
+  return result.rowCount > 0;
+}
+
+async function acceptGuidelines(userId, version) {
+  await query(
+    `INSERT INTO community_guideline_acceptances (user_id, guideline_version)
+     VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [userId, version],
+  );
+  return true;
+}
+
+async function blockUser(userId, targetUserId) {
+  return withTransaction(async (queryFn) => {
+    await queryFn(
+      `INSERT INTO community_blocks (blocker_user_id, blocked_user_id)
+       VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [userId, targetUserId],
+    );
+    await queryFn(
+      `DELETE FROM community_follows
+       WHERE (follower_user_id = $1 AND followed_user_id = $2)
+          OR (follower_user_id = $2 AND followed_user_id = $1)`,
+      [userId, targetUserId],
+    );
+    await queryFn(
+      `DELETE FROM community_notifications
+       WHERE (recipient_user_id = $1 AND actor_user_id = $2)
+          OR (recipient_user_id = $2 AND actor_user_id = $1)`,
+      [userId, targetUserId],
+    );
+    return { blocked: true };
+  });
+}
+
+async function unblockUser(userId, targetUserId) {
+  await query(
+    'DELETE FROM community_blocks WHERE blocker_user_id = $1 AND blocked_user_id = $2',
+    [userId, targetUserId],
+  );
+  return { blocked: false };
+}
+
+async function listBlockedUsers(userId) {
+  const result = await query(
+    `SELECT b.blocked_user_id AS user_id, b.created_at,
+       COALESCE(NULLIF(up.nickname, ''), split_part(u.email, '@', 1)) AS nickname,
+       COALESCE(up.avatar_url, '') AS avatar_url
+     FROM community_blocks b
+     JOIN users u ON u.id = b.blocked_user_id
+     LEFT JOIN user_profiles up ON up.user_id = u.id
+     WHERE b.blocker_user_id = $1
+     ORDER BY b.created_at DESC`,
+    [userId],
+  );
+  return result.rows;
+}
+
+async function createReport(userId, payload) {
+  const tables = { post: 'community_posts', comment: 'community_post_comments', user: 'users' };
+  const table = tables[payload.target_type];
+  const target = await query(`SELECT id FROM ${table} WHERE id = $1`, [payload.target_id]);
+  if (!target.rowCount) return null;
+  const result = await query(
+    `INSERT INTO community_reports (
+       reporter_user_id, target_type, target_id, reason, details
+     ) VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (reporter_user_id, target_type, target_id) DO UPDATE SET
+       reason = EXCLUDED.reason, details = EXCLUDED.details,
+       status = 'pending', created_at = now()
+     RETURNING *`,
+    [userId, payload.target_type, payload.target_id, payload.reason, payload.details],
+  );
+  return result.rows[0];
+}
+
+async function listReports(limit = 100) {
+  const result = await query(
+    `SELECT r.*, reporter.email AS reporter_email, reviewer.email AS reviewer_email
+     FROM community_reports r
+     JOIN users reporter ON reporter.id = r.reporter_user_id
+     LEFT JOIN users reviewer ON reviewer.id = r.reviewed_by_user_id
+     ORDER BY CASE r.status WHEN 'pending' THEN 0 WHEN 'reviewing' THEN 1 ELSE 2 END,
+       r.created_at DESC LIMIT $1`,
+    [limit],
+  );
+  return result.rows;
+}
+
+async function resolveReport(adminUserId, reportId, payload) {
+  const result = await query(
+    `UPDATE community_reports SET status = $2, resolution_note = $3,
+       reviewed_by_user_id = $4, reviewed_at = now()
+     WHERE id = $1 RETURNING *`,
+    [reportId, payload.status, payload.resolution_note, adminUserId],
+  );
+  return result.rows[0] || null;
+}
+
+async function moderateTarget(adminUserId, payload) {
+  return withTransaction(async (queryFn) => {
+    if (payload.action_type === 'hide_post' || payload.action_type === 'remove_post') {
+      await queryFn(
+        `UPDATE community_posts SET moderation_status = $2, updated_at = now() WHERE id = $1`,
+        [payload.target_id, payload.action_type === 'hide_post' ? 'hidden' : 'removed'],
+      );
+    } else if (payload.action_type === 'hide_comment' || payload.action_type === 'remove_comment') {
+      await queryFn(
+        `UPDATE community_post_comments SET moderation_status = $2, updated_at = now() WHERE id = $1`,
+        [payload.target_id, payload.action_type === 'hide_comment' ? 'hidden' : 'removed'],
+      );
+    } else if (payload.action_type === 'ban_user' || payload.action_type === 'unban_user') {
+      await queryFn(
+        `UPDATE users SET account_status = $2, ban_reason = $3,
+           token_version = token_version + 1, updated_at = now()
+         WHERE id = $1`,
+        [payload.target_id, payload.action_type === 'ban_user' ? 'banned' : 'active', payload.reason],
+      );
+    }
+    await queryFn(
+      `INSERT INTO community_moderation_actions (
+         admin_user_id, action_type, target_type, target_id, reason
+       ) VALUES ($1, $2, $3, $4, $5)`,
+      [adminUserId, payload.action_type, payload.target_type, payload.target_id, payload.reason],
+    );
+    return { actioned: true };
+  });
 }
 
 function clean(value) {
@@ -447,4 +741,15 @@ module.exports = {
   getProfile,
   listNotifications,
   markNotificationsRead,
+  getPrivacySettings,
+  updatePrivacySettings,
+  hasGuidelineAcceptance,
+  acceptGuidelines,
+  blockUser,
+  unblockUser,
+  listBlockedUsers,
+  createReport,
+  listReports,
+  resolveReport,
+  moderateTarget,
 };

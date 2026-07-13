@@ -88,6 +88,22 @@ class BmobApi {
   }
 
   Future<void> signOut() async {
+    final token = _token?.trim() ?? '';
+    if (token.isNotEmpty) {
+      try {
+        await http
+            .post(
+              Uri.parse('${AppConstants.apiBaseUrl}/api/auth/logout'),
+              headers: {
+                'Accept': 'application/json',
+                'Authorization': 'Bearer $token',
+              },
+            )
+            .timeout(_authTimeout);
+      } catch (_) {
+        // 本地退出不能被网络状态阻塞；服务端 JWT 仍会按过期时间失效。
+      }
+    }
     _token = null;
     _userId = null;
     _email = null;
@@ -336,24 +352,6 @@ class BmobApi {
       return Map<String, dynamic>.from(data['insight'] ?? {});
     }
     throw Exception('读取小U首页失败 (HTTP ${res.statusCode}): ${res.body}');
-  }
-
-  Future<List<Map<String, dynamic>>> publishMingtaiAnnotations(
-    List<String> entryIds,
-  ) async {
-    final res = await http
-        .post(
-          Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/publish'),
-          headers: _authHeaders(),
-          body: jsonEncode({'entry_ids': entryIds}),
-        )
-        .timeout(const Duration(seconds: 10));
-
-    if (res.statusCode == 201) {
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      return List<Map<String, dynamic>>.from(data['annotations'] ?? []);
-    }
-    throw Exception('公开到明台失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
   Future<Map<String, dynamic>> publishMingtaiBook({
@@ -1089,43 +1087,6 @@ class BmobApi {
       return jsonDecode(res.body) as Map<String, dynamic>;
     }
     throw Exception('发送共鸣失败 (HTTP ${res.statusCode}): ${res.body}');
-  }
-
-  Future<Map<String, dynamic>> createMingtaiBookAnnotation({
-    required String bookId,
-    required int chapterIndex,
-    required String source,
-    required String originalText,
-    String annotationText = '',
-    String chapterTitle = '',
-    Map<String, dynamic> positionJson = const {},
-  }) async {
-    late final http.Response res;
-    try {
-      res = await http
-          .post(
-            Uri.parse(
-              '${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/annotations',
-            ),
-            headers: _authHeaders(),
-            body: jsonEncode({
-              'source': source,
-              'chapter_index': chapterIndex.toString(),
-              'chapter_title': chapterTitle,
-              'original_text': originalText,
-              'annotation_text': annotationText,
-              'position_json': positionJson,
-            }),
-          )
-          .timeout(_mingtaiTimeout);
-    } on TimeoutException {
-      throw Exception('公开批注发送超时，请稍后重试');
-    }
-
-    if (res.statusCode == 201) {
-      return jsonDecode(res.body) as Map<String, dynamic>;
-    }
-    throw Exception('公开批注失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
   Future<Map<String, dynamic>> createMingtaiAnnotationComment({

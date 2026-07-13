@@ -1,6 +1,7 @@
 const express = require('express');
 const auth = require('../middleware/auth');
 const optionalAuth = require('../middleware/optionalAuth');
+const requireAdmin = require('../middleware/requireAdmin');
 const mingtaiController = require('../controllers/mingtai.controller');
 const communityController = require('../controllers/community.controller');
 
@@ -8,19 +9,30 @@ const router = express.Router();
 
 router.get('/community/feed', optionalAuth, communityController.feed);
 router.get('/community/search', optionalAuth, communityController.search);
+router.get('/community/guidelines', optionalAuth, communityController.getGuidelines);
+router.post('/community/guidelines/accept', auth, communityController.acceptGuidelines);
+router.get('/community/privacy', auth, communityController.getPrivacy);
+router.put('/community/privacy', auth, communityController.updatePrivacy);
+router.post('/community/reports', auth, communityController.report);
 router.post('/community/books/resolve', auth, communityController.resolveBook);
 router.get('/community/books/:id', optionalAuth, communityController.getBook);
 router.put('/community/books/:id/state', auth, communityController.setBookState);
 router.post('/community/posts', auth, communityController.createPost);
 router.delete('/community/posts/:id', auth, communityController.deletePost);
-router.get('/community/posts/:id/comments', communityController.listComments);
+router.get('/community/posts/:id/comments', optionalAuth, communityController.listComments);
 router.post('/community/posts/:id/comments', auth, communityController.createComment);
 router.post('/community/posts/:id/resonance', auth, communityController.toggleResonance);
 router.get('/community/profiles/:userId', optionalAuth, communityController.getProfile);
 router.post('/community/profiles/:userId/follow', auth, communityController.follow);
 router.delete('/community/profiles/:userId/follow', auth, communityController.unfollow);
+router.post('/community/profiles/:userId/block', auth, communityController.block);
+router.delete('/community/profiles/:userId/block', auth, communityController.unblock);
+router.get('/community/blocks', auth, communityController.blockedUsers);
 router.get('/community/notifications', auth, communityController.notifications);
 router.patch('/community/notifications/read-all', auth, communityController.markNotificationsRead);
+router.get('/community/admin/reports', auth, requireAdmin, communityController.adminReports);
+router.patch('/community/admin/reports/:id', auth, requireAdmin, communityController.adminResolveReport);
+router.post('/community/admin/moderate', auth, requireAdmin, communityController.adminModerate);
 
 router.get('/books', mingtaiController.listBooks);
 router.get('/home', mingtaiController.getHome);
@@ -71,10 +83,18 @@ router.post('/books/:id/reviews', auth, mingtaiController.createBookReview);
 router.get('/books/:id', mingtaiController.getBook);
 router.post('/books/:id/borrow', auth, mingtaiController.borrowBook);
 router.post('/books/:id/read', mingtaiController.recordBookRead);
-router.post('/books/:id/annotations', auth, mingtaiController.createBookAnnotation);
+router.post('/books/:id/annotations', auth, (_req, res) => {
+  res.status(410).json({
+    error: '旧版公开批注已停用，请通过明台阅读社区发布经过预览的帖子。',
+  });
+});
 router.get('/annotations/:id/comments', mingtaiController.listAnnotationComments);
 router.post('/annotations/:id/comments', auth, mingtaiController.createAnnotationComment);
 router.post('/annotations/:id/resonance', auth, mingtaiController.createResonance);
-router.post('/publish', auth, mingtaiController.publish);
+router.post('/publish', auth, (_req, res) => {
+  res.status(410).json({
+    error: '旧版公开入口已停用，请通过明台阅读社区发布经过预览的帖子。',
+  });
+});
 
 module.exports = router;

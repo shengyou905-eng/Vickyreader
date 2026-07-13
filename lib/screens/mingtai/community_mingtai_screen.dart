@@ -8,6 +8,8 @@ import '../../models/mingtai_community.dart';
 import '../../services/auth_service.dart';
 import '../../services/book_service.dart';
 import '../../services/mingtai_community_api.dart';
+import '../../services/privacy_service.dart';
+import '../../utils/community_safety.dart';
 import 'mingtai_screen.dart' show MingtaiProfileScreen;
 
 const _communityApi = MingtaiCommunityApi();
@@ -322,6 +324,7 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
                                           _openComments(_posts[index]),
                                       onResonance: () =>
                                           _toggleResonance(index),
+                                      onDeleted: _load,
                                     ),
                                   ),
                                 ),
@@ -429,7 +432,43 @@ class _CommunityBookScreenState extends State<CommunityBookScreen> {
     setState(() => _savingState = true);
     try {
       final next = _book?.viewerStatus == status ? 'none' : status;
-      await _communityApi.setBookState(widget.bookId, next);
+      var isPrivate = true;
+      if (next != 'none') {
+        if (!mounted) return;
+        final makePublic = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('谁可以看到这个阅读状态？'),
+            content: const Text('默认只保存在你的账号中。只有主动公开后，其他同书读者才可能看见。'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('仅自己可见'),
+              ),
+              FilledButton.tonal(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('公开给同书读者'),
+              ),
+            ],
+          ),
+        );
+        if (makePublic == null) return;
+        isPrivate = !makePublic;
+        if (makePublic) {
+          final current = await PrivacyService.getCommunityPrivacy();
+          await PrivacyService.updateCommunityPrivacy({
+            'show_reading_status': true,
+            'show_reading_progress': current['show_reading_progress'] == true,
+            'allow_follows': current['allow_follows'] != false,
+            'appear_in_same_book': true,
+          });
+        }
+      }
+      await _communityApi.setBookState(
+        widget.bookId,
+        next,
+        isPrivate: isPrivate,
+      );
       await _load();
     } catch (error) {
       if (mounted) _showError(context, error);
@@ -489,6 +528,32 @@ class _CommunityBookScreenState extends State<CommunityBookScreen> {
                                 fontSize: 14,
                               ),
                             ),
+                            if (book.translator.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                '${book.translator} 译',
+                                style: TextStyle(
+                                  color: palette.textSecondary,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                            if (book.publisher.isNotEmpty ||
+                                book.editionLabel.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                [
+                                  book.publisher,
+                                  book.editionLabel,
+                                ].where((item) => item.isNotEmpty).join(' · '),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: palette.textSecondary,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
                             const SizedBox(height: 18),
                             Text(
                               '${book.finishedCount} 人读过 · ${book.readingCount} 人正在读',
@@ -630,6 +695,7 @@ class _CommunityBookScreenState extends State<CommunityBookScreen> {
                             await _communityApi.toggleResonance(post.id);
                             await _load();
                           },
+                          onDeleted: _load,
                         ),
                       ),
                     ),
@@ -707,6 +773,35 @@ class _CommunityProfileScreenState extends State<CommunityProfileScreen> {
     await _load();
   }
 
+  Future<void> _blockUser() async {
+    final data = _data;
+    if (data == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('拉黑 ${data.nickname}？'),
+        content: const Text('双方将不再看到彼此的动态，也会自动取消关注关系。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('确认拉黑'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await PrivacyService.setBlocked(data.userId, true);
+      if (mounted) Navigator.pop(context);
+    } catch (error) {
+      if (mounted) _showError(context, error);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
@@ -720,6 +815,25 @@ class _CommunityProfileScreenState extends State<CommunityProfileScreen> {
               tooltip: '编辑资料',
               onPressed: _editProfile,
               icon: const Icon(Icons.edit_outlined),
+            ),
+          if (!_isMine)
+            PopupMenuButton<String>(
+              tooltip: '更多',
+              onSelected: (value) {
+                if (value == 'report' && _data != null) {
+                  showCommunityReportDialog(
+                    context,
+                    targetType: 'user',
+                    targetId: _data!.userId,
+                  );
+                } else if (value == 'block') {
+                  _blockUser();
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'report', child: Text('举报用户')),
+                PopupMenuItem(value: 'block', child: Text('拉黑用户')),
+              ],
             ),
         ],
       ),
@@ -812,6 +926,7 @@ class _CommunityProfileScreenState extends State<CommunityProfileScreen> {
                             await _communityApi.toggleResonance(post.id);
                             await _load();
                           },
+                          onDeleted: _load,
                         ),
                       ),
                     ),
@@ -899,6 +1014,7 @@ class CommunityPostCard extends StatelessWidget {
   final VoidCallback? onProfile;
   final VoidCallback onComments;
   final VoidCallback onResonance;
+  final VoidCallback? onDeleted;
 
   const CommunityPostCard({
     super.key,
@@ -907,6 +1023,7 @@ class CommunityPostCard extends StatelessWidget {
     required this.onProfile,
     required this.onComments,
     required this.onResonance,
+    this.onDeleted,
   });
 
   @override
@@ -953,6 +1070,28 @@ class CommunityPostCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: '更多',
+                  padding: EdgeInsets.zero,
+                  onSelected: (value) {
+                    if (value == 'report') {
+                      showCommunityReportDialog(
+                        context,
+                        targetType: 'post',
+                        targetId: post.id,
+                      );
+                    } else if (value == 'delete') {
+                      _deleteOwnPost(context);
+                    }
+                  },
+                  itemBuilder: (_) => post.userId == AuthService.userId
+                      ? const [
+                          PopupMenuItem(value: 'delete', child: Text('删除这条内容')),
+                        ]
+                      : const [
+                          PopupMenuItem(value: 'report', child: Text('举报这条内容')),
+                        ],
                 ),
               ],
             ),
@@ -1076,6 +1215,38 @@ class CommunityPostCard extends StatelessWidget {
       ),
     );
   }
+
+  Future<void> _deleteOwnPost(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('删除这条公开内容？'),
+        content: const Text('相关短摘录、评论和共鸣也会一起删除，且无法恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    try {
+      await _communityApi.deletePost(post.id);
+      onDeleted?.call();
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('公开内容已删除')));
+      }
+    } catch (error) {
+      if (context.mounted) _showError(context, error);
+    }
+  }
 }
 
 class _CommunityPostComposer extends StatefulWidget {
@@ -1146,6 +1317,7 @@ class _CommunityPostComposerState extends State<_CommunityPostComposer> {
   Future<void> _submit() async {
     if (_submitting) return;
     await AuthService.init();
+    if (!mounted) return;
     if (!AuthService.isLoggedIn) {
       setState(() => _error = '请先登录后再发布');
       return;
@@ -1159,6 +1331,17 @@ class _CommunityPostComposerState extends State<_CommunityPostComposer> {
       setState(() => _error = '公开摘录不能超过 240 个字符');
       return;
     }
+    final guidelinesAccepted = await ensureCommunityGuidelines(context);
+    if (!mounted || !guidelinesAccepted) return;
+    final previewBookTitle =
+        widget.initialCommunityBook?.title ?? _selectedLocalBook?.title ?? '';
+    final confirmed = await confirmPublicPostPreview(
+      context,
+      bookTitle: previewBookTitle,
+      content: content,
+      quote: _quoteController.text.trim(),
+    );
+    if (!confirmed || !mounted) return;
     setState(() {
       _submitting = true;
       _error = null;
@@ -1388,6 +1571,7 @@ class _CommunityCommentsSheetState extends State<_CommunityCommentsSheet> {
   Future<void> _send() async {
     final content = _controller.text.trim();
     if (content.length < 2 || _sending) return;
+    if (!await ensureCommunityGuidelines(context) || !mounted) return;
     setState(() => _sending = true);
     try {
       await _communityApi.createComment(widget.post.id, content);
@@ -1445,10 +1629,19 @@ class _CommunityCommentsSheetState extends State<_CommunityCommentsSheet> {
                         return Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            CommunityAvatar(
-                              name: item.nickname,
-                              imageUrl: item.avatarUrl,
-                              radius: 18,
+                            GestureDetector(
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => CommunityProfileScreen(
+                                    userId: item.userId,
+                                  ),
+                                ),
+                              ),
+                              child: CommunityAvatar(
+                                name: item.nickname,
+                                imageUrl: item.avatarUrl,
+                                radius: 18,
+                              ),
                             ),
                             const SizedBox(width: 10),
                             Expanded(
@@ -1468,6 +1661,24 @@ class _CommunityCommentsSheetState extends State<_CommunityCommentsSheet> {
                                   ),
                                 ],
                               ),
+                            ),
+                            PopupMenuButton<String>(
+                              tooltip: '更多',
+                              onSelected: (value) {
+                                if (value == 'report') {
+                                  showCommunityReportDialog(
+                                    context,
+                                    targetType: 'comment',
+                                    targetId: item.id,
+                                  );
+                                }
+                              },
+                              itemBuilder: (_) => const [
+                                PopupMenuItem(
+                                  value: 'report',
+                                  child: Text('举报评论'),
+                                ),
+                              ],
                             ),
                           ],
                         );

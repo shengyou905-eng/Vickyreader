@@ -15,7 +15,9 @@ const app = express();
 
 app.set('trust proxy', true);
 app.use(cors({ origin: corsOrigin === '*' ? true : corsOrigin }));
-app.use(express.json({ limit: '160mb' }));
+// Public e-book uploads are disabled; 8 MB still covers compressed avatars
+// while limiting oversized JSON request abuse.
+app.use(express.json({ limit: '8mb' }));
 app.use(
   '/uploads',
   express.static(path.resolve(__dirname, '..', 'uploads'), {

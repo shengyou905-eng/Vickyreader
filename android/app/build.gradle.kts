@@ -33,8 +33,7 @@ android {
         versionName = flutter.versionName
         manifestPlaceholders["appLabel"] =
             if (isInternalTestBuild) "知读（内部测试）" else "知读"
-        manifestPlaceholders["usesCleartextTraffic"] =
-            if (isInternalTestBuild) "true" else "false"
+        manifestPlaceholders["usesCleartextTraffic"] = "false"
     }
 
     buildTypes {

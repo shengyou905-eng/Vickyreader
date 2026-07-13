@@ -8,6 +8,28 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user' CHECK (
+    role IN ('user', 'admin')
+  );
+
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS account_status TEXT NOT NULL DEFAULT 'active' CHECK (
+    account_status IN ('active', 'banned')
+  );
+
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS ban_reason TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS ai_consent_version INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS ai_consent_at TIMESTAMPTZ;
+
 CREATE TABLE IF NOT EXISTS user_profiles (
   user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   nickname TEXT NOT NULL DEFAULT '',
@@ -518,11 +540,28 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_unique_resonance
   ON notifications(recipient_user_id, actor_user_id, event_type, target_id)
   WHERE event_type IN ('annotation_resonance', 'review_resonance');
 
-CREATE TABLE IF NOT EXISTS community_books (
+CREATE TABLE IF NOT EXISTS community_book_works (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   normalized_key TEXT NOT NULL UNIQUE,
   title TEXT NOT NULL,
+  original_author TEXT NOT NULL DEFAULT '佚名',
+  original_language TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS community_books (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  work_id UUID REFERENCES community_book_works(id) ON DELETE SET NULL,
+  normalized_key TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
   author TEXT NOT NULL DEFAULT '佚名',
+  translator TEXT NOT NULL DEFAULT '',
+  publisher TEXT NOT NULL DEFAULT '',
+  publication_year TEXT NOT NULL DEFAULT '',
+  language TEXT NOT NULL DEFAULT '',
+  edition_label TEXT NOT NULL DEFAULT '',
   cover_url TEXT NOT NULL DEFAULT '',
   description TEXT NOT NULL DEFAULT '',
   isbn TEXT NOT NULL DEFAULT '',
@@ -531,6 +570,24 @@ CREATE TABLE IF NOT EXISTS community_books (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE community_books
+  ADD COLUMN IF NOT EXISTS work_id UUID REFERENCES community_book_works(id) ON DELETE SET NULL;
+
+ALTER TABLE community_books
+  ADD COLUMN IF NOT EXISTS translator TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE community_books
+  ADD COLUMN IF NOT EXISTS publisher TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE community_books
+  ADD COLUMN IF NOT EXISTS publication_year TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE community_books
+  ADD COLUMN IF NOT EXISTS language TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE community_books
+  ADD COLUMN IF NOT EXISTS edition_label TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS idx_community_books_updated
   ON community_books(updated_at DESC);
@@ -559,7 +616,7 @@ CREATE TABLE IF NOT EXISTS community_book_states (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   book_id UUID NOT NULL REFERENCES community_books(id) ON DELETE CASCADE,
   status TEXT NOT NULL CHECK (status IN ('want_to_read', 'reading', 'finished')),
-  visibility TEXT NOT NULL DEFAULT 'public' CHECK (
+  visibility TEXT NOT NULL DEFAULT 'private' CHECK (
     visibility IN ('public', 'private')
   ),
   started_at TIMESTAMPTZ,
@@ -567,6 +624,18 @@ CREATE TABLE IF NOT EXISTS community_book_states (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, book_id)
+);
+
+ALTER TABLE community_book_states
+  ALTER COLUMN visibility SET DEFAULT 'private';
+
+CREATE TABLE IF NOT EXISTS community_privacy_settings (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  show_reading_status BOOLEAN NOT NULL DEFAULT false,
+  show_reading_progress BOOLEAN NOT NULL DEFAULT false,
+  allow_follows BOOLEAN NOT NULL DEFAULT true,
+  appear_in_same_book BOOLEAN NOT NULL DEFAULT false,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_community_book_states_book
@@ -596,9 +665,17 @@ CREATE TABLE IF NOT EXISTS community_posts (
   content TEXT NOT NULL,
   quoted_text TEXT NOT NULL DEFAULT '',
   chapter_label TEXT NOT NULL DEFAULT '',
+  moderation_status TEXT NOT NULL DEFAULT 'published' CHECK (
+    moderation_status IN ('published', 'hidden', 'removed')
+  ),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE community_posts
+  ADD COLUMN IF NOT EXISTS moderation_status TEXT NOT NULL DEFAULT 'published' CHECK (
+    moderation_status IN ('published', 'hidden', 'removed')
+  );
 
 CREATE INDEX IF NOT EXISTS idx_community_posts_created
   ON community_posts(created_at DESC);
@@ -614,9 +691,17 @@ CREATE TABLE IF NOT EXISTS community_post_comments (
   post_id UUID NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   content TEXT NOT NULL,
+  moderation_status TEXT NOT NULL DEFAULT 'published' CHECK (
+    moderation_status IN ('published', 'hidden', 'removed')
+  ),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE community_post_comments
+  ADD COLUMN IF NOT EXISTS moderation_status TEXT NOT NULL DEFAULT 'published' CHECK (
+    moderation_status IN ('published', 'hidden', 'removed')
+  );
 
 CREATE INDEX IF NOT EXISTS idx_community_post_comments_post
   ON community_post_comments(post_id, created_at ASC);
@@ -648,6 +733,62 @@ CREATE INDEX IF NOT EXISTS idx_community_notifications_recipient
 CREATE UNIQUE INDEX IF NOT EXISTS idx_community_notifications_unique_event
   ON community_notifications(recipient_user_id, actor_user_id, event_type, post_id)
   WHERE event_type IN ('post_resonance');
+
+CREATE TABLE IF NOT EXISTS community_blocks (
+  blocker_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  blocked_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (blocker_user_id, blocked_user_id),
+  CHECK (blocker_user_id <> blocked_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_community_blocks_blocked
+  ON community_blocks(blocked_user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS community_reports (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  reporter_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  target_type TEXT NOT NULL CHECK (
+    target_type IN ('post', 'comment', 'user')
+  ),
+  target_id UUID NOT NULL,
+  reason TEXT NOT NULL CHECK (
+    reason IN ('spam', 'harassment', 'hate', 'sexual', 'violence', 'copyright', 'privacy', 'other')
+  ),
+  details TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (
+    status IN ('pending', 'reviewing', 'actioned', 'dismissed')
+  ),
+  reviewed_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_at TIMESTAMPTZ,
+  resolution_note TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(reporter_user_id, target_type, target_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_community_reports_status
+  ON community_reports(status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS community_guideline_acceptances (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  guideline_version INTEGER NOT NULL,
+  accepted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, guideline_version)
+);
+
+CREATE TABLE IF NOT EXISTS community_moderation_actions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  admin_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  action_type TEXT NOT NULL CHECK (
+    action_type IN ('hide_post', 'remove_post', 'hide_comment', 'remove_comment', 'ban_user', 'unban_user')
+  ),
+  target_type TEXT NOT NULL CHECK (
+    target_type IN ('post', 'comment', 'user')
+  ),
+  target_id UUID NOT NULL,
+  reason TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 CREATE TABLE IF NOT EXISTS reading_personality_profiles (
   user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

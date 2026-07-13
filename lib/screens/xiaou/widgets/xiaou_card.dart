@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../config/theme.dart';
 import '../../../services/book_service.dart';
+import '../../../utils/ai_consent_gate.dart';
 
 class XiaouCard extends StatefulWidget {
   final String source;
@@ -10,7 +11,6 @@ class XiaouCard extends StatefulWidget {
   final String? aiUnderstanding;
   final String? bookTitle;
   final VoidCallback? onDelete;
-  final VoidCallback? onPublish;
   final ValueChanged<String>? onTagTap;
 
   const XiaouCard({
@@ -22,7 +22,6 @@ class XiaouCard extends StatefulWidget {
     this.aiUnderstanding,
     this.bookTitle,
     this.onDelete,
-    this.onPublish,
     this.onTagTap,
   });
 
@@ -135,6 +134,7 @@ class _XiaouCardState extends State<XiaouCard> {
                   ),
                 ],
               ),
+              const AiGeneratedNotice(compact: true),
             ],
             if (expandable) ...[
               const SizedBox(height: 8),
@@ -199,21 +199,6 @@ class _XiaouCardState extends State<XiaouCard> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  if (widget.onPublish != null)
-                    Tooltip(
-                      message: '公开到明台',
-                      child: GestureDetector(
-                        onTap: widget.onPublish,
-                        child: const Padding(
-                          padding: EdgeInsets.only(right: 12),
-                          child: Icon(
-                            Icons.public_outlined,
-                            size: 18,
-                            color: AppTheme.textSecondary,
-                          ),
-                        ),
-                      ),
-                    ),
                   if (widget.onDelete != null)
                     GestureDetector(
                       onTap: widget.onDelete,

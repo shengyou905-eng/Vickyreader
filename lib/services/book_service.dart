@@ -2705,40 +2705,6 @@ class BookService {
     );
   }
 
-  static Future<void> createPublicAnnotationForCurrentBook({
-    required Book book,
-    required int chapterIndex,
-    required String chapterTitle,
-    required String source,
-    required String originalText,
-    String annotationText = '',
-    Map<String, dynamic> positionJson = const {},
-  }) async {
-    if (!isMingtaiShelfBook(book)) return;
-    if (source == 'highlight') return;
-    final publicBookId = publicBookIdFromShelfId(book.id);
-    await BmobApi.instance.createMingtaiBookAnnotation(
-      bookId: publicBookId,
-      chapterIndex: chapterIndex,
-      chapterTitle: chapterTitle,
-      source: source,
-      originalText: originalText,
-      annotationText: annotationText,
-      positionJson: positionJson,
-    );
-    _mingtaiBookDetailCache.remove(publicBookId);
-    _mingtaiBookDetailCacheAt.remove(publicBookId);
-    _invalidateMingtaiBooksCache();
-  }
-
-  static Future<void> publishEntryToMingtai(String itemId) async {
-    final entryId = itemId.startsWith('entry:') ? itemId.substring(6) : itemId;
-    if (entryId.isEmpty) {
-      throw Exception('找不到远端 entry id，无法公开到明台');
-    }
-    await BmobApi.instance.publishMingtaiAnnotations([entryId]);
-  }
-
   static Future<void> quoteMingtaiItemToXiaou(MingtaiFeedItem item) async {
     final api = BmobApi.instance;
     if (!api.isLoggedIn) {

@@ -9,8 +9,8 @@ import '../../../models/ai_conversation.dart';
 import '../../../models/ai_explain_mode.dart';
 import '../../../providers/ai_provider.dart';
 import '../../../providers/reader_provider.dart';
-import '../../../services/book_service.dart';
 import '../../../utils/markdown_sanitizer.dart';
+import '../../../utils/ai_consent_gate.dart';
 
 class AiExplanationCard extends StatefulWidget {
   final VoidCallback onClose;
@@ -26,8 +26,6 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
   final ScrollController _scrollController = ScrollController();
   bool _initialized = false;
   bool _preparing = true;
-  bool _publishing = false;
-  bool _published = false;
   int _sessionStartIndex = 0;
   String? _setupError;
   AiExplainMode _activeMode = AiExplainMode.auto;
@@ -137,51 +135,6 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
   void _close() {
     context.read<AiProvider>().clearMessages();
     widget.onClose();
-  }
-
-  Future<void> _publishExplanation() async {
-    if (_publishing || _published) return;
-    final reader = context.read<ReaderProvider>();
-    final ai = context.read<AiProvider>();
-    final book = reader.book;
-    final selectedText = reader.selectedText ?? '';
-    String? answer;
-    for (final message in ai.messages.reversed) {
-      if (message.role == 'assistant' && message.content.trim().isNotEmpty) {
-        answer = message.content.trim();
-        break;
-      }
-    }
-    if (book == null ||
-        !BookService.isMingtaiShelfBook(book) ||
-        selectedText.isEmpty ||
-        answer == null) {
-      return;
-    }
-
-    setState(() => _publishing = true);
-    try {
-      await BookService.createPublicAnnotationForCurrentBook(
-        book: book,
-        chapterIndex: reader.currentChapterIndex,
-        chapterTitle: reader.currentChapter?.title ?? '',
-        source: 'ai_explanation',
-        originalText: selectedText,
-        annotationText: answer,
-      );
-      if (!mounted) return;
-      setState(() => _published = true);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('小U解读已公开到明台')));
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('公开失败：$error')));
-    } finally {
-      if (mounted) setState(() => _publishing = false);
-    }
   }
 
   @override
@@ -553,12 +506,6 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
     AppPalette palette,
     Color primary,
   ) {
-    final reader = context.read<ReaderProvider>();
-    final book = reader.book;
-    final canPublish =
-        book != null &&
-        BookService.isMingtaiShelfBook(book) &&
-        ai.error == null;
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 7, 10, 10),
       decoration: BoxDecoration(
@@ -566,72 +513,49 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
           top: BorderSide(color: Colors.white.withAlpha(120), width: 0.5),
         ),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: TextField(
-              controller: _followUpController,
-              decoration: InputDecoration(
-                hintText: '继续问一句…',
-                filled: true,
-                fillColor: Colors.white.withAlpha(88),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 13,
-                  vertical: 9,
-                ),
-                isDense: true,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-              style: const TextStyle(fontSize: 13.5),
-              textInputAction: TextInputAction.send,
-              onSubmitted: (_) => _sendFollowUp(),
-            ),
+          const Padding(
+            padding: EdgeInsets.only(left: 2, bottom: 6),
+            child: AiGeneratedNotice(compact: true),
           ),
-          IconButton(
-            tooltip: '发送',
-            onPressed: _sendFollowUp,
-            visualDensity: VisualDensity.compact,
-            icon: Icon(Icons.arrow_upward_rounded, size: 20, color: primary),
-          ),
-          if (canPublish)
-            PopupMenuButton<String>(
-              tooltip: '更多',
-              icon: Icon(
-                Icons.more_horiz_rounded,
-                size: 20,
-                color: palette.textSecondary,
-              ),
-              onSelected: (value) {
-                if (value == 'publish') _publishExplanation();
-              },
-              itemBuilder: (_) => [
-                PopupMenuItem<String>(
-                  value: 'publish',
-                  enabled: !_publishing && !_published,
-                  child: Row(
-                    children: [
-                      Icon(
-                        _published
-                            ? Icons.check_circle_outline_rounded
-                            : Icons.public_outlined,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 9),
-                      Text(
-                        _published
-                            ? '已公开到明台'
-                            : _publishing
-                            ? '正在公开…'
-                            : '公开到明台',
-                      ),
-                    ],
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _followUpController,
+                  decoration: InputDecoration(
+                    hintText: '继续问一句…',
+                    filled: true,
+                    fillColor: Colors.white.withAlpha(88),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 13,
+                      vertical: 9,
+                    ),
+                    isDense: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
                   ),
+                  style: const TextStyle(fontSize: 13.5),
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: (_) => _sendFollowUp(),
                 ),
-              ],
-            ),
+              ),
+              IconButton(
+                tooltip: '发送',
+                onPressed: _sendFollowUp,
+                visualDensity: VisualDensity.compact,
+                icon: Icon(
+                  Icons.arrow_upward_rounded,
+                  size: 20,
+                  color: primary,
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );

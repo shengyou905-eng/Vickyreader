@@ -331,3 +331,31 @@ JWT 生效的判断：
 - `Authorization: Bearer <错误 token>` 返回 `401`
 - `Authorization: Bearer <正确 token>` 可以创建和查询 entries
 - A 用户 token 查询不到 B 用户数据，B 用户 token 查询不到 A 用户数据
+## 隐私与社区治理
+
+- DeepSeek Key 只配置在服务器 `.env` 的 `DEEPSEEK_API_KEY`。
+- `POST /api/ai/chat` 与 `POST /api/ai/explain` 要求用户先完成
+  `POST /api/auth/ai-consent`。
+- `POST /api/auth/logout` 会撤销该账号现有 JWT；默认有效期为 7 天。
+- `DELETE /api/auth/account` 需要当前密码，并删除账号关联云端数据。
+- 明台帖子和评论要求先接受 `/api/mingtai/community/guidelines` 返回的当前规范。
+- 举报入口：`POST /api/mingtai/community/reports`。
+- 拉黑入口：`POST /api/mingtai/community/profiles/:userId/block`。
+- 管理员举报队列：`GET /api/mingtai/community/admin/reports`。
+- 管理员治理动作：`POST /api/mingtai/community/admin/moderate`。
+
+授予管理员权限：
+
+```bash
+npm run admin:grant -- 2931952407@qq.com
+```
+
+每日 PostgreSQL 备份：
+
+```bash
+chmod +x scripts/backup-postgres.sh scripts/install-backup-cron.sh
+sudo ./scripts/install-backup-cron.sh
+```
+
+备份默认每天 03:15 写入 `/home/ubuntu/backups/zhidu/daily`，保留 14 天，
+每次备份都会使用 `pg_restore -l` 做可读性校验。

@@ -8,8 +8,8 @@ import '../../config/theme.dart';
 import '../../models/highlight.dart';
 import '../../providers/reader_provider.dart';
 import '../../providers/settings_provider.dart';
-import '../../services/book_service.dart';
 import '../../services/epub_service.dart';
+import '../../utils/ai_consent_gate.dart';
 import 'widgets/ai_explanation_card.dart';
 import 'widgets/reader_settings.dart';
 import 'widgets/selection_menu.dart';
@@ -540,18 +540,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
                           _webViewController.runJavaScript(
                             "wrapSelection('$color', '${_jsEscape(selectedText)}')",
                           );
-                          await _maybePublishPublicAnnotation(
-                            reader,
-                            source: 'highlight',
-                            originalText: selectedText,
-                            positionJson: {
-                              'color': color,
-                              'startOffset': startIdx >= 0 ? startIdx : 0,
-                              'endOffset': startIdx >= 0
-                                  ? startIdx + selectedText.length
-                                  : selectedText.length,
-                            },
-                          );
                           _hasWebSelection = false;
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
@@ -659,6 +647,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   Future<void> _beginAiExplanation(ReaderProvider reader) async {
     if (reader.selectedText == null || reader.showAiPanel) return;
+    if (!await AiConsentGate.ensure(context) || !mounted) return;
 
     _controlsBeforeAi ??= _showControls;
     if (_showControls && mounted) {
@@ -694,57 +683,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
         mounted &&
         _showControls != restoreControls) {
       setState(() => _showControls = restoreControls);
-    }
-  }
-
-  Future<void> _maybePublishPublicAnnotation(
-    ReaderProvider reader, {
-    required String source,
-    required String originalText,
-    String annotationText = '',
-    Map<String, dynamic> positionJson = const {},
-  }) async {
-    final book = reader.book;
-    if (book == null || !BookService.isMingtaiShelfBook(book)) return;
-
-    final publish = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('公开到明台？'),
-        content: const Text('这条内容会出现在公共书籍的页边笔记里。未公开的记录仍只进入你的小U。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('只存小U'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('公开'),
-          ),
-        ],
-      ),
-    );
-    if (publish != true || !mounted) return;
-
-    try {
-      await BookService.createPublicAnnotationForCurrentBook(
-        book: book,
-        chapterIndex: reader.currentChapterIndex,
-        chapterTitle: reader.currentChapter?.title ?? '',
-        source: source,
-        originalText: originalText,
-        annotationText: annotationText,
-        positionJson: positionJson,
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已公开到明台'), duration: Duration(seconds: 1)),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('公开失败：$e')));
     }
   }
 
@@ -988,19 +926,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
           ElevatedButton(
             onPressed: () async {
               final noteContent = controller.text.trim();
-              final selectedText = reader.selectedText ?? '';
               if (noteContent.isNotEmpty) {
                 await reader.addThought(content: noteContent);
                 if (ctx.mounted) {
                   Navigator.pop(ctx);
-                }
-                if (mounted) {
-                  await _maybePublishPublicAnnotation(
-                    reader,
-                    source: 'thought',
-                    originalText: selectedText,
-                    annotationText: noteContent,
-                  );
                 }
                 if (mounted) {
                   messenger.showSnackBar(

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../config/theme.dart';
 import '../../models/ai_conversation.dart';
 import '../../services/ai_service.dart';
+import '../../utils/ai_consent_gate.dart';
 import '../../services/book_service.dart';
 import 'topic_screen.dart';
 import 'widgets/xiaou_card.dart';
@@ -38,7 +39,6 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   String _searchQuery = '';
   String _sourceFilter = 'all';
   final Set<String> _deletingIds = {};
-  final Set<String> _publishingIds = {};
 
   @override
   void initState() {
@@ -219,53 +219,6 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     }
   }
 
-  Future<void> _publishItem(String id) async {
-    if (id.isEmpty || _publishingIds.contains(id)) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        final palette = context.appPalette;
-        return AlertDialog(
-          title: const Text('让其他读者也看见？'),
-          content: const Text('这段话会出现在书页边缘。\n\n未发布的记录仍只属于你。'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('暂时留给自己'),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: palette.primary,
-                foregroundColor: palette.buttonForeground,
-              ),
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('发布到明台'),
-            ),
-          ],
-        );
-      },
-    );
-    if (confirmed != true || !mounted) return;
-    setState(() => _publishingIds.add(id));
-    try {
-      await BookService.publishEntryToMingtai(id);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('已公开到明台'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('公开失败：$e'), behavior: SnackBarBehavior.floating),
-      );
-    } finally {
-      if (mounted) setState(() => _publishingIds.remove(id));
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -297,7 +250,8 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     );
   }
 
-  void _showAgentChat() {
+  Future<void> _showAgentChat() async {
+    if (!await AiConsentGate.ensure(context) || !mounted) return;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -329,8 +283,6 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
                 final item = visibleItems[i];
                 final id = (item['id'] as String?) ?? '';
                 final source = (item['source'] as String?) ?? '';
-                final canPublishToMingtai =
-                    source == 'thought' || source == 'manual';
                 return XiaouCard(
                   source: source,
                   originalText: (item['original_text'] as String?) ?? '',
@@ -339,9 +291,6 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
                   aiUnderstanding: (item['ai_understanding'] as String?) ?? '',
                   bookTitle: (item['book_title'] as String?) ?? '',
                   onTagTap: _openTopic,
-                  onPublish: !canPublishToMingtai || _publishingIds.contains(id)
-                      ? null
-                      : () => _publishItem(id),
                   onDelete: _deletingIds.contains(id)
                       ? null
                       : () => _deleteItem(id),
@@ -941,13 +890,21 @@ class _XiaouAgentBubble extends StatelessWidget {
                   ),
                 ],
               )
-            : Text(
-                message.content,
-                style: TextStyle(
-                  color: palette.textPrimary,
-                  fontSize: 14,
-                  height: 1.62,
-                ),
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    message.content,
+                    style: TextStyle(
+                      color: palette.textPrimary,
+                      fontSize: 14,
+                      height: 1.62,
+                    ),
+                  ),
+                  if (!isUser && message.content.trim().isNotEmpty)
+                    const AiGeneratedNotice(compact: true),
+                ],
               ),
       ),
     );

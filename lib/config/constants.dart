@@ -14,11 +14,6 @@ class AppConstants {
     'API_BASE_URL',
     defaultValue: '',
   );
-  static const bool _allowInsecureHttp = bool.fromEnvironment(
-    'ALLOW_INSECURE_HTTP',
-    defaultValue: false,
-  );
-
   static String get apiBaseUrl {
     final value = _configuredApiBaseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
     if (value.isEmpty) {
@@ -32,10 +27,8 @@ class AppConstants {
         (uri.scheme != 'http' && uri.scheme != 'https')) {
       throw StateError('API_BASE_URL is invalid.');
     }
-    if (kReleaseMode && uri.scheme != 'https' && !_allowInsecureHttp) {
-      throw StateError(
-        'Release builds require HTTPS unless ALLOW_INSECURE_HTTP is enabled.',
-      );
+    if (kReleaseMode && uri.scheme != 'https') {
+      throw StateError('Release builds require HTTPS.');
     }
     return value;
   }

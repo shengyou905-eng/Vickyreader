@@ -9,14 +9,20 @@ const shouldClear =
 const auditOnly = process.argv.includes('--audit');
 
 const tables = [
+  'community_moderation_actions',
+  'community_reports',
   'community_notifications',
   'community_post_resonances',
   'community_post_comments',
   'community_posts',
   'community_follows',
+  'community_blocks',
+  'community_guideline_acceptances',
+  'community_privacy_settings',
   'community_book_states',
   'community_readable_assets',
   'community_books',
+  'community_book_works',
   'annotation_resonances',
   'annotation_comments',
   'book_resonance',
