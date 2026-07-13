@@ -68,7 +68,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
             });
           },
           onNavigationRequest: (request) {
-            if (request.url.startsWith('about:blank')) {
+            if (isReaderDocumentNavigationAllowed(request.url)) {
               return NavigationDecision.navigate;
             }
             return NavigationDecision.prevent;
@@ -1054,6 +1054,18 @@ class _ReaderScreenState extends State<ReaderScreen> {
       );
     }
   }
+}
+
+@visibleForTesting
+bool isReaderDocumentNavigationAllowed(String rawUrl) {
+  final url = rawUrl.trim();
+  if (url.isEmpty) return false;
+  final uri = Uri.tryParse(url);
+  if (uri == null) return false;
+  return switch (uri.scheme.toLowerCase()) {
+    'about' || 'file' || 'data' || 'applewebdata' => true,
+    _ => false,
+  };
 }
 
 class ReaderThoughtDraft {
