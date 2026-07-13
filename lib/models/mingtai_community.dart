@@ -68,6 +68,11 @@ class CommunityPost {
   final String content;
   final String quotedText;
   final String chapterLabel;
+  final String readingPosition;
+  final double? readingProgress;
+  final String source;
+  final String sourceEntryId;
+  final List<String> topicTags;
   final String bookTitle;
   final String bookAuthor;
   final String bookCoverUrl;
@@ -76,6 +81,8 @@ class CommunityPost {
   final int commentCount;
   final int resonanceCount;
   final bool viewerResonated;
+  final int favoriteCount;
+  final bool viewerFavorited;
   final DateTime? createdAt;
 
   const CommunityPost({
@@ -86,6 +93,11 @@ class CommunityPost {
     required this.content,
     required this.quotedText,
     required this.chapterLabel,
+    this.readingPosition = '',
+    this.readingProgress,
+    this.source = 'mingtai',
+    this.sourceEntryId = '',
+    this.topicTags = const [],
     required this.bookTitle,
     required this.bookAuthor,
     required this.bookCoverUrl,
@@ -94,6 +106,8 @@ class CommunityPost {
     required this.commentCount,
     required this.resonanceCount,
     required this.viewerResonated,
+    this.favoriteCount = 0,
+    this.viewerFavorited = false,
     required this.createdAt,
   });
 
@@ -106,6 +120,14 @@ class CommunityPost {
       content: _text(json['content']),
       quotedText: _text(json['quoted_text']),
       chapterLabel: _text(json['chapter_label']),
+      readingPosition: _text(json['reading_position']),
+      readingProgress: _doubleOrNull(json['reading_progress']),
+      source: _text(json['source'], fallback: 'mingtai'),
+      sourceEntryId: _text(json['source_entry_id']),
+      topicTags: (json['topic_tags'] as List? ?? const [])
+          .map((item) => item.toString())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false),
       bookTitle: _text(json['book_title'], fallback: '未命名书籍'),
       bookAuthor: _text(json['book_author'], fallback: '佚名'),
       bookCoverUrl: _text(json['book_cover_url']),
@@ -114,6 +136,8 @@ class CommunityPost {
       commentCount: _int(json['comment_count']),
       resonanceCount: _int(json['resonance_count']),
       viewerResonated: _bool(json['viewer_resonated']),
+      favoriteCount: _int(json['favorite_count']),
+      viewerFavorited: _bool(json['viewer_favorited']),
       createdAt: DateTime.tryParse(_text(json['created_at']))?.toLocal(),
     );
   }
@@ -122,6 +146,8 @@ class CommunityPost {
     int? resonanceCount,
     bool? viewerResonated,
     int? commentCount,
+    int? favoriteCount,
+    bool? viewerFavorited,
   }) {
     return CommunityPost(
       id: id,
@@ -131,6 +157,11 @@ class CommunityPost {
       content: content,
       quotedText: quotedText,
       chapterLabel: chapterLabel,
+      readingPosition: readingPosition,
+      readingProgress: readingProgress,
+      source: source,
+      sourceEntryId: sourceEntryId,
+      topicTags: topicTags,
       bookTitle: bookTitle,
       bookAuthor: bookAuthor,
       bookCoverUrl: bookCoverUrl,
@@ -139,6 +170,8 @@ class CommunityPost {
       commentCount: commentCount ?? this.commentCount,
       resonanceCount: resonanceCount ?? this.resonanceCount,
       viewerResonated: viewerResonated ?? this.viewerResonated,
+      favoriteCount: favoriteCount ?? this.favoriteCount,
+      viewerFavorited: viewerFavorited ?? this.viewerFavorited,
       createdAt: createdAt,
     );
   }
@@ -176,6 +209,8 @@ class CommunityComment {
   final String nickname;
   final String avatarUrl;
   final String content;
+  final String quotedText;
+  final String parentReplyId;
   final DateTime? createdAt;
 
   const CommunityComment({
@@ -184,6 +219,8 @@ class CommunityComment {
     required this.nickname,
     required this.avatarUrl,
     required this.content,
+    this.quotedText = '',
+    this.parentReplyId = '',
     required this.createdAt,
   });
 
@@ -194,6 +231,8 @@ class CommunityComment {
       nickname: _text(json['nickname'], fallback: '读者'),
       avatarUrl: _text(json['avatar_url']),
       content: _text(json['content']),
+      quotedText: _text(json['quoted_text']),
+      parentReplyId: _text(json['parent_reply_id']),
       createdAt: DateTime.tryParse(_text(json['created_at']))?.toLocal(),
     );
   }
@@ -211,6 +250,7 @@ class CommunityProfileData {
   final List<CommunityBook> reading;
   final List<CommunityBook> finished;
   final List<CommunityPost> posts;
+  final List<CommunityPost> favorites;
 
   const CommunityProfileData({
     required this.userId,
@@ -224,6 +264,7 @@ class CommunityProfileData {
     required this.reading,
     required this.finished,
     required this.posts,
+    this.favorites = const [],
   });
 
   factory CommunityProfileData.fromJson(Map<String, dynamic> json) {
@@ -252,6 +293,12 @@ class CommunityProfileData {
                 CommunityPost.fromJson(Map<String, dynamic>.from(item as Map)),
           )
           .toList(growable: false),
+      favorites: (json['favorites'] as List? ?? const [])
+          .map(
+            (item) =>
+                CommunityPost.fromJson(Map<String, dynamic>.from(item as Map)),
+          )
+          .toList(growable: false),
     );
   }
 }
@@ -263,6 +310,8 @@ class CommunityNotification {
   final String eventType;
   final String preview;
   final String bookTitle;
+  final String postId;
+  final String bookId;
   final DateTime? createdAt;
   final bool unread;
 
@@ -273,6 +322,8 @@ class CommunityNotification {
     required this.eventType,
     required this.preview,
     required this.bookTitle,
+    required this.postId,
+    required this.bookId,
     required this.createdAt,
     required this.unread,
   });
@@ -285,6 +336,8 @@ class CommunityNotification {
       eventType: _text(json['event_type']),
       preview: _text(json['preview']),
       bookTitle: _text(json['book_title']),
+      postId: _text(json['post_id']),
+      bookId: _text(json['book_id']),
       createdAt: DateTime.tryParse(_text(json['created_at']))?.toLocal(),
       unread: _text(json['read_at']).isEmpty,
     );
@@ -300,3 +353,6 @@ int _int(dynamic value) => int.tryParse(value?.toString() ?? '') ?? 0;
 
 bool _bool(dynamic value) =>
     value == true || value?.toString().toLowerCase() == 'true';
+
+double? _doubleOrNull(dynamic value) =>
+    value == null ? null : double.tryParse(value.toString());

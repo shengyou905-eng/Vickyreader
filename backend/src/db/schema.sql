@@ -660,11 +660,20 @@ CREATE TABLE IF NOT EXISTS community_posts (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   book_id UUID NOT NULL REFERENCES community_books(id) ON DELETE CASCADE,
   post_type TEXT NOT NULL DEFAULT 'thought' CHECK (
-    post_type IN ('reading_update', 'thought', 'question', 'excerpt', 'review')
+    post_type IN (
+      'reading_update', 'thought', 'question', 'excerpt', 'review',
+      'fragment_thought', 'reading_status'
+    )
   ),
   content TEXT NOT NULL,
   quoted_text TEXT NOT NULL DEFAULT '',
   chapter_label TEXT NOT NULL DEFAULT '',
+  reading_position TEXT NOT NULL DEFAULT '',
+  reading_progress DOUBLE PRECISION,
+  visibility TEXT NOT NULL DEFAULT 'public',
+  source TEXT NOT NULL DEFAULT 'mingtai',
+  source_entry_id TEXT NOT NULL DEFAULT '',
+  topic_tags TEXT[] NOT NULL DEFAULT '{}',
   moderation_status TEXT NOT NULL DEFAULT 'published' CHECK (
     moderation_status IN ('published', 'hidden', 'removed')
   ),
@@ -677,7 +686,42 @@ ALTER TABLE community_posts
 
 ALTER TABLE community_posts
   ADD CONSTRAINT community_posts_post_type_check CHECK (
-    post_type IN ('reading_update', 'thought', 'question', 'excerpt', 'review')
+    post_type IN (
+      'reading_update', 'thought', 'question', 'excerpt', 'review',
+      'fragment_thought', 'reading_status'
+    )
+  );
+
+ALTER TABLE community_posts
+  ADD COLUMN IF NOT EXISTS reading_position TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS reading_progress DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public',
+  ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'mingtai',
+  ADD COLUMN IF NOT EXISTS source_entry_id TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS topic_tags TEXT[] NOT NULL DEFAULT '{}';
+
+ALTER TABLE community_posts
+  DROP CONSTRAINT IF EXISTS community_posts_reading_progress_check;
+
+ALTER TABLE community_posts
+  ADD CONSTRAINT community_posts_reading_progress_check CHECK (
+    reading_progress IS NULL OR (reading_progress >= 0 AND reading_progress <= 1)
+  );
+
+ALTER TABLE community_posts
+  DROP CONSTRAINT IF EXISTS community_posts_visibility_check;
+
+ALTER TABLE community_posts
+  ADD CONSTRAINT community_posts_visibility_check CHECK (
+    visibility IN ('public')
+  );
+
+ALTER TABLE community_posts
+  DROP CONSTRAINT IF EXISTS community_posts_source_check;
+
+ALTER TABLE community_posts
+  ADD CONSTRAINT community_posts_source_check CHECK (
+    source IN ('reader_selection', 'reader_menu', 'shelf', 'mingtai')
   );
 
 ALTER TABLE community_posts
@@ -699,6 +743,8 @@ CREATE TABLE IF NOT EXISTS community_post_comments (
   post_id UUID NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   content TEXT NOT NULL,
+  quoted_text TEXT NOT NULL DEFAULT '',
+  parent_reply_id UUID REFERENCES community_post_comments(id) ON DELETE SET NULL,
   moderation_status TEXT NOT NULL DEFAULT 'published' CHECK (
     moderation_status IN ('published', 'hidden', 'removed')
   ),
@@ -709,10 +755,25 @@ CREATE TABLE IF NOT EXISTS community_post_comments (
 ALTER TABLE community_post_comments
   ADD COLUMN IF NOT EXISTS moderation_status TEXT NOT NULL DEFAULT 'published' CHECK (
     moderation_status IN ('published', 'hidden', 'removed')
-  );
+  ),
+  ADD COLUMN IF NOT EXISTS quoted_text TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS parent_reply_id UUID REFERENCES community_post_comments(id) ON DELETE SET NULL;
 
 CREATE INDEX IF NOT EXISTS idx_community_post_comments_post
   ON community_post_comments(post_id, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_community_post_comments_parent
+  ON community_post_comments(parent_reply_id, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS community_post_favorites (
+  post_id UUID NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (post_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_community_post_favorites_user
+  ON community_post_favorites(user_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS community_post_resonances (
   post_id UUID NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
@@ -726,7 +787,7 @@ CREATE TABLE IF NOT EXISTS community_notifications (
   recipient_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   actor_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   event_type TEXT NOT NULL CHECK (
-    event_type IN ('follow', 'post_comment', 'post_resonance')
+    event_type IN ('follow', 'post_comment', 'post_quote_reply', 'post_resonance')
   ),
   post_id UUID REFERENCES community_posts(id) ON DELETE CASCADE,
   book_id UUID REFERENCES community_books(id) ON DELETE CASCADE,
@@ -737,6 +798,14 @@ CREATE TABLE IF NOT EXISTS community_notifications (
 
 CREATE INDEX IF NOT EXISTS idx_community_notifications_recipient
   ON community_notifications(recipient_user_id, created_at DESC);
+
+ALTER TABLE community_notifications
+  DROP CONSTRAINT IF EXISTS community_notifications_event_type_check;
+
+ALTER TABLE community_notifications
+  ADD CONSTRAINT community_notifications_event_type_check CHECK (
+    event_type IN ('follow', 'post_comment', 'post_quote_reply', 'post_resonance')
+  );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_community_notifications_unique_event
   ON community_notifications(recipient_user_id, actor_user_id, event_type, post_id)

@@ -127,6 +127,11 @@ class MingtaiCommunityApi {
     required String content,
     String quotedText = '',
     String chapterLabel = '',
+    String readingPosition = '',
+    double? readingProgress,
+    String source = 'mingtai',
+    String sourceEntryId = '',
+    List<String> topicTags = const [],
   }) async {
     final data = await _send(
       'POST',
@@ -137,6 +142,11 @@ class MingtaiCommunityApi {
         'content': content,
         'quoted_text': quotedText,
         'chapter_label': chapterLabel,
+        'reading_position': readingPosition,
+        'reading_progress': readingProgress,
+        'source': source,
+        'source_entry_id': sourceEntryId,
+        'topic_tags': topicTags,
       },
       authRequired: true,
     );
@@ -159,13 +169,31 @@ class MingtaiCommunityApi {
         .toList(growable: false);
   }
 
-  Future<void> createComment(String postId, String content) async {
+  Future<void> createComment(
+    String postId,
+    String content, {
+    String quotedText = '',
+    String parentReplyId = '',
+  }) async {
     await _send(
       'POST',
       '$_root/posts/$postId/comments',
-      body: {'content': content},
+      body: {
+        'content': content,
+        'quoted_text': quotedText,
+        'parent_reply_id': parentReplyId,
+      },
       authRequired: true,
     );
+  }
+
+  Future<bool> toggleFavorite(String postId) async {
+    final data = await _send(
+      'POST',
+      '$_root/posts/$postId/favorite',
+      authRequired: true,
+    );
+    return data['favorited'] == true;
   }
 
   Future<bool> toggleResonance(String postId) async {

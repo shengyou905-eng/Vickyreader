@@ -8,8 +8,12 @@ import '../../config/theme.dart';
 import '../../models/highlight.dart';
 import '../../providers/reader_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../services/auth_service.dart';
 import '../../services/epub_service.dart';
+import '../../services/mingtai_community_api.dart';
 import '../../utils/ai_consent_gate.dart';
+import '../../utils/community_safety.dart';
+import '../mingtai/community_mingtai_screen.dart';
 import 'widgets/ai_explanation_card.dart';
 import 'widgets/reader_settings.dart';
 import 'widgets/selection_menu.dart';
@@ -903,50 +907,279 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
-  void _showNoteDialog(ReaderProvider reader) {
-    final controller = TextEditingController();
+  Future<void> _showNoteDialog(ReaderProvider reader) async {
+    final book = reader.book;
+    final selectedText = reader.selectedText?.trim() ?? '';
+    if (book == null || selectedText.isEmpty) return;
+    await AuthService.init();
+    if (!mounted) return;
+    final chapterTitle = reader.currentChapter?.title.trim() ?? '';
+    final chapterLabel = chapterTitle.isNotEmpty
+        ? chapterTitle
+        : '第 ${reader.currentChapterIndex + 1} 章';
+    final readingPosition =
+        '${reader.currentChapterIndex}:${reader.scrollOffset.toStringAsFixed(3)}';
+    final readingProgress = reader.progress.clamp(0.0, 1.0).toDouble();
     final messenger = ScaffoldMessenger.of(context);
-    showDialog(
+    final result = await showModalBottomSheet<ReaderThoughtDraft>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('写想法'),
-        content: TextField(
-          controller: controller,
-          maxLines: 4,
-          decoration: const InputDecoration(hintText: '记录你的想法...'),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ReaderThoughtSheet(
+        bookTitle: book.title,
+        chapterLabel: chapterLabel,
+        selectedText: selectedText,
+        canPublish: AuthService.isLoggedIn,
+      ),
+    );
+    if (result == null) {
+      _clearReaderSelection(reader);
+      return;
+    }
+
+    final entryId = await reader.addThought(content: result.content);
+    if (!mounted) return;
+    if (!result.isPublic) {
+      _clearReaderSelection(reader);
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('想法已留给自己'),
+          duration: Duration(seconds: 1),
         ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              _clearReaderSelection(reader);
-              Navigator.pop(ctx);
-            },
-            child: const Text('取消'),
+      );
+      return;
+    }
+
+    if (!await ensureCommunityGuidelines(context) || !mounted) {
+      _clearReaderSelection(reader);
+      messenger.showSnackBar(const SnackBar(content: Text('想法已保存为私密，尚未公开到明台')));
+      return;
+    }
+
+    try {
+      const api = MingtaiCommunityApi();
+      final communityBook = await api.resolveBook(
+        title: book.title,
+        author: book.author,
+        description: book.description ?? '',
+      );
+      final post = await api.createPost(
+        bookId: communityBook.id,
+        type: 'fragment_thought',
+        content: result.content,
+        quotedText: selectedText,
+        chapterLabel: chapterLabel,
+        readingPosition: readingPosition,
+        readingProgress: readingProgress,
+        source: 'reader_selection',
+        sourceEntryId: entryId ?? '',
+      );
+      if (!mounted) return;
+      _clearReaderSelection(reader);
+      messenger.showSnackBar(
+        SnackBar(
+          content: const Text('已发布到明台'),
+          duration: const Duration(seconds: 3),
+          action: SnackBarAction(
+            label: '查看',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => CommunityBookScreen(
+                  bookId: post.bookId,
+                  focusPostId: post.id,
+                ),
+              ),
+            ),
           ),
-          ElevatedButton(
-            onPressed: () async {
-              final noteContent = controller.text.trim();
-              if (noteContent.isNotEmpty) {
-                await reader.addThought(content: noteContent);
-                if (ctx.mounted) {
-                  Navigator.pop(ctx);
-                }
-                if (mounted) {
-                  messenger.showSnackBar(
-                    const SnackBar(
-                      content: Text('已由小U整理'),
-                      duration: Duration(seconds: 1),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _clearReaderSelection(reader);
+      messenger.showSnackBar(
+        SnackBar(content: Text('想法已保存为私密，公开失败：${_readerError(error)}')),
+      );
+    }
+  }
+}
+
+class ReaderThoughtDraft {
+  final String content;
+  final bool isPublic;
+
+  const ReaderThoughtDraft({required this.content, required this.isPublic});
+}
+
+class ReaderThoughtSheet extends StatefulWidget {
+  final String bookTitle;
+  final String chapterLabel;
+  final String selectedText;
+  final bool canPublish;
+
+  const ReaderThoughtSheet({
+    super.key,
+    required this.bookTitle,
+    required this.chapterLabel,
+    required this.selectedText,
+    required this.canPublish,
+  });
+
+  @override
+  State<ReaderThoughtSheet> createState() => _ReaderThoughtSheetState();
+}
+
+class _ReaderThoughtSheetState extends State<ReaderThoughtSheet> {
+  final _controller = TextEditingController();
+  bool _isPublic = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final content = _controller.text.trim();
+    if (content.isEmpty) {
+      setState(() => _error = '先写下你的想法');
+      return;
+    }
+    if (_isPublic && content.length < 5) {
+      setState(() => _error = '公开想法至少需要 5 个字');
+      return;
+    }
+    Navigator.pop(
+      context,
+      ReaderThoughtDraft(content: content, isPublic: _isPublic),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
+          decoration: BoxDecoration(
+            color: palette.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 32,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: palette.divider,
+                      borderRadius: BorderRadius.circular(4),
                     ),
-                  );
-                }
-              }
-              _clearReaderSelection(reader);
-              if (ctx.mounted) Navigator.pop(ctx);
-            },
-            child: const Text('保存'),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  '写下想法',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  '《${widget.bookTitle}》 · ${widget.chapterLabel}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: palette.textSecondary, fontSize: 12),
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  color: palette.primaryLight.withValues(alpha: 0.12),
+                  child: Text(
+                    '“${widget.selectedText}”',
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: palette.textSecondary,
+                      fontSize: 13,
+                      height: 1.55,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: _controller,
+                  autofocus: true,
+                  minLines: 3,
+                  maxLines: 7,
+                  decoration: const InputDecoration(
+                    hintText: '这段文字让你想到什么？',
+                    alignLabelWithHint: true,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(value: false, label: Text('仅自己')),
+                    ButtonSegment(value: true, label: Text('公开到明台')),
+                  ],
+                  selected: {_isPublic},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (value) {
+                    final next = value.first;
+                    if (next && !widget.canPublish) {
+                      setState(() => _error = '登录后才能公开到明台');
+                      return;
+                    }
+                    setState(() {
+                      _isPublic = next;
+                      _error = null;
+                    });
+                  },
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _isPublic ? '只会公开这段短摘录和你的想法，电子书文件不会上传。' : '保存在私人阅读记录中。',
+                  style: TextStyle(color: palette.textSecondary, fontSize: 12),
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _error!,
+                    style: const TextStyle(color: Colors.redAccent),
+                  ),
+                ],
+                const SizedBox(height: 14),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('取消'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: _submit,
+                      child: Text(_isPublic ? '发布' : '保存'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ],
+        ),
       ),
     );
   }
+}
+
+String _readerError(Object error) {
+  final message = error.toString().replaceFirst('Exception: ', '').trim();
+  return message.isEmpty ? '请稍后重试' : message;
 }

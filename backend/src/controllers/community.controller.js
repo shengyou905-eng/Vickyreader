@@ -15,6 +15,14 @@ const postTypes = new Set([
   'question',
   'excerpt',
   'review',
+  'fragment_thought',
+  'reading_status',
+]);
+const postSources = new Set([
+  'reader_selection',
+  'reader_menu',
+  'shelf',
+  'mingtai',
 ]);
 
 async function resolveBook(req, res, next) {
@@ -135,12 +143,19 @@ async function createPost(req, res, next) {
       throw httpError(400, '公开摘录不能超过 240 个字符');
     }
     if (quotedText) assertSafePublicText(quotedText, { minLength: 2, maxLength: 240 });
+    const source = postSources.has(req.body.source) ? req.body.source : 'mingtai';
+    const readingProgress = nullableProgress(req.body.reading_progress);
     const post = await communityRepository.createPost(req.user.id, {
       book_id: bookId,
       post_type: postType,
       content: content.slice(0, 4000),
       quoted_text: quotedText,
       chapter_label: text(req.body.chapter_label).slice(0, 160),
+      reading_position: text(req.body.reading_position).slice(0, 240),
+      reading_progress: readingProgress,
+      source,
+      source_entry_id: text(req.body.source_entry_id).slice(0, 120),
+      topic_tags: stringList(req.body.topic_tags, 12, 40),
     });
     return res.status(201).json({ post });
   } catch (error) {
@@ -180,13 +195,35 @@ async function createComment(req, res, next) {
     await assertGuidelinesAccepted(req.user.id);
     assertUuid(req.params.id, 'post id');
     const content = assertSafePublicText(req.body.content, { minLength: 2, maxLength: 1200 });
+    const quotedText = text(req.body.quoted_text).slice(0, 240);
+    if (quotedText) assertSafePublicText(quotedText, { minLength: 2, maxLength: 240 });
+    const parentReplyId = text(req.body.parent_reply_id);
+    if (parentReplyId) assertUuid(parentReplyId, 'parent reply id');
     const comment = await communityRepository.createComment(
       req.user.id,
       req.params.id,
-      content,
+      {
+        content,
+        quoted_text: quotedText,
+        parent_reply_id: parentReplyId || null,
+      },
     );
     if (!comment) throw httpError(404, 'Post not found');
     return res.status(201).json({ comment });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function toggleFavorite(req, res, next) {
+  try {
+    assertUuid(req.params.id, 'post id');
+    const result = await communityRepository.toggleFavorite(
+      req.user.id,
+      req.params.id,
+    );
+    if (!result) throw httpError(404, 'Post not found');
+    return res.json(result);
   } catch (error) {
     return next(error);
   }
@@ -479,6 +516,23 @@ function limit(value, fallback) {
   return Math.min(Math.max(Number(value) || fallback, 1), 100);
 }
 
+function nullableProgress(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const progress = Number(value);
+  if (!Number.isFinite(progress) || progress < 0 || progress > 1) {
+    throw httpError(400, 'reading_progress must be between 0 and 1');
+  }
+  return progress;
+}
+
+function stringList(value, limitCount, maxLength) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => text(item).slice(0, maxLength))
+    .filter(Boolean)
+    .slice(0, limitCount);
+}
+
 module.exports = {
   resolveBook,
   search,
@@ -489,6 +543,7 @@ module.exports = {
   deletePost,
   listComments,
   createComment,
+  toggleFavorite,
   toggleResonance,
   getProfile,
   follow,

@@ -122,10 +122,11 @@ async function searchCommunity(search, viewerId, limit = 24) {
   return { books: books.rows, posts };
 }
 
-function postSelect(whereSql) {
+function postSelect(whereSql, orderSql = 'p.created_at DESC') {
   return `SELECT
       p.id, p.user_id, p.book_id, p.post_type, p.content, p.quoted_text,
-      p.chapter_label, p.created_at, p.updated_at,
+      p.chapter_label, p.reading_position, p.reading_progress, p.visibility,
+      p.source, p.source_entry_id, p.topic_tags, p.created_at, p.updated_at,
       b.title AS book_title, b.author AS book_author,
       b.cover_url AS book_cover_url,
       COALESCE(NULLIF(up.nickname, ''), split_part(u.email, '@', 1)) AS nickname,
@@ -133,16 +134,21 @@ function postSelect(whereSql) {
       (SELECT COUNT(*)::int FROM community_post_comments c
        WHERE c.post_id = p.id AND c.moderation_status = 'published') AS comment_count,
       (SELECT COUNT(*)::int FROM community_post_resonances r WHERE r.post_id = p.id) AS resonance_count,
+      (SELECT COUNT(*)::int FROM community_post_favorites f WHERE f.post_id = p.id) AS favorite_count,
       CASE WHEN $1::uuid IS NULL THEN false ELSE EXISTS (
         SELECT 1 FROM community_post_resonances r
         WHERE r.post_id = p.id AND r.user_id = $1::uuid
       ) END AS viewer_resonated
+      ,CASE WHEN $1::uuid IS NULL THEN false ELSE EXISTS (
+        SELECT 1 FROM community_post_favorites f
+        WHERE f.post_id = p.id AND f.user_id = $1::uuid
+      ) END AS viewer_favorited
     FROM community_posts p
     JOIN community_books b ON b.id = p.book_id
     JOIN users u ON u.id = p.user_id
     LEFT JOIN user_profiles up ON up.user_id = p.user_id
     ${whereSql}
-    ORDER BY p.created_at DESC
+    ORDER BY ${orderSql}
     LIMIT $2`;
 }
 
@@ -163,6 +169,7 @@ async function listPosts({
     return `$${params.length}`;
   };
   conditions.push("p.moderation_status = 'published'");
+  conditions.push("p.visibility = 'public'");
   conditions.push(`NOT EXISTS (
     SELECT 1 FROM community_blocks cb
     WHERE $1::uuid IS NOT NULL
@@ -180,6 +187,36 @@ async function listPosts({
       OR b.title ILIKE ${searchParameter}
       OR b.author ILIKE ${searchParameter}
     )`);
+  }
+  let orderSql = 'p.created_at DESC';
+  if (tab === 'discover' && !bookId && !postId && !userId && !search) {
+    conditions.push("char_length(trim(p.content)) >= 8 AND trim(p.content) !~ '^[0-9]+$'");
+    orderSql = `(
+      CASE WHEN $1::uuid IS NOT NULL AND EXISTS (
+        SELECT 1 FROM community_book_states s
+        WHERE s.user_id = $1::uuid AND s.book_id = p.book_id
+          AND s.status = 'reading'
+      ) THEN 600 ELSE 0 END
+      + CASE WHEN $1::uuid IS NOT NULL AND EXISTS (
+        SELECT 1 FROM user_entries e
+        WHERE e.user_id = $1::uuid
+          AND lower(trim(e.book_title)) = lower(trim(b.title))
+      ) THEN 360 ELSE 0 END
+      + CASE WHEN $1::uuid IS NOT NULL AND EXISTS (
+        SELECT 1 FROM community_post_favorites own_favorite
+        JOIN community_posts related ON related.id = own_favorite.post_id
+        WHERE own_favorite.user_id = $1::uuid AND related.book_id = p.book_id
+      ) THEN 180 ELSE 0 END
+      + CASE WHEN $1::uuid IS NOT NULL AND EXISTS (
+        SELECT 1 FROM community_follows f
+        WHERE f.follower_user_id = $1::uuid AND f.followed_user_id = p.user_id
+      ) THEN 120 ELSE 0 END
+      + LEAST(char_length(p.content), 300) / 15.0
+      + (SELECT COUNT(*) FROM community_post_comments c
+         WHERE c.post_id = p.id AND c.moderation_status = 'published') * 12
+      + (SELECT COUNT(*) FROM community_post_favorites pf
+         WHERE pf.post_id = p.id) * 10
+    ) DESC, p.created_at DESC`;
   }
   if (tab === 'following') {
     conditions.push(`$1::uuid IS NOT NULL AND EXISTS (
@@ -219,7 +256,7 @@ async function listPosts({
     )`);
   }
   if (conditions.length) whereSql = `WHERE ${conditions.join(' AND ')}`;
-  const result = await query(postSelect(whereSql), params);
+  const result = await query(postSelect(whereSql, orderSql), params);
   return result.rows;
 }
 
@@ -381,8 +418,9 @@ async function setBookState(userId, bookId, status, visibility) {
 async function createPost(userId, payload) {
   const result = await query(
     `INSERT INTO community_posts (
-       user_id, book_id, post_type, content, quoted_text, chapter_label
-     ) VALUES ($1, $2, $3, $4, $5, $6)
+       user_id, book_id, post_type, content, quoted_text, chapter_label,
+       reading_position, reading_progress, source, source_entry_id, topic_tags
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING id`,
     [
       userId,
@@ -391,6 +429,11 @@ async function createPost(userId, payload) {
       payload.content,
       payload.quoted_text,
       payload.chapter_label,
+      payload.reading_position,
+      payload.reading_progress,
+      payload.source,
+      payload.source_entry_id,
+      payload.topic_tags,
     ],
   );
   const posts = await listPosts({
@@ -411,7 +454,8 @@ async function deletePost(userId, postId) {
 
 async function listComments(postId, viewerId = null) {
   const result = await query(
-    `SELECT c.id, c.post_id, c.user_id, c.content, c.created_at, c.updated_at,
+    `SELECT c.id, c.post_id, c.user_id, c.content, c.quoted_text,
+       c.parent_reply_id, c.created_at, c.updated_at,
        COALESCE(NULLIF(up.nickname, ''), split_part(u.email, '@', 1)) AS nickname,
        COALESCE(up.avatar_url, '') AS avatar_url
      FROM community_post_comments c
@@ -431,7 +475,7 @@ async function listComments(postId, viewerId = null) {
   return result.rows;
 }
 
-async function createComment(userId, postId, content) {
+async function createComment(userId, postId, payload) {
   return withTransaction(async (queryFn) => {
     const post = await queryFn(
       'SELECT user_id, book_id FROM community_posts WHERE id = $1',
@@ -445,20 +489,89 @@ async function createComment(userId, postId, content) {
       [userId, post.rows[0].user_id],
     );
     if (blocked.rowCount) return null;
+    let parentUserId = null;
+    if (payload.parent_reply_id) {
+      const parent = await queryFn(
+        'SELECT user_id FROM community_post_comments WHERE id = $1 AND post_id = $2',
+        [payload.parent_reply_id, postId],
+      );
+      if (!parent.rowCount) return null;
+      parentUserId = parent.rows[0].user_id;
+    }
     const result = await queryFn(
-      `INSERT INTO community_post_comments (post_id, user_id, content)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [postId, userId, content],
+      `INSERT INTO community_post_comments (
+         post_id, user_id, content, quoted_text, parent_reply_id
+       ) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [
+        postId,
+        userId,
+        payload.content,
+        payload.quoted_text,
+        payload.parent_reply_id,
+      ],
     );
     if (post.rows[0].user_id !== userId) {
       await queryFn(
         `INSERT INTO community_notifications (
            recipient_user_id, actor_user_id, event_type, post_id, book_id, preview
-         ) VALUES ($1, $2, 'post_comment', $3, $4, $5)`,
-        [post.rows[0].user_id, userId, postId, post.rows[0].book_id, content.slice(0, 120)],
+         ) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          post.rows[0].user_id,
+          userId,
+          payload.quoted_text ? 'post_quote_reply' : 'post_comment',
+          postId,
+          post.rows[0].book_id,
+          payload.content.slice(0, 120),
+        ],
+      );
+    }
+    if (
+      parentUserId &&
+      parentUserId !== userId &&
+      parentUserId !== post.rows[0].user_id
+    ) {
+      await queryFn(
+        `INSERT INTO community_notifications (
+           recipient_user_id, actor_user_id, event_type, post_id, book_id, preview
+         ) VALUES ($1, $2, 'post_quote_reply', $3, $4, $5)`,
+        [
+          parentUserId,
+          userId,
+          postId,
+          post.rows[0].book_id,
+          payload.content.slice(0, 120),
+        ],
       );
     }
     return result.rows[0];
+  });
+}
+
+async function toggleFavorite(userId, postId) {
+  return withTransaction(async (queryFn) => {
+    const post = await queryFn(
+      `SELECT p.id
+       FROM community_posts p
+       WHERE p.id = $1 AND p.moderation_status = 'published'`,
+      [postId],
+    );
+    if (!post.rows[0]) return null;
+    const existing = await queryFn(
+      'SELECT 1 FROM community_post_favorites WHERE post_id = $1 AND user_id = $2',
+      [postId, userId],
+    );
+    if (existing.rowCount) {
+      await queryFn(
+        'DELETE FROM community_post_favorites WHERE post_id = $1 AND user_id = $2',
+        [postId, userId],
+      );
+      return { favorited: false };
+    }
+    await queryFn(
+      'INSERT INTO community_post_favorites (post_id, user_id) VALUES ($1, $2)',
+      [postId, userId],
+    );
+    return { favorited: true };
   });
 }
 
@@ -544,6 +657,17 @@ async function unfollowUser(viewerId, targetUserId) {
   return { following: false };
 }
 
+async function listFavoritePosts(userId, limit = 60) {
+  const whereSql = `WHERE p.moderation_status = 'published'
+    AND p.visibility = 'public'
+    AND EXISTS (
+      SELECT 1 FROM community_post_favorites favorite
+      WHERE favorite.post_id = p.id AND favorite.user_id = $1::uuid
+    )`;
+  const result = await query(postSelect(whereSql), [userId, limit]);
+  return result.rows;
+}
+
 async function getProfile(targetUserId, viewerId) {
   if (viewerId && viewerId !== targetUserId) {
     const blocked = await query(
@@ -586,7 +710,15 @@ async function getProfile(targetUserId, viewerId) {
     [targetUserId, viewerId],
   );
   const posts = await listPosts({ viewerId, userId: targetUserId, limit: 60 });
-  return { profile: profileResult.rows[0], books: statesResult.rows, posts };
+  const favorites = viewerId === targetUserId
+    ? await listFavoritePosts(targetUserId, 60)
+    : [];
+  return {
+    profile: profileResult.rows[0],
+    books: statesResult.rows,
+    posts,
+    favorites,
+  };
 }
 
 async function listNotifications(userId, limit = 50) {
@@ -804,6 +936,7 @@ module.exports = {
   deletePost,
   listComments,
   createComment,
+  toggleFavorite,
   toggleResonance,
   followUser,
   unfollowUser,

@@ -21,6 +21,7 @@ router.post('/community/posts', auth, communityController.createPost);
 router.delete('/community/posts/:id', auth, communityController.deletePost);
 router.get('/community/posts/:id/comments', optionalAuth, communityController.listComments);
 router.post('/community/posts/:id/comments', auth, communityController.createComment);
+router.post('/community/posts/:id/favorite', auth, communityController.toggleFavorite);
 router.post('/community/posts/:id/resonance', auth, communityController.toggleResonance);
 router.get('/community/profiles/:userId', optionalAuth, communityController.getProfile);
 router.post('/community/profiles/:userId/follow', auth, communityController.follow);

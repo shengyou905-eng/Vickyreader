@@ -407,11 +407,12 @@ class ReaderProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> addThought({required String content}) async {
-    if (_book == null || content.trim().isEmpty) return;
+  Future<String?> addThought({required String content}) async {
+    if (_book == null || content.trim().isEmpty) return null;
     final now = DateTime.now().toUtc().toIso8601String();
     final selectedText = _selectedText ?? '';
     final chapterTitle = currentChapter?.title ?? '';
+    final entryId = const Uuid().v4();
 
     await BookService.insertNote(
       id: const Uuid().v4(),
@@ -424,7 +425,7 @@ class ReaderProvider extends ChangeNotifier {
     );
     await BookService.insertUserEntry(
       UserEntry(
-        id: const Uuid().v4(),
+        id: entryId,
         userId: _getUserId(),
         source: 'thought',
         bookId: _book!.id,
@@ -442,6 +443,7 @@ class ReaderProvider extends ChangeNotifier {
         updatedAt: now,
       ),
     );
+    return entryId;
   }
 
   Future<void> updateHighlightNote(String id, String note) async {

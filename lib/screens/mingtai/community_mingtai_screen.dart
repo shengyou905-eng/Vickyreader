@@ -202,22 +202,22 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
     return false;
   }
 
-  Future<void> _toggleResonance(int index) async {
+  Future<void> _toggleFavorite(int index) async {
     if (!await _requireLogin()) return;
     final post = _posts[index];
-    final next = !post.viewerResonated;
+    final next = !post.viewerFavorited;
     setState(() {
       _posts = [..._posts]
         ..[index] = post.copyWith(
-          viewerResonated: next,
-          resonanceCount: (post.resonanceCount + (next ? 1 : -1)).clamp(
+          viewerFavorited: next,
+          favoriteCount: (post.favoriteCount + (next ? 1 : -1)).clamp(
             0,
             1 << 30,
           ),
         );
     });
     try {
-      final actual = await _communityApi.toggleResonance(post.id);
+      final actual = await _communityApi.toggleFavorite(post.id);
       if (!mounted || actual == next) return;
       await _load(quiet: true);
     } catch (error) {
@@ -227,6 +227,19 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
       });
       _showError(error);
     }
+  }
+
+  Future<void> _openQuoteReply(CommunityPost post) async {
+    if (!await _requireLogin() || !mounted) return;
+    final quote = await _pickQuotedSentence(context, post);
+    if (quote == null || !mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _CommunityCommentsSheet(post: post, initialQuote: quote),
+    );
+    if (mounted) _load(quiet: true);
   }
 
   @override
@@ -370,8 +383,24 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
                                           _openProfile(_posts[index].userId),
                                       onComments: () =>
                                           _openComments(_posts[index]),
-                                      onResonance: () =>
-                                          _toggleResonance(index),
+                                      onQuoteReply: () =>
+                                          _openQuoteReply(_posts[index]),
+                                      onFavorite: () => _toggleFavorite(index),
+                                      onMoreFromBook: () => _openBook(
+                                        CommunityBook(
+                                          id: _posts[index].bookId,
+                                          title: _posts[index].bookTitle,
+                                          author: _posts[index].bookAuthor,
+                                          coverUrl: _posts[index].bookCoverUrl,
+                                          description: '',
+                                          canRead: false,
+                                          wantCount: 0,
+                                          readingCount: 0,
+                                          finishedCount: 0,
+                                          postCount: 0,
+                                          viewerStatus: '',
+                                        ),
+                                      ),
                                       onDeleted: _load,
                                     ),
                                   ),
@@ -848,11 +877,13 @@ class _CompactFeedStart extends StatelessWidget {
 class CommunityBookScreen extends StatefulWidget {
   final String bookId;
   final CommunityBook? initialBook;
+  final String? focusPostId;
 
   const CommunityBookScreen({
     super.key,
     required this.bookId,
     this.initialBook,
+    this.focusPostId,
   });
 
   @override
@@ -864,8 +895,57 @@ class _CommunityBookScreenState extends State<CommunityBookScreen> {
   List<CommunityPost> _posts = const [];
   List<CommunityReader> _readers = const [];
   bool _loading = true;
-  bool _savingState = false;
   String? _error;
+  String _sortMode = 'latest';
+  String _contentFilter = 'all';
+  double? _viewerProgress;
+  bool _focusedPostOpened = false;
+
+  List<CommunityPost> get _visiblePosts {
+    final filtered = _posts
+        .where((post) {
+          return switch (_contentFilter) {
+            'excerpt' => post.postType == 'excerpt',
+            'fragment' => const [
+              'fragment_thought',
+              'thought',
+              'question',
+            ].contains(post.postType),
+            'status' => const [
+              'reading_status',
+              'reading_update',
+            ].contains(post.postType),
+            'review' => post.postType == 'review',
+            _ => true,
+          };
+        })
+        .toList(growable: false);
+    final sorted = [...filtered];
+    if (_sortMode == 'hot') {
+      sorted.sort((a, b) {
+        final aScore = a.commentCount * 2 + a.favoriteCount;
+        final bScore = b.commentCount * 2 + b.favoriteCount;
+        return bScore.compareTo(aScore);
+      });
+    } else if (_sortMode == 'near' && _viewerProgress != null) {
+      sorted.sort((a, b) {
+        final aDistance = a.readingProgress == null
+            ? double.infinity
+            : (a.readingProgress! - _viewerProgress!).abs();
+        final bDistance = b.readingProgress == null
+            ? double.infinity
+            : (b.readingProgress! - _viewerProgress!).abs();
+        return aDistance.compareTo(bDistance);
+      });
+    } else {
+      sorted.sort(
+        (a, b) => (b.createdAt ?? DateTime(1970)).compareTo(
+          a.createdAt ?? DateTime(1970),
+        ),
+      );
+    }
+    return sorted;
+  }
 
   @override
   void initState() {
@@ -876,15 +956,34 @@ class _CommunityBookScreenState extends State<CommunityBookScreen> {
 
   Future<void> _load() async {
     try {
-      final result = await _communityApi.getBook(widget.bookId);
+      final results = await Future.wait([
+        _communityApi.getBook(widget.bookId),
+        BookService.getBooks(),
+      ]);
+      final result =
+          results[0]
+              as ({
+                CommunityBook book,
+                List<CommunityPost> posts,
+                List<CommunityReader> readers,
+              });
+      final localBooks = results[1] as List<Book>;
+      final normalizedTitle = result.book.title.trim().toLowerCase();
+      final matchingLocal = localBooks.where(
+        (book) => book.title.trim().toLowerCase() == normalizedTitle,
+      );
       if (!mounted) return;
       setState(() {
         _book = result.book;
         _posts = result.posts;
         _readers = result.readers;
+        _viewerProgress = matchingLocal.isEmpty
+            ? null
+            : matchingLocal.first.readingProgress.clamp(0.0, 1.0).toDouble();
         _loading = false;
         _error = null;
       });
+      _openFocusedPostIfNeeded();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -894,61 +993,45 @@ class _CommunityBookScreenState extends State<CommunityBookScreen> {
     }
   }
 
-  Future<void> _setStatus(String status) async {
-    if (_savingState) return;
-    await AuthService.init();
-    if (!AuthService.isLoggedIn) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('登录后才能记录阅读状态')));
+  void _openFocusedPostIfNeeded() {
+    final focusPostId = widget.focusPostId;
+    if (_focusedPostOpened || focusPostId == null || focusPostId.isEmpty) {
       return;
     }
-    setState(() => _savingState = true);
+    final match = _posts.where((post) => post.id == focusPostId);
+    if (match.isEmpty) return;
+    _focusedPostOpened = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _openPostComments(match.first);
+    });
+  }
+
+  Future<void> _openPostComments(
+    CommunityPost post, {
+    String initialQuote = '',
+  }) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) =>
+          _CommunityCommentsSheet(post: post, initialQuote: initialQuote),
+    );
+    if (mounted) await _load();
+  }
+
+  Future<void> _quoteReply(CommunityPost post) async {
+    final quote = await _pickQuotedSentence(context, post);
+    if (quote == null || !mounted) return;
+    await _openPostComments(post, initialQuote: quote);
+  }
+
+  Future<void> _toggleFavorite(CommunityPost post) async {
     try {
-      final next = _book?.viewerStatus == status ? 'none' : status;
-      var isPrivate = true;
-      if (next != 'none') {
-        if (!mounted) return;
-        final makePublic = await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) => AlertDialog(
-            title: const Text('谁可以看到这个阅读状态？'),
-            content: const Text('默认只保存在你的账号中。只有主动公开后，其他同书读者才可能看见。'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('仅自己可见'),
-              ),
-              FilledButton.tonal(
-                onPressed: () => Navigator.pop(dialogContext, true),
-                child: const Text('公开给同书读者'),
-              ),
-            ],
-          ),
-        );
-        if (makePublic == null) return;
-        isPrivate = !makePublic;
-        if (makePublic) {
-          final current = await PrivacyService.getCommunityPrivacy();
-          await PrivacyService.updateCommunityPrivacy({
-            'show_reading_status': true,
-            'show_reading_progress': current['show_reading_progress'] == true,
-            'allow_follows': current['allow_follows'] != false,
-            'appear_in_same_book': true,
-          });
-        }
-      }
-      await _communityApi.setBookState(
-        widget.bookId,
-        next,
-        isPrivate: isPrivate,
-      );
+      await _communityApi.toggleFavorite(post.id);
       await _load();
     } catch (error) {
       if (mounted) _showError(context, error);
-    } finally {
-      if (mounted) setState(() => _savingState = false);
     }
   }
 
@@ -958,6 +1041,7 @@ class _CommunityBookScreenState extends State<CommunityBookScreen> {
     final created = await showCommunityPostComposer(
       context,
       communityBook: book,
+      initialType: 'fragment_thought',
     );
     if (created == true) await _load();
   }
@@ -967,7 +1051,7 @@ class _CommunityBookScreenState extends State<CommunityBookScreen> {
     final book = _book;
     final palette = context.appPalette;
     return Scaffold(
-      appBar: AppBar(title: const Text('公共书页')),
+      appBar: AppBar(title: const Text('同读空间')),
       body: _loading && book == null
           ? const Center(child: CircularProgressIndicator())
           : _error != null && book == null
@@ -1031,7 +1115,7 @@ class _CommunityBookScreenState extends State<CommunityBookScreen> {
                             ],
                             const SizedBox(height: 18),
                             Text(
-                              '${book.finishedCount} 人读过 · ${book.readingCount} 人正在读',
+                              '${book.postCount} 条公开表达 · ${book.readingCount} 人正在读',
                               style: TextStyle(
                                 color: palette.textSecondary,
                                 fontSize: 13,
@@ -1041,54 +1125,6 @@ class _CommunityBookScreenState extends State<CommunityBookScreen> {
                         ),
                       ),
                     ],
-                  ),
-                  if (book.description.isNotEmpty) ...[
-                    const SizedBox(height: 24),
-                    Text(
-                      book.description,
-                      style: TextStyle(
-                        color: palette.textPrimary,
-                        fontSize: 15,
-                        height: 1.75,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 24),
-                  SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(value: 'want_to_read', label: Text('想读')),
-                      ButtonSegment(value: 'reading', label: Text('在读')),
-                      ButtonSegment(value: 'finished', label: Text('读过')),
-                    ],
-                    selected: book.viewerStatus.isEmpty
-                        ? const <String>{}
-                        : {book.viewerStatus},
-                    emptySelectionAllowed: true,
-                    showSelectedIcon: false,
-                    onSelectionChanged:
-                        _savingState ||
-                            (book.viewerStatus.isEmpty &&
-                                !AuthService.isLoggedIn)
-                        ? (value) => _setStatus(value.first)
-                        : (value) => _setStatus(value.first),
-                  ),
-                  const SizedBox(height: 18),
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: palette.primaryLight.withValues(alpha: 0.22),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      book.canRead
-                          ? '这本书已具备明确的公开阅读授权。'
-                          : '版权书籍在明台只展示书籍信息和读者原创内容。请在私人书架导入你合法获得的电子书继续阅读。',
-                      style: TextStyle(
-                        color: palette.textSecondary,
-                        fontSize: 13,
-                        height: 1.55,
-                      ),
-                    ),
                   ),
                   const SizedBox(height: 30),
                   _SectionHeader(
@@ -1140,15 +1176,61 @@ class _CommunityBookScreenState extends State<CommunityBookScreen> {
                     ),
                   const SizedBox(height: 28),
                   _SectionHeader(
-                    title: '大家最近在讨论',
+                    title: '这本书下的公开表达',
                     action: '写下想法',
                     onAction: _compose,
                   ),
                   const SizedBox(height: 12),
-                  if (_posts.isEmpty)
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _QuietChoice(
+                          label: '最新',
+                          selected: _sortMode == 'latest',
+                          onTap: () => setState(() => _sortMode = 'latest'),
+                        ),
+                        _QuietChoice(
+                          label: '热议',
+                          selected: _sortMode == 'hot',
+                          onTap: () => setState(() => _sortMode = 'hot'),
+                        ),
+                        _QuietChoice(
+                          label: '与你读到相近位置',
+                          selected: _sortMode == 'near',
+                          onTap: _viewerProgress == null
+                              ? null
+                              : () => setState(() => _sortMode = 'near'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (final item in const [
+                          ('all', '全部'),
+                          ('excerpt', '公开摘录'),
+                          ('fragment', '片段想法'),
+                          ('status', '阅读感受'),
+                          ('review', '书评'),
+                        ])
+                          _QuietChoice(
+                            label: item.$2,
+                            selected: _contentFilter == item.$1,
+                            onTap: () =>
+                                setState(() => _contentFilter = item.$1),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  if (_visiblePosts.isEmpty)
                     const _InlineEmpty('还没有人认真写下这本书带来的问题。')
                   else
-                    ..._posts.map(
+                    ..._visiblePosts.map(
                       (post) => Padding(
                         padding: const EdgeInsets.only(bottom: 12),
                         child: CommunityPostCard(
@@ -1160,16 +1242,9 @@ class _CommunityBookScreenState extends State<CommunityBookScreen> {
                                   CommunityProfileScreen(userId: post.userId),
                             ),
                           ),
-                          onComments: () => showModalBottomSheet<void>(
-                            context: context,
-                            isScrollControlled: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (_) => _CommunityCommentsSheet(post: post),
-                          ).then((_) => _load()),
-                          onResonance: () async {
-                            await _communityApi.toggleResonance(post.id);
-                            await _load();
-                          },
+                          onComments: () => _openPostComments(post),
+                          onQuoteReply: () => _quoteReply(post),
+                          onFavorite: () => _toggleFavorite(post),
                           onDeleted: _load,
                         ),
                       ),
@@ -1373,6 +1448,34 @@ class _CommunityProfileScreenState extends State<CommunityProfileScreen> {
                   _ProfileBookSection(title: '正在读', books: data.reading),
                   _ProfileBookSection(title: '读过', books: data.finished),
                   _ProfileBookSection(title: '想读', books: data.wantToRead),
+                  if (_isMine && data.favorites.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    const _SectionHeader(title: '收藏的阅读痕迹'),
+                    const SizedBox(height: 8),
+                    ...data.favorites.map(
+                      (post) => ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          post.content,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text(
+                          '《${post.bookTitle}》 · ${post.nickname}',
+                        ),
+                        trailing: const Icon(Icons.chevron_right_rounded),
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => CommunityBookScreen(
+                              bookId: post.bookId,
+                              focusPostId: post.id,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
                   const SizedBox(height: 8),
                   const _SectionHeader(title: '公开想法与讨论'),
                   const SizedBox(height: 12),
@@ -1397,10 +1500,34 @@ class _CommunityProfileScreenState extends State<CommunityProfileScreen> {
                             backgroundColor: Colors.transparent,
                             builder: (_) => _CommunityCommentsSheet(post: post),
                           ),
-                          onResonance: () async {
-                            await _communityApi.toggleResonance(post.id);
+                          onQuoteReply: () async {
+                            final quote = await _pickQuotedSentence(
+                              context,
+                              post,
+                            );
+                            if (quote == null) return;
+                            if (!context.mounted) return;
+                            await showModalBottomSheet<void>(
+                              context: context,
+                              isScrollControlled: true,
+                              backgroundColor: Colors.transparent,
+                              builder: (_) => _CommunityCommentsSheet(
+                                post: post,
+                                initialQuote: quote,
+                              ),
+                            );
                             await _load();
                           },
+                          onFavorite: () async {
+                            await _communityApi.toggleFavorite(post.id);
+                            await _load();
+                          },
+                          onMoreFromBook: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  CommunityBookScreen(bookId: post.bookId),
+                            ),
+                          ),
                           onDeleted: _load,
                         ),
                       ),
@@ -1476,6 +1603,18 @@ class _CommunityNotificationsScreenState
                           maxLines: 3,
                           overflow: TextOverflow.ellipsis,
                         ),
+                  onTap: item.bookId.isEmpty
+                      ? null
+                      : () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => CommunityBookScreen(
+                              bookId: item.bookId,
+                              focusPostId: item.postId.isEmpty
+                                  ? null
+                                  : item.postId,
+                            ),
+                          ),
+                        ),
                 );
               },
             ),
@@ -1488,7 +1627,9 @@ class CommunityPostCard extends StatelessWidget {
   final VoidCallback? onBook;
   final VoidCallback? onProfile;
   final VoidCallback onComments;
-  final VoidCallback onResonance;
+  final VoidCallback? onQuoteReply;
+  final VoidCallback? onFavorite;
+  final VoidCallback? onMoreFromBook;
   final VoidCallback? onDeleted;
 
   const CommunityPostCard({
@@ -1497,7 +1638,9 @@ class CommunityPostCard extends StatelessWidget {
     required this.onBook,
     required this.onProfile,
     required this.onComments,
-    required this.onResonance,
+    this.onQuoteReply,
+    this.onFavorite,
+    this.onMoreFromBook,
     this.onDeleted,
   });
 
@@ -1682,30 +1825,34 @@ class CommunityPostCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Row(
+          Wrap(
+            spacing: 2,
+            runSpacing: 0,
             children: [
-              TextButton.icon(
-                onPressed: onResonance,
-                icon: Icon(
-                  post.viewerResonated
-                      ? Icons.auto_awesome
-                      : Icons.auto_awesome_outlined,
-                  size: 17,
-                ),
-                label: Text(
-                  post.resonanceCount == 0
-                      ? '共鸣'
-                      : '${post.resonanceCount} 次共鸣',
-                ),
-              ),
-              const SizedBox(width: 4),
-              TextButton.icon(
+              TextButton(
                 onPressed: onComments,
-                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 17),
-                label: Text(
+                child: Text(
                   post.commentCount == 0 ? '回应' : '${post.commentCount} 条回应',
                 ),
               ),
+              if (onQuoteReply != null)
+                TextButton(onPressed: onQuoteReply, child: const Text('引用回应')),
+              if (onFavorite != null)
+                TextButton(
+                  onPressed: onFavorite,
+                  child: Text(
+                    post.viewerFavorited
+                        ? '已收藏'
+                        : post.favoriteCount > 0
+                        ? '收藏 ${post.favoriteCount}'
+                        : '收藏',
+                  ),
+                ),
+              if (onMoreFromBook != null)
+                TextButton(
+                  onPressed: onMoreFromBook,
+                  child: const Text('查看同书'),
+                ),
             ],
           ),
         ],
@@ -1978,6 +2125,10 @@ class _CommunityPostComposerState extends State<_CommunityPostComposer> {
                           child: Text('阅读想法'),
                         ),
                         const DropdownMenuItem(
+                          value: 'fragment_thought',
+                          child: Text('片段想法'),
+                        ),
+                        const DropdownMenuItem(
                           value: 'review',
                           child: Text('短书评'),
                         ),
@@ -2052,8 +2203,9 @@ class _CommunityPostComposerState extends State<_CommunityPostComposer> {
 
 class _CommunityCommentsSheet extends StatefulWidget {
   final CommunityPost post;
+  final String initialQuote;
 
-  const _CommunityCommentsSheet({required this.post});
+  const _CommunityCommentsSheet({required this.post, this.initialQuote = ''});
 
   @override
   State<_CommunityCommentsSheet> createState() =>
@@ -2065,10 +2217,13 @@ class _CommunityCommentsSheetState extends State<_CommunityCommentsSheet> {
   List<CommunityComment> _comments = const [];
   bool _loading = true;
   bool _sending = false;
+  String _quotedText = '';
+  String _parentReplyId = '';
 
   @override
   void initState() {
     super.initState();
+    _quotedText = widget.initialQuote;
     _load();
   }
 
@@ -2098,8 +2253,17 @@ class _CommunityCommentsSheetState extends State<_CommunityCommentsSheet> {
     if (!await ensureCommunityGuidelines(context) || !mounted) return;
     setState(() => _sending = true);
     try {
-      await _communityApi.createComment(widget.post.id, content);
+      await _communityApi.createComment(
+        widget.post.id,
+        content,
+        quotedText: _quotedText,
+        parentReplyId: _parentReplyId,
+      );
       _controller.clear();
+      setState(() {
+        _quotedText = '';
+        _parentReplyId = '';
+      });
       await _load();
     } catch (error) {
       if (mounted) _showError(context, error);
@@ -2179,9 +2343,41 @@ class _CommunityCommentsSheetState extends State<_CommunityCommentsSheet> {
                                     ),
                                   ),
                                   const SizedBox(height: 4),
+                                  if (item.quotedText.isNotEmpty) ...[
+                                    Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.all(9),
+                                      color: palette.primaryLight.withValues(
+                                        alpha: 0.12,
+                                      ),
+                                      child: Text(
+                                        '“${item.quotedText}”',
+                                        maxLines: 3,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: palette.textSecondary,
+                                          fontSize: 12,
+                                          height: 1.45,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                  ],
                                   Text(
                                     item.content,
                                     style: const TextStyle(height: 1.5),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  TextButton(
+                                    onPressed: () => setState(() {
+                                      _quotedText = item.content;
+                                      _parentReplyId = item.id;
+                                    }),
+                                    style: TextButton.styleFrom(
+                                      padding: EdgeInsets.zero,
+                                      minimumSize: const Size(44, 30),
+                                    ),
+                                    child: const Text('引用回应'),
                                   ),
                                 ],
                               ),
@@ -2211,21 +2407,52 @@ class _CommunityCommentsSheetState extends State<_CommunityCommentsSheet> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _controller,
-                      maxLines: 3,
-                      minLines: 1,
-                      decoration: const InputDecoration(hintText: '写下回应…'),
+                  if (_quotedText.isNotEmpty) ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '引用：“$_quotedText”',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: palette.textSecondary,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '取消引用',
+                          onPressed: () => setState(() {
+                            _quotedText = '';
+                            _parentReplyId = '';
+                          }),
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  IconButton.filled(
-                    tooltip: '发送',
-                    onPressed: _sending ? null : _send,
-                    icon: const Icon(Icons.arrow_upward_rounded),
+                    const SizedBox(height: 4),
+                  ],
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _controller,
+                          maxLines: 3,
+                          minLines: 1,
+                          decoration: const InputDecoration(hintText: '写下回应…'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      IconButton.filled(
+                        tooltip: '发送',
+                        onPressed: _sending ? null : _send,
+                        icon: const Icon(Icons.arrow_upward_rounded),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -2303,7 +2530,6 @@ class _SearchResults extends StatelessWidget {
                 ),
                 onProfile: () => onOpenProfile(post.userId),
                 onComments: () => onOpenComments(post),
-                onResonance: () {},
               ),
             ),
           ),
@@ -2515,6 +2741,45 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
+class _QuietChoice extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  const _QuietChoice({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: onTap == null
+                  ? palette.textSecondary.withValues(alpha: 0.45)
+                  : selected
+                  ? palette.primaryDark
+                  : palette.textSecondary,
+              fontSize: 13,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _QuietMessage extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -2589,11 +2854,63 @@ void _showError(BuildContext context, Object error) {
 
 String _postTypeLabel(String type) => switch (type) {
   'question' => '提出了一个问题',
+  'fragment_thought' => '在一段原文旁留下想法',
+  'reading_status' => '分享了阅读阶段感受',
   'reading_update' => '分享了正在读',
   'excerpt' => '分享了一段摘录',
   'review' => '留下了一段短评',
   _ => '写下了阅读想法',
 };
+
+Future<String?> _pickQuotedSentence(
+  BuildContext context,
+  CommunityPost post,
+) async {
+  final source = [
+    post.quotedText,
+    post.content,
+  ].where((item) => item.trim().isNotEmpty).join('\n');
+  final candidates = RegExp(r'[^。！？!?\n]+[。！？!?]?')
+      .allMatches(source)
+      .map((match) => match.group(0)?.trim() ?? '')
+      .where((item) => item.length >= 2)
+      .map((item) => item.length > 240 ? item.substring(0, 240) : item)
+      .toSet()
+      .take(8)
+      .toList(growable: false);
+  if (candidates.isEmpty) return null;
+  if (candidates.length == 1) return candidates.first;
+  if (!context.mounted) return null;
+  return showModalBottomSheet<String>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: ListView.separated(
+        shrinkWrap: true,
+        padding: const EdgeInsets.fromLTRB(18, 4, 18, 22),
+        itemCount: candidates.length + 1,
+        separatorBuilder: (_, _) => const Divider(height: 1),
+        itemBuilder: (_, index) {
+          if (index == 0) {
+            return const Padding(
+              padding: EdgeInsets.only(bottom: 14),
+              child: Text(
+                '选择要回应的一句话',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+            );
+          }
+          final sentence = candidates[index - 1];
+          return ListTile(
+            contentPadding: const EdgeInsets.symmetric(vertical: 4),
+            title: Text(sentence, style: const TextStyle(height: 1.5)),
+            onTap: () => Navigator.pop(sheetContext, sentence),
+          );
+        },
+      ),
+    ),
+  );
+}
 
 String _composerContentLabel(String type) => switch (type) {
   'reading_update' => '此刻读到哪里，为什么停下来',
@@ -2617,6 +2934,7 @@ String _notificationTitle(CommunityNotification item) {
   return switch (item.eventType) {
     'follow' => '${item.actorNickname} 关注了你的阅读档案',
     'post_comment' => '${item.actorNickname} 回应了你的阅读想法',
+    'post_quote_reply' => '${item.actorNickname} 引用了你的阅读想法',
     'post_resonance' => '${item.actorNickname} 与你的想法产生了共鸣',
     _ => '${item.actorNickname} 在明台留下了回应',
   };
