@@ -34,16 +34,13 @@ jobs:
       - name: Configure internal iOS build
         run: |
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 知读（内部测试）" ios/Runner/Info.plist
-          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" ios/Runner/Info.plist
-          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" ios/Runner/Info.plist
 
       - name: Build iOS app without code signing
         run: |
           flutter build ios \
             --release \
             --no-codesign \
-            --dart-define=API_BASE_URL=http://101.32.186.151:3000 \
-            --dart-define=ALLOW_INSECURE_HTTP=true
+            --dart-define=API_BASE_URL=https://api.youxugarden.com
 
       - name: Package unsigned IPA
         run: |
