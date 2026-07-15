@@ -1,11 +1,13 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../config/theme.dart';
 import '../../models/book.dart';
 import '../../models/mingtai_community.dart';
 import '../../services/auth_service.dart';
+import '../../services/app_image_cache.dart';
 import '../../services/book_service.dart';
 import '../../services/mingtai_community_api.dart';
 import '../../services/privacy_service.dart';
@@ -2690,10 +2692,11 @@ class CommunityBookCover extends StatelessWidget {
         width: width,
         height: height,
         child: book.coverUrl.startsWith('http')
-            ? Image.network(
-                book.coverUrl,
+            ? CachedNetworkImage(
+                imageUrl: book.coverUrl,
+                cacheManager: AppImageCache.manager,
                 fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => _coverFallback(palette),
+                errorWidget: (_, _, _) => _coverFallback(palette),
               )
             : _coverFallback(palette),
       ),
@@ -2731,7 +2734,10 @@ class CommunityAvatar extends StatelessWidget {
       radius: radius,
       backgroundColor: palette.primaryLight.withValues(alpha: 0.34),
       foregroundImage: imageUrl.startsWith('http')
-          ? NetworkImage(imageUrl)
+          ? CachedNetworkImageProvider(
+              imageUrl,
+              cacheManager: AppImageCache.manager,
+            )
           : null,
       child: Text(
         name.isEmpty ? '读' : name.characters.first,

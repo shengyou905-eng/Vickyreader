@@ -22,6 +22,7 @@ class AiProvider extends ChangeNotifier {
   int _activeGeneration = 0;
   bool _cancelRequested = false;
   final Map<String, String> _explanationCache = {};
+  String? _activeExplanationEntryId;
 
   List<AiMessage> get messages => _messages;
   bool get isLoading => _isLoading;
@@ -30,6 +31,7 @@ class AiProvider extends ChangeNotifier {
 
   Future<void> loadHistory(String bookId) async {
     _bookId = bookId;
+    _activeExplanationEntryId = null;
     _messages = await BookService.getAiMessages(bookId);
     notifyListeners();
   }
@@ -43,6 +45,7 @@ class AiProvider extends ChangeNotifier {
     String chapterTitle = '',
     AiExplainMode mode = AiExplainMode.auto,
   }) async {
+    _activeExplanationEntryId = null;
     final generation = _startGeneration(mode.loadingText);
     notifyListeners();
 
@@ -86,6 +89,17 @@ class AiProvider extends ChangeNotifier {
           content: cached,
           timestamp: aiMsg.timestamp,
         );
+        await _persistExplanation(
+          userMessage: userMsg,
+          assistantTimestamp: aiMsg.timestamp,
+          result: cached,
+          bookTitle: bookTitle,
+          bookAuthor: bookAuthor,
+          chapterIndex: chapterIndex,
+          chapterTitle: chapterTitle,
+          selectedText: selectedText,
+          mode: mode,
+        );
         _finishGeneration(generation);
         return;
       }
@@ -122,39 +136,17 @@ class AiProvider extends ChangeNotifier {
         _explanationCache.remove(_explanationCache.keys.first);
       }
 
-      // 保存到本地
-      if (_bookId != null) {
-        await BookService.insertAiMessage(_bookId!, userMsg);
-        await BookService.insertAiMessage(
-          _bookId!,
-          AiMessage(
-            role: 'assistant',
-            content: result,
-            timestamp: aiMsg.timestamp,
-          ),
-        );
-        await BookService.insertUserEntry(
-          UserEntry(
-            id: const Uuid().v4(),
-            userId: AuthService.userId ?? '',
-            source: 'ai_explanation',
-            bookId: _bookId!,
-            bookTitle: bookTitle,
-            chapterIndex: chapterIndex,
-            chapterTitle: chapterTitle,
-            originalText: selectedText,
-            aiExplanation: result,
-            autoTags: ['小U解释', mode.fullLabel],
-            autoSummary: _summaryOf(result),
-            metadataJson: jsonEncode({
-              'book_author': bookAuthor,
-              'explain_mode': mode.apiValue,
-            }),
-            createdAt: DateTime.now(),
-            updatedAt: DateTime.now().toUtc().toIso8601String(),
-          ),
-        );
-      }
+      await _persistExplanation(
+        userMessage: userMsg,
+        assistantTimestamp: aiMsg.timestamp,
+        result: result,
+        bookTitle: bookTitle,
+        bookAuthor: bookAuthor,
+        chapterIndex: chapterIndex,
+        chapterTitle: chapterTitle,
+        selectedText: selectedText,
+        mode: mode,
+      );
 
       // 修剪历史长度
       if (_messages.length > 20) {
@@ -179,6 +171,7 @@ class AiProvider extends ChangeNotifier {
   }
 
   Future<void> sendFollowUp(String question) async {
+    final entryId = _activeExplanationEntryId;
     final generation = _startGeneration('正在组织语言…');
     notifyListeners();
 
@@ -231,6 +224,13 @@ class AiProvider extends ChangeNotifier {
           ),
         );
       }
+      if (entryId != null && entryId.isNotEmpty) {
+        await BookService.insertUserEntryFollowUp(
+          entryId: entryId,
+          question: question,
+          answer: result,
+        );
+      }
 
       if (_messages.length > 20) {
         _messages = _messages.sublist(_messages.length - 20);
@@ -250,6 +250,52 @@ class AiProvider extends ChangeNotifier {
         _activeCompleter = null;
       }
     }
+  }
+
+  Future<void> _persistExplanation({
+    required AiMessage userMessage,
+    required DateTime assistantTimestamp,
+    required String result,
+    required String bookTitle,
+    required String bookAuthor,
+    required String chapterIndex,
+    required String chapterTitle,
+    required String selectedText,
+    required AiExplainMode mode,
+  }) async {
+    final bookId = _bookId;
+    if (bookId == null) return;
+    await BookService.insertAiMessage(bookId, userMessage);
+    await BookService.insertAiMessage(
+      bookId,
+      AiMessage(
+        role: 'assistant',
+        content: result,
+        timestamp: assistantTimestamp,
+      ),
+    );
+    final localEntryId = const Uuid().v4();
+    _activeExplanationEntryId = await BookService.insertUserEntry(
+      UserEntry(
+        id: localEntryId,
+        userId: AuthService.userId ?? '',
+        source: 'ai_explanation',
+        bookId: bookId,
+        bookTitle: bookTitle,
+        chapterIndex: chapterIndex,
+        chapterTitle: chapterTitle,
+        originalText: selectedText,
+        aiExplanation: result,
+        autoTags: ['小U解释', mode.fullLabel],
+        autoSummary: _summaryOf(result),
+        metadataJson: jsonEncode({
+          'book_author': bookAuthor,
+          'explain_mode': mode.apiValue,
+        }),
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now().toUtc().toIso8601String(),
+      ),
+    );
   }
 
   int _startGeneration(String loadingText) {
@@ -362,6 +408,7 @@ class AiProvider extends ChangeNotifier {
     _isLoading = false;
     _error = null;
     _loadingText = null;
+    _activeExplanationEntryId = null;
     _messages.clear();
     notifyListeners();
   }

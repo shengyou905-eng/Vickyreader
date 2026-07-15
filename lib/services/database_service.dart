@@ -161,6 +161,22 @@ class DatabaseService {
         updated_at TEXT NOT NULL
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE user_entry_follow_ups (
+        id TEXT PRIMARY KEY,
+        entry_id TEXT NOT NULL,
+        question TEXT NOT NULL,
+        answer TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        remote_id TEXT DEFAULT '',
+        remote_synced INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX idx_user_entry_follow_ups_entry_created
+      ON user_entry_follow_ups(entry_id, created_at ASC)
+    ''');
   }
 
   static Future<void> _onUpgrade(
@@ -269,6 +285,23 @@ class DatabaseService {
         'xiaou_authorized',
         'INTEGER NOT NULL DEFAULT 0',
       );
+    }
+    if (oldVersion < 12) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS user_entry_follow_ups (
+          id TEXT PRIMARY KEY,
+          entry_id TEXT NOT NULL,
+          question TEXT NOT NULL,
+          answer TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          remote_id TEXT DEFAULT '',
+          remote_synced INTEGER NOT NULL DEFAULT 0
+        )
+      ''');
+      await db.execute('''
+        CREATE INDEX IF NOT EXISTS idx_user_entry_follow_ups_entry_created
+        ON user_entry_follow_ups(entry_id, created_at ASC)
+      ''');
     }
   }
 

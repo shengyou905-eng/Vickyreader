@@ -33,6 +33,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   bool _ignoreChapterMessages = false;
   bool _isExiting = false;
   bool _hasWebSelection = false;
+  bool _aiPanelExpanded = false;
   bool? _controlsBeforeAi;
   String? _webViewLoadError;
   String? _loadedChapterKey;
@@ -615,15 +616,25 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   ),
 
                 if (reader.showAiPanel)
-                  Positioned(
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.easeInOutCubic,
                     bottom: 0,
                     left: 0,
                     right: 0,
-                    height: (MediaQuery.of(context).size.height * 0.4).clamp(
-                      310.0,
-                      430.0,
-                    ),
+                    height: _aiPanelExpanded
+                        ? MediaQuery.of(context).size.height -
+                              MediaQuery.of(context).padding.top -
+                              8
+                        : (MediaQuery.of(context).size.height * 0.4).clamp(
+                            310.0,
+                            430.0,
+                          ),
                     child: AiExplanationCard(
+                      isExpanded: _aiPanelExpanded,
+                      onToggleExpanded: () {
+                        setState(() => _aiPanelExpanded = !_aiPanelExpanded);
+                      },
                       onClose: () => _closeAiExplanation(reader),
                     ),
                   ),
@@ -711,6 +722,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
       setState(() => _showControls = false);
     }
     _hasWebSelection = false;
+    if (_aiPanelExpanded && mounted) {
+      setState(() => _aiPanelExpanded = false);
+    }
     reader.showAiExplanation();
 
     try {
@@ -724,6 +738,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _closeAiExplanation(ReaderProvider reader) {
+    if (_aiPanelExpanded && mounted) {
+      setState(() => _aiPanelExpanded = false);
+    }
     reader.clearSelection();
     _hasWebSelection = false;
     unawaited(

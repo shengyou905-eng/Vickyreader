@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../config/constants.dart';
+import 'app_http_client.dart';
 import '../models/ai_conversation.dart';
 import '../models/ai_explain_mode.dart';
 import 'auth_service.dart';
@@ -85,7 +86,7 @@ class AiService {
     request.headers['Authorization'] = 'Bearer $token';
     request.body = jsonEncode(body);
 
-    final client = http.Client();
+    final client = AppHttp.createClient();
     try {
       final streamed = await client.send(request).timeout(_connectTimeout);
 

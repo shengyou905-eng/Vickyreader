@@ -6,13 +6,12 @@ class AppConstants {
 
   static const int contextChars = 200;
 
-  // Production builds must inject an HTTPS endpoint:
-  //   --dart-define=API_BASE_URL=https://api.example.com
-  // Local/debug HTTP endpoints can use the same flag. Android release builds
-  // reject cleartext traffic at the platform layer.
+  // Production uses the public HTTPS endpoint by default. Development and
+  // staging builds can still override it with --dart-define=API_BASE_URL=...
+  // Android release builds reject cleartext traffic at the platform layer.
   static const String _configuredApiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: '',
+    defaultValue: 'https://api.youxugarden.com',
   );
   static String get apiBaseUrl {
     final value = _configuredApiBaseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
@@ -35,7 +34,7 @@ class AppConstants {
 
   // Storage
   static const String dbName = 'ai_reader.db';
-  static const int dbVersion = 11;
+  static const int dbVersion = 12;
   static const List<String> supportedFormats = ['epub', 'txt', 'pdf'];
   static const String booksDir = 'books';
 

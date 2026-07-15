@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../config/constants.dart';
+import 'app_http_client.dart';
 import 'auth_service.dart';
 
 class PrivacyService {
@@ -117,17 +118,17 @@ class PrivacyService {
     late http.Response response;
     switch (method) {
       case 'POST':
-        response = await http
+        response = await AppHttp.client
             .post(uri, headers: headers, body: jsonEncode(body ?? const {}))
             .timeout(_timeout);
         break;
       case 'PUT':
-        response = await http
+        response = await AppHttp.client
             .put(uri, headers: headers, body: jsonEncode(body ?? const {}))
             .timeout(_timeout);
         break;
       case 'DELETE':
-        response = await http
+        response = await AppHttp.client
             .delete(
               uri,
               headers: headers,
@@ -136,7 +137,9 @@ class PrivacyService {
             .timeout(_timeout);
         break;
       default:
-        response = await http.get(uri, headers: headers).timeout(_timeout);
+        response = await AppHttp.client
+            .get(uri, headers: headers)
+            .timeout(_timeout);
         break;
     }
     Map<String, dynamic> data = const {};

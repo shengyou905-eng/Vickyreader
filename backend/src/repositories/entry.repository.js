@@ -1,4 +1,4 @@
-const { query } = require('../config/db');
+const { query, withTransaction } = require('../config/db');
 
 const allowedSources = new Set(['highlight', 'thought', 'ai_explanation', 'manual']);
 
@@ -109,10 +109,19 @@ async function listEntries(userId, filters) {
   values.push(limit);
 
   const result = await query(
-    `SELECT *
-     FROM user_entries
+    `SELECT e.*,
+            COALESCE(f.follow_up_count, 0)::INTEGER AS follow_up_count,
+            COALESCE(f.latest_follow_up_question, '') AS latest_follow_up_question
+     FROM user_entries e
+     LEFT JOIN LATERAL (
+       SELECT COUNT(*)::INTEGER AS follow_up_count,
+              (ARRAY_AGG(question ORDER BY created_at DESC))[1]
+                AS latest_follow_up_question
+       FROM user_entry_follow_ups
+       WHERE entry_id = e.id AND user_id = e.user_id
+     ) f ON TRUE
      WHERE ${where.join(' AND ')}
-     ORDER BY created_at DESC
+     ORDER BY e.created_at DESC
      LIMIT $${values.length}`,
     values,
   );
@@ -131,9 +140,49 @@ async function deleteEntry(userId, entryId) {
   return result.rowCount > 0;
 }
 
+async function listFollowUps(userId, entryId) {
+  const result = await query(
+    `SELECT f.id, f.entry_id, f.question, f.answer, f.created_at
+     FROM user_entry_follow_ups f
+     INNER JOIN user_entries e ON e.id = f.entry_id
+     WHERE f.entry_id = $1 AND f.user_id = $2 AND e.user_id = $2
+     ORDER BY f.created_at ASC`,
+    [entryId, userId],
+  );
+  return result.rows;
+}
+
+async function createFollowUp(userId, entryId, question, answer) {
+  return withTransaction(async (txQuery) => {
+    const owned = await txQuery(
+      `SELECT id
+       FROM user_entries
+       WHERE id = $1 AND user_id = $2
+       FOR UPDATE`,
+      [entryId, userId],
+    );
+    if (owned.rowCount === 0) return null;
+
+    const result = await txQuery(
+      `INSERT INTO user_entry_follow_ups (
+         entry_id,
+         user_id,
+         question,
+         answer
+       )
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, entry_id, question, answer, created_at`,
+      [entryId, userId, question, answer],
+    );
+    return result.rows[0];
+  });
+}
+
 module.exports = {
   createEntry,
   listEntries,
   deleteEntry,
+  listFollowUps,
+  createFollowUp,
   normalizeTags,
 };

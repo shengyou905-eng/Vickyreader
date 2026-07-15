@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import '../../../config/theme.dart';
+import '../../../models/ai_conversation.dart';
+import '../../../models/user_entry_follow_up.dart';
+import '../../../services/ai_service.dart';
 import '../../../services/book_service.dart';
 import '../../../utils/ai_consent_gate.dart';
 import '../../../utils/markdown_sanitizer.dart';
 
 class XiaouCard extends StatefulWidget {
   final String source;
+  final String entryId;
   final String originalText;
   final String? userNote;
   final String? aiTags;
@@ -13,12 +17,15 @@ class XiaouCard extends StatefulWidget {
   final String? bookTitle;
   final String? chapterTitle;
   final String? createdAt;
+  final int followUpCount;
+  final String? latestFollowUpQuestion;
   final VoidCallback? onDelete;
   final ValueChanged<String>? onTagTap;
 
   const XiaouCard({
     super.key,
     required this.source,
+    this.entryId = '',
     required this.originalText,
     this.userNote,
     this.aiTags,
@@ -26,6 +33,8 @@ class XiaouCard extends StatefulWidget {
     this.bookTitle,
     this.chapterTitle,
     this.createdAt,
+    this.followUpCount = 0,
+    this.latestFollowUpQuestion,
     this.onDelete,
     this.onTagTap,
   });
@@ -36,10 +45,30 @@ class XiaouCard extends StatefulWidget {
 
 class _XiaouCardState extends State<XiaouCard> {
   bool _expanded = false;
+  late int _followUpCount;
+  late String _latestFollowUpQuestion;
+
+  @override
+  void initState() {
+    super.initState();
+    _followUpCount = widget.followUpCount;
+    _latestFollowUpQuestion = widget.latestFollowUpQuestion?.trim() ?? '';
+  }
+
+  @override
+  void didUpdateWidget(covariant XiaouCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.followUpCount != widget.followUpCount) {
+      _followUpCount = widget.followUpCount;
+    }
+    if (oldWidget.latestFollowUpQuestion != widget.latestFollowUpQuestion) {
+      _latestFollowUpQuestion = widget.latestFollowUpQuestion?.trim() ?? '';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final tags = _parseTags(widget.aiTags);
+    final tags = _parseTags(widget.aiTags, source: widget.source);
     final isExplanation = widget.source == 'ai_explanation';
     final cleanedUnderstanding = stripMarkdownMarkers(
       widget.aiUnderstanding ?? '',
@@ -183,6 +212,24 @@ class _XiaouCardState extends State<XiaouCard> {
                     ),
                   ],
                 ),
+                if (_followUpCount > 0) ...[
+                  const SizedBox(height: 7),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      _latestFollowUpQuestion.isEmpty
+                          ? '已继续追问 $_followUpCount 次'
+                          : '$_followUpCount 次追问 · $_latestFollowUpQuestion',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: context.appPalette.textSecondary,
+                        fontSize: 11.5,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
               ],
               if (expandable) ...[
                 const SizedBox(height: 8),
@@ -274,12 +321,13 @@ class _XiaouCardState extends State<XiaouCard> {
     required String explanation,
     required List<String> tags,
   }) {
-    return showModalBottomSheet<void>(
+    return showModalBottomSheet<_FollowUpSheetResult>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _XiaouExplanationSheet(
+        entryId: widget.entryId,
         originalText: widget.originalText,
         explanation: explanation,
         bookTitle: widget.bookTitle ?? '',
@@ -287,7 +335,13 @@ class _XiaouCardState extends State<XiaouCard> {
         createdAt: widget.createdAt ?? '',
         tags: tags,
       ),
-    );
+    ).then((result) {
+      if (!mounted || result == null) return;
+      setState(() {
+        _followUpCount = result.count;
+        _latestFollowUpQuestion = result.latestQuestion;
+      });
+    });
   }
 
   String _sourceLabel(String source) {
@@ -317,23 +371,47 @@ class _XiaouCardState extends State<XiaouCard> {
     return combined.length > 120 || combined.split('\n').length > 5;
   }
 
-  List<String> _parseTags(String? raw) {
+  List<String> _parseTags(String? raw, {required String source}) {
     if (raw == null || raw.isEmpty) return [];
-    return raw
-        .split(',')
-        .map(
-          (tag) => tag
-              .trim()
-              .replaceAll('"', '')
-              .replaceAll('[', '')
-              .replaceAll(']', ''),
-        )
-        .where((tag) => tag.isNotEmpty)
-        .toList();
+    final result = <String>[];
+    final seen = <String>{};
+    for (final value in raw.split(',')) {
+      final tag = value
+          .trim()
+          .replaceAll('"', '')
+          .replaceAll('[', '')
+          .replaceAll(']', '');
+      final key = tag.toLowerCase().replaceAll(RegExp(r'\s+'), '');
+      if (tag.isEmpty || _isSourceTag(key, source) || !seen.add(key)) {
+        continue;
+      }
+      result.add(tag);
+    }
+    return result;
+  }
+
+  bool _isSourceTag(String tag, String source) {
+    return switch (source) {
+      'ai_explanation' => const {'小u解释', '小u解读', 'ai解释', 'ai解读'}.contains(tag),
+      'thought' || 'manual' => const {'想法', '阅读想法', 'thought'}.contains(tag),
+      'highlight' => const {'划线', 'highlight'}.contains(tag),
+      _ => false,
+    };
   }
 }
 
-class _XiaouExplanationSheet extends StatelessWidget {
+class _FollowUpSheetResult {
+  final int count;
+  final String latestQuestion;
+
+  const _FollowUpSheetResult({
+    required this.count,
+    required this.latestQuestion,
+  });
+}
+
+class _XiaouExplanationSheet extends StatefulWidget {
+  final String entryId;
   final String originalText;
   final String explanation;
   final String bookTitle;
@@ -342,6 +420,7 @@ class _XiaouExplanationSheet extends StatelessWidget {
   final List<String> tags;
 
   const _XiaouExplanationSheet({
+    required this.entryId,
     required this.originalText,
     required this.explanation,
     required this.bookTitle,
@@ -349,6 +428,125 @@ class _XiaouExplanationSheet extends StatelessWidget {
     required this.createdAt,
     required this.tags,
   });
+
+  @override
+  State<_XiaouExplanationSheet> createState() => _XiaouExplanationSheetState();
+}
+
+class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet> {
+  final TextEditingController _followUpController = TextEditingController();
+  List<UserEntryFollowUp> _followUps = const [];
+  bool _loadingFollowUps = true;
+  bool _sending = false;
+  String _streamingQuestion = '';
+  String _streamingAnswer = '';
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFollowUps();
+  }
+
+  Future<void> _loadFollowUps() async {
+    if (widget.entryId.isEmpty) {
+      if (mounted) setState(() => _loadingFollowUps = false);
+      return;
+    }
+    try {
+      final rows = await BookService.getUserEntryFollowUps(widget.entryId);
+      if (!mounted) return;
+      setState(() {
+        _followUps = rows;
+        _loadingFollowUps = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loadingFollowUps = false;
+        _error = '追问记录暂时没有同步，请稍后再试。';
+      });
+    }
+  }
+
+  Future<void> _sendFollowUp() async {
+    if (_sending || widget.entryId.isEmpty) return;
+    final question = _followUpController.text.trim();
+    if (question.isEmpty) return;
+    if (!await AiConsentGate.ensure(context) || !mounted) return;
+    _followUpController.clear();
+    setState(() {
+      _sending = true;
+      _streamingQuestion = question;
+      _streamingAnswer = '';
+      _error = null;
+    });
+
+    try {
+      final history = <AiMessage>[
+        AiMessage(
+          role: 'user',
+          content: widget.originalText,
+          timestamp: DateTime.now(),
+        ),
+        AiMessage(
+          role: 'assistant',
+          content: widget.explanation,
+          timestamp: DateTime.now(),
+        ),
+        for (final item in _followUps) ...[
+          AiMessage(
+            role: 'user',
+            content: item.question,
+            timestamp: item.createdAt,
+          ),
+          AiMessage(
+            role: 'assistant',
+            content: item.answer,
+            timestamp: item.createdAt,
+          ),
+        ],
+      ];
+      final buffer = StringBuffer();
+      await for (final chunk in AiService.chatStream(
+        message: question,
+        conversationHistory: history,
+      )) {
+        buffer.write(chunk);
+        if (mounted) setState(() => _streamingAnswer = buffer.toString());
+      }
+      final answer = buffer.toString().trim();
+      if (answer.isEmpty) throw Exception('empty answer');
+      final saved = await BookService.insertUserEntryFollowUp(
+        entryId: widget.entryId,
+        question: question,
+        answer: answer,
+      );
+      if (!mounted) return;
+      setState(() {
+        _followUps = [..._followUps, saved];
+        _sending = false;
+        _streamingQuestion = '';
+        _streamingAnswer = '';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _sending = false;
+        _error = AiService.friendlyError(e);
+      });
+    }
+  }
+
+  void _close() {
+    Navigator.pop(
+      context,
+      _FollowUpSheetResult(
+        count: _followUps.length,
+        latestQuestion: _followUps.isEmpty ? '' : _followUps.last.question,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -410,7 +608,7 @@ class _XiaouExplanationSheet extends StatelessWidget {
                     ),
                     IconButton(
                       tooltip: '关闭',
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: _close,
                       icon: const Icon(Icons.close_rounded),
                     ),
                   ],
@@ -422,7 +620,7 @@ class _XiaouExplanationSheet extends StatelessWidget {
                   controller: scrollController,
                   padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
                   children: [
-                    if (originalText.trim().isNotEmpty) ...[
+                    if (widget.originalText.trim().isNotEmpty) ...[
                       Text(
                         '选中的原文',
                         style: TextStyle(
@@ -444,7 +642,7 @@ class _XiaouExplanationSheet extends StatelessWidget {
                         ),
                         child: SelectionArea(
                           child: Text(
-                            originalText.trim(),
+                            widget.originalText.trim(),
                             style: TextStyle(
                               color: palette.textPrimary,
                               fontSize: 14,
@@ -467,7 +665,7 @@ class _XiaouExplanationSheet extends StatelessWidget {
                     const SizedBox(height: 10),
                     SelectionArea(
                       child: Text(
-                        explanation,
+                        widget.explanation,
                         style: TextStyle(
                           color: palette.textPrimary,
                           fontSize: 16,
@@ -475,12 +673,12 @@ class _XiaouExplanationSheet extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (tags.isNotEmpty) ...[
+                    if (widget.tags.isNotEmpty) ...[
                       const SizedBox(height: 24),
                       Wrap(
                         spacing: 7,
                         runSpacing: 7,
-                        children: tags
+                        children: widget.tags
                             .map(
                               (tag) => Container(
                                 padding: const EdgeInsets.symmetric(
@@ -505,9 +703,91 @@ class _XiaouExplanationSheet extends StatelessWidget {
                     ],
                     const SizedBox(height: 20),
                     const AiGeneratedNotice(compact: false),
+                    if (_loadingFollowUps) ...[
+                      const SizedBox(height: 24),
+                      const Center(
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    ] else if (_followUps.isNotEmpty || _sending) ...[
+                      const SizedBox(height: 28),
+                      Text(
+                        '继续追问',
+                        style: TextStyle(
+                          color: palette.textSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      for (final followUp in _followUps)
+                        _FollowUpPair(followUp: followUp),
+                      if (_sending)
+                        _FollowUpPair(
+                          followUp: UserEntryFollowUp(
+                            id: 'streaming',
+                            entryId: widget.entryId,
+                            question: _streamingQuestion,
+                            answer: _streamingAnswer.isEmpty
+                                ? '小U正在想这一句…'
+                                : stripMarkdownMarkers(_streamingAnswer),
+                            createdAt: DateTime.now(),
+                          ),
+                        ),
+                    ],
+                    if (_error != null) ...[
+                      const SizedBox(height: 14),
+                      Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
+              if (widget.entryId.isNotEmpty)
+                SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 10, 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _followUpController,
+                            enabled: !_sending,
+                            textInputAction: TextInputAction.send,
+                            onSubmitted: (_) => _sendFollowUp(),
+                            decoration: InputDecoration(
+                              hintText: '继续问这一段…',
+                              filled: true,
+                              fillColor: palette.card,
+                              isDense: true,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '发送',
+                          onPressed: _sending ? null : _sendFollowUp,
+                          icon: Icon(
+                            Icons.arrow_upward_rounded,
+                            color: palette.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
             ],
           ),
         );
@@ -517,14 +797,73 @@ class _XiaouExplanationSheet extends StatelessWidget {
 
   String get _sourceLine {
     final parts = <String>[];
-    if (bookTitle.trim().isNotEmpty) parts.add('《${bookTitle.trim()}》');
-    if (chapterTitle.trim().isNotEmpty) parts.add(chapterTitle.trim());
-    final date = DateTime.tryParse(createdAt)?.toLocal();
+    if (widget.bookTitle.trim().isNotEmpty) {
+      parts.add('《${widget.bookTitle.trim()}》');
+    }
+    if (widget.chapterTitle.trim().isNotEmpty) {
+      parts.add(widget.chapterTitle.trim());
+    }
+    final date = DateTime.tryParse(widget.createdAt)?.toLocal();
     if (date != null) {
       parts.add(
         '${date.year}.${date.month.toString().padLeft(2, '0')}.${date.day.toString().padLeft(2, '0')}',
       );
     }
     return parts.join(' · ');
+  }
+
+  @override
+  void dispose() {
+    _followUpController.dispose();
+    super.dispose();
+  }
+}
+
+class _FollowUpPair extends StatelessWidget {
+  final UserEntryFollowUp followUp;
+
+  const _FollowUpPair({required this.followUp});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Align(
+            alignment: Alignment.centerRight,
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 300),
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+              decoration: BoxDecoration(
+                color: palette.primary.withAlpha(20),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                followUp.question,
+                style: TextStyle(
+                  color: palette.textPrimary,
+                  fontSize: 13.5,
+                  height: 1.55,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SelectionArea(
+            child: Text(
+              stripMarkdownMarkers(followUp.answer),
+              style: TextStyle(
+                color: palette.textPrimary,
+                fontSize: 14.5,
+                height: 1.72,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

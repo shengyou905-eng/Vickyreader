@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import '../services/app_http_client.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import '../models/book.dart';
@@ -61,7 +61,8 @@ class BookshelfProvider extends ChangeNotifier {
       await Directory(filePath).create(recursive: true);
       final savePath = p.join(filePath, fileName);
 
-      final response = await http.get(Uri.parse(url))
+      final response = await AppHttp.client
+          .get(Uri.parse(url))
           .timeout(const Duration(seconds: 30));
       if (response.statusCode != 200) {
         throw Exception('下载失败：HTTP ${response.statusCode}');

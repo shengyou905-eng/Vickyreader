@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/constants.dart';
+import 'app_http_client.dart';
 
 class BmobApi {
   static const _tokenKey = 'auth_token';
@@ -91,7 +92,7 @@ class BmobApi {
     final token = _token?.trim() ?? '';
     if (token.isNotEmpty) {
       try {
-        await http
+        await AppHttp.client
             .post(
               Uri.parse('${AppConstants.apiBaseUrl}/api/auth/logout'),
               headers: {
@@ -130,7 +131,7 @@ class BmobApi {
       '${AppConstants.apiBaseUrl}/api/classes/$table',
     ).replace(queryParameters: queryParams.isNotEmpty ? queryParams : null);
 
-    final res = await http
+    final res = await AppHttp.client
         .get(uri, headers: _authHeaders())
         .timeout(const Duration(seconds: 10));
     if (res.statusCode == 200) {
@@ -144,7 +145,7 @@ class BmobApi {
     String table,
     Map<String, dynamic> body,
   ) async {
-    final res = await http
+    final res = await AppHttp.client
         .post(
           Uri.parse('${AppConstants.apiBaseUrl}/api/classes/$table'),
           headers: _authHeaders(),
@@ -162,7 +163,7 @@ class BmobApi {
     String objectId,
     Map<String, dynamic> body,
   ) async {
-    final res = await http
+    final res = await AppHttp.client
         .put(
           Uri.parse('${AppConstants.apiBaseUrl}/api/classes/$table/$objectId'),
           headers: _authHeaders(),
@@ -174,7 +175,7 @@ class BmobApi {
   }
 
   Future<bool> delete(String table, String objectId) async {
-    final res = await http
+    final res = await AppHttp.client
         .delete(
           Uri.parse('${AppConstants.apiBaseUrl}/api/classes/$table/$objectId'),
           headers: _authHeaders(),
@@ -187,7 +188,7 @@ class BmobApi {
   Future<Map<String, dynamic>?> createUserEntry(
     Map<String, dynamic> body,
   ) async {
-    final res = await http
+    final res = await AppHttp.client
         .post(
           Uri.parse('${AppConstants.apiBaseUrl}/api/entries'),
           headers: _authHeaders(),
@@ -229,7 +230,7 @@ class BmobApi {
       '${AppConstants.apiBaseUrl}/api/entries',
     ).replace(queryParameters: queryParams.isNotEmpty ? queryParams : null);
 
-    final res = await http
+    final res = await AppHttp.client
         .get(uri, headers: _authHeaders())
         .timeout(const Duration(seconds: 10));
     if (res.statusCode == 200) {
@@ -241,7 +242,7 @@ class BmobApi {
 
   Future<bool> deleteUserEntry(String id) async {
     try {
-      final res = await http
+      final res = await AppHttp.client
           .delete(
             Uri.parse('${AppConstants.apiBaseUrl}/api/entries/$id'),
             headers: _authHeaders(),
@@ -256,6 +257,47 @@ class BmobApi {
     }
   }
 
+  Future<List<Map<String, dynamic>>> listUserEntryFollowUps(
+    String entryId,
+  ) async {
+    final safeId = Uri.encodeComponent(entryId);
+    final res = await AppHttp.client
+        .get(
+          Uri.parse(
+            '${AppConstants.apiBaseUrl}/api/entries/$safeId/follow-ups',
+          ),
+          headers: _authHeaders(),
+        )
+        .timeout(const Duration(seconds: 15));
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return List<Map<String, dynamic>>.from(data['follow_ups'] ?? const []);
+    }
+    throw Exception('读取追问记录失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>> createUserEntryFollowUp({
+    required String entryId,
+    required String question,
+    required String answer,
+  }) async {
+    final safeId = Uri.encodeComponent(entryId);
+    final res = await AppHttp.client
+        .post(
+          Uri.parse(
+            '${AppConstants.apiBaseUrl}/api/entries/$safeId/follow-ups',
+          ),
+          headers: _authHeaders(),
+          body: jsonEncode({'question': question, 'answer': answer}),
+        )
+        .timeout(const Duration(seconds: 15));
+    if (res.statusCode == 201) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return Map<String, dynamic>.from(data['follow_up'] as Map? ?? const {});
+    }
+    throw Exception('保存追问记录失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
   Future<List<Map<String, dynamic>>> listFreeNotes({
     String? query,
     int limit = 500,
@@ -267,7 +309,7 @@ class BmobApi {
     final uri = Uri.parse(
       '${AppConstants.apiBaseUrl}/api/free-notes',
     ).replace(queryParameters: queryParams);
-    final res = await http
+    final res = await AppHttp.client
         .get(uri, headers: _authHeaders())
         .timeout(const Duration(seconds: 15));
     if (res.statusCode == 200) {
@@ -284,7 +326,7 @@ class BmobApi {
     required String createdAt,
     required String updatedAt,
   }) async {
-    final res = await http
+    final res = await AppHttp.client
         .post(
           Uri.parse('${AppConstants.apiBaseUrl}/api/free-notes'),
           headers: _authHeaders(),
@@ -306,7 +348,7 @@ class BmobApi {
 
   Future<bool> deleteFreeNote(String id) async {
     final safeId = Uri.encodeComponent(id);
-    final res = await http
+    final res = await AppHttp.client
         .delete(
           Uri.parse('${AppConstants.apiBaseUrl}/api/free-notes/$safeId'),
           headers: _authHeaders(),
@@ -326,10 +368,10 @@ class BmobApi {
       '${AppConstants.apiBaseUrl}/api/free-notes/$safeId/xiaou-authorization',
     );
     final res = authorized
-        ? await http
+        ? await AppHttp.client
               .post(uri, headers: _authHeaders())
               .timeout(const Duration(seconds: 15))
-        : await http
+        : await AppHttp.client
               .delete(uri, headers: _authHeaders())
               .timeout(const Duration(seconds: 15));
     if (authorized && res.statusCode == 200) return;
@@ -341,7 +383,7 @@ class BmobApi {
   }
 
   Future<Map<String, dynamic>> getXiaouHomeInsight() async {
-    final res = await http
+    final res = await AppHttp.client
         .get(
           Uri.parse('${AppConstants.apiBaseUrl}/api/insights/home'),
           headers: _authHeaders(),
@@ -444,7 +486,9 @@ class BmobApi {
         ),
       );
     }
-    final streamed = await request.send().timeout(const Duration(minutes: 3));
+    final streamed = await AppHttp.client
+        .send(request)
+        .timeout(const Duration(minutes: 3));
     final res = await http.Response.fromStream(
       streamed,
     ).timeout(const Duration(minutes: 3));
@@ -466,7 +510,7 @@ class BmobApi {
 
   Future<Map<String, dynamic>> deleteMyMingtaiBooks() async {
     await init();
-    final res = await http
+    final res = await AppHttp.client
         .delete(
           Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books'),
           headers: _authHeaders(),
@@ -481,7 +525,7 @@ class BmobApi {
 
   Future<void> deleteMyMingtaiBook(String bookId) async {
     await init();
-    final res = await http
+    final res = await AppHttp.client
         .delete(
           Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId'),
           headers: _authHeaders(),
@@ -526,7 +570,7 @@ class BmobApi {
 
     debugPrint('[MingtaiBooks] GET $uri');
     try {
-      final res = await http
+      final res = await AppHttp.client
           .get(uri, headers: _authHeaders())
           .timeout(_mingtaiTimeout);
 
@@ -563,7 +607,7 @@ class BmobApi {
   Future<Map<String, dynamic>> getMingtaiHome() async {
     Object? homeError;
     try {
-      final res = await http
+      final res = await AppHttp.client
           .get(
             Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/home'),
             headers: _authHeaders(),
@@ -600,7 +644,7 @@ class BmobApi {
   Future<Map<String, dynamic>> getMingtaiBook(String bookId) async {
     late final http.Response res;
     try {
-      res = await http
+      res = await AppHttp.client
           .get(
             Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId'),
             headers: _authHeaders(),
@@ -621,7 +665,7 @@ class BmobApi {
   ) async {
     late final http.Response res;
     try {
-      res = await http
+      res = await AppHttp.client
           .get(
             Uri.parse(
               '${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/reviews',
@@ -672,7 +716,7 @@ class BmobApi {
     required String targetId,
   }) async {
     final segment = targetType == 'review' ? 'reviews' : 'annotations';
-    final res = await http
+    final res = await AppHttp.client
         .get(
           Uri.parse(
             '${AppConstants.apiBaseUrl}/api/mingtai/$segment/$targetId/comments',
@@ -743,7 +787,7 @@ class BmobApi {
   }
 
   Future<Map<String, dynamic>> listMingtaiNotifications() async {
-    final res = await http
+    final res = await AppHttp.client
         .get(
           Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/notifications'),
           headers: _authHeaders(),
@@ -756,7 +800,7 @@ class BmobApi {
   }
 
   Future<int> getMingtaiUnreadNotificationCount() async {
-    final res = await http
+    final res = await AppHttp.client
         .get(
           Uri.parse(
             '${AppConstants.apiBaseUrl}/api/mingtai/notifications/unread-count',
@@ -772,7 +816,7 @@ class BmobApi {
   }
 
   Future<void> markMingtaiNotificationRead(String notificationId) async {
-    final res = await http
+    final res = await AppHttp.client
         .patch(
           Uri.parse(
             '${AppConstants.apiBaseUrl}/api/mingtai/notifications/$notificationId/read',
@@ -786,7 +830,7 @@ class BmobApi {
   }
 
   Future<void> markAllMingtaiNotificationsRead() async {
-    final res = await http
+    final res = await AppHttp.client
         .patch(
           Uri.parse(
             '${AppConstants.apiBaseUrl}/api/mingtai/notifications/read-all',
@@ -805,7 +849,7 @@ class BmobApi {
   }) async {
     late final http.Response res;
     try {
-      res = await http
+      res = await AppHttp.client
           .patch(
             Uri.parse(
               '${AppConstants.apiBaseUrl}/api/mingtai/reviews/$reviewId',
@@ -827,7 +871,7 @@ class BmobApi {
   Future<void> deleteMingtaiBookReview(String reviewId) async {
     late final http.Response res;
     try {
-      res = await http
+      res = await AppHttp.client
           .delete(
             Uri.parse(
               '${AppConstants.apiBaseUrl}/api/mingtai/reviews/$reviewId',
@@ -846,7 +890,7 @@ class BmobApi {
   Future<Map<String, dynamic>> getMingtaiMyProfile() async {
     late final http.Response res;
     try {
-      res = await http
+      res = await AppHttp.client
           .get(
             Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/profiles/me'),
             headers: _authHeaders(),
@@ -872,7 +916,7 @@ class BmobApi {
   }) async {
     late final http.Response res;
     try {
-      res = await http
+      res = await AppHttp.client
           .put(
             Uri.parse('${AppConstants.apiBaseUrl}/api/mingtai/profiles/me'),
             headers: _authHeaders(),
@@ -933,7 +977,7 @@ class BmobApi {
   Future<Map<String, dynamic>> getMingtaiPublicProfile(String userId) async {
     late final http.Response res;
     try {
-      res = await http
+      res = await AppHttp.client
           .get(
             Uri.parse(
               '${AppConstants.apiBaseUrl}/api/mingtai/profiles/$userId',
@@ -985,7 +1029,7 @@ class BmobApi {
   ) async {
     late final http.Response res;
     try {
-      res = await http
+      res = await AppHttp.client
           .get(
             Uri.parse(
               '${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/chapters',
@@ -1010,7 +1054,7 @@ class BmobApi {
   ) async {
     late final http.Response res;
     try {
-      res = await http
+      res = await AppHttp.client
           .get(
             Uri.parse(
               '${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/chapters/$chapterIndex',
@@ -1032,7 +1076,7 @@ class BmobApi {
   Future<Map<String, dynamic>> borrowMingtaiBook(String bookId) async {
     late final http.Response res;
     try {
-      res = await http
+      res = await AppHttp.client
           .post(
             Uri.parse(
               '${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/borrow',
@@ -1052,7 +1096,7 @@ class BmobApi {
 
   Future<void> recordMingtaiBookRead(String bookId) async {
     try {
-      final res = await http
+      final res = await AppHttp.client
           .post(
             Uri.parse(
               '${AppConstants.apiBaseUrl}/api/mingtai/books/$bookId/read',
@@ -1073,7 +1117,7 @@ class BmobApi {
   }) async {
     late final http.Response res;
     try {
-      res = await http
+      res = await AppHttp.client
           .post(
             Uri.parse(
               '${AppConstants.apiBaseUrl}/api/mingtai/annotations/$annotationId/resonance',
@@ -1098,7 +1142,7 @@ class BmobApi {
   }) async {
     late final http.Response res;
     try {
-      res = await http
+      res = await AppHttp.client
           .post(
             Uri.parse(
               '${AppConstants.apiBaseUrl}/api/mingtai/annotations/$annotationId/comments',
@@ -1124,7 +1168,7 @@ class BmobApi {
     required double scrollOffset,
     String? cfi,
   }) async {
-    final res = await http
+    final res = await AppHttp.client
         .post(
           Uri.parse('${AppConstants.apiBaseUrl}/api/reading-progress'),
           headers: _authHeaders(),
@@ -1146,7 +1190,7 @@ class BmobApi {
   }
 
   Future<Map<String, dynamic>?> getReadingProgress(String bookId) async {
-    final res = await http
+    final res = await AppHttp.client
         .get(
           Uri.parse('${AppConstants.apiBaseUrl}/api/reading-progress/$bookId'),
           headers: _authHeaders(),
@@ -1193,7 +1237,7 @@ class BmobApi {
     Object? lastError;
     for (var attempt = 0; attempt <= retries; attempt += 1) {
       try {
-        final res = await http
+        final res = await AppHttp.client
             .post(
               uri,
               headers: const {
@@ -1239,7 +1283,7 @@ class BmobApi {
     Object? lastError;
     for (var attempt = 0; attempt <= retries; attempt += 1) {
       try {
-        final res = await http
+        final res = await AppHttp.client
             .post(
               uri,
               headers: {

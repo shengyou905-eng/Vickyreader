@@ -11,6 +11,7 @@ import '../../models/book.dart';
 import '../../providers/bookshelf_provider.dart';
 import '../../providers/reader_provider.dart';
 import '../../services/auth_service.dart';
+import '../../services/app_image_cache.dart';
 import '../../services/book_service.dart';
 import '../reader/reader_screen.dart';
 
@@ -441,10 +442,7 @@ class _MingtaiScreenState extends State<MingtaiScreen> {
         : localSearchBookResults;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('明台'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('明台'), centerTitle: true),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : Column(
@@ -4617,6 +4615,7 @@ class _ProfileAvatar extends StatelessWidget {
     return ClipOval(
       child: CachedNetworkImage(
         imageUrl: profile.avatarUrl,
+        cacheManager: AppImageCache.manager,
         width: size,
         height: size,
         fit: BoxFit.cover,
@@ -4659,6 +4658,7 @@ class _BookCover extends StatelessWidget {
         child: canLoadNetwork
             ? CachedNetworkImage(
                 imageUrl: imageUrl,
+                cacheManager: AppImageCache.manager,
                 fit: BoxFit.cover,
                 memCacheWidth: displayLarge ? 240 : 120,
                 maxWidthDiskCache: displayLarge ? 480 : 240,

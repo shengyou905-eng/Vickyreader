@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
 import '../config/constants.dart';
 import '../models/mingtai_community.dart';
+import 'app_http_client.dart';
 import 'auth_service.dart';
 
 class MingtaiCommunityApi {
@@ -257,28 +260,51 @@ class MingtaiCommunityApi {
       if (token.isNotEmpty) 'Authorization': 'Bearer $token',
     };
     late http.Response response;
-    switch (method) {
-      case 'POST':
-        response = await http
-            .post(uri, headers: headers, body: jsonEncode(body ?? const {}))
-            .timeout(_timeout);
+    Future<http.Response> performRequest() async {
+      switch (method) {
+        case 'POST':
+          return AppHttp.client
+              .post(uri, headers: headers, body: jsonEncode(body ?? const {}))
+              .timeout(_timeout);
+        case 'PUT':
+          return AppHttp.client
+              .put(uri, headers: headers, body: jsonEncode(body ?? const {}))
+              .timeout(_timeout);
+        case 'PATCH':
+          return AppHttp.client
+              .patch(uri, headers: headers, body: jsonEncode(body ?? const {}))
+              .timeout(_timeout);
+        case 'DELETE':
+          return AppHttp.client.delete(uri, headers: headers).timeout(_timeout);
+        default:
+          return AppHttp.client.get(uri, headers: headers).timeout(_timeout);
+      }
+    }
+
+    final attempts = method == 'GET' ? 2 : 1;
+    Object? lastNetworkError;
+    for (var attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        response = await performRequest();
+        lastNetworkError = null;
         break;
-      case 'PUT':
-        response = await http
-            .put(uri, headers: headers, body: jsonEncode(body ?? const {}))
-            .timeout(_timeout);
-        break;
-      case 'PATCH':
-        response = await http
-            .patch(uri, headers: headers, body: jsonEncode(body ?? const {}))
-            .timeout(_timeout);
-        break;
-      case 'DELETE':
-        response = await http.delete(uri, headers: headers).timeout(_timeout);
-        break;
-      default:
-        response = await http.get(uri, headers: headers).timeout(_timeout);
-        break;
+      } on HandshakeException catch (error) {
+        lastNetworkError = error;
+      } on SocketException catch (error) {
+        lastNetworkError = error;
+      } on TimeoutException catch (error) {
+        lastNetworkError = error;
+      } on http.ClientException catch (error) {
+        lastNetworkError = error;
+      }
+
+      if (attempt + 1 < attempts) {
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+      }
+    }
+
+    if (lastNetworkError != null) {
+      throw Exception('网络连接暂时中断，请检查代理设置后重试');
     }
     Map<String, dynamic> data = const {};
     if (response.body.trim().isNotEmpty) {

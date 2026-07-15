@@ -14,8 +14,15 @@ import '../../../utils/ai_consent_gate.dart';
 
 class AiExplanationCard extends StatefulWidget {
   final VoidCallback onClose;
+  final VoidCallback onToggleExpanded;
+  final bool isExpanded;
 
-  const AiExplanationCard({super.key, required this.onClose});
+  const AiExplanationCard({
+    super.key,
+    required this.onClose,
+    required this.onToggleExpanded,
+    required this.isExpanded,
+  });
 
   @override
   State<AiExplanationCard> createState() => _AiExplanationCardState();
@@ -196,11 +203,16 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
                       _buildHeader(
                         ai: ai,
                         isWorking: isWorking,
+                        isExpanded: widget.isExpanded,
                         palette: palette,
                         primary: primary,
                       ),
                       if (_selectedText.isNotEmpty)
-                        _buildSelectedText(palette, primary),
+                        _buildSelectedText(
+                          palette,
+                          primary,
+                          expanded: widget.isExpanded,
+                        ),
                       _buildModeSelector(palette, primary),
                       Expanded(
                         child: error != null
@@ -255,6 +267,7 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
   Widget _buildHeader({
     required AiProvider ai,
     required bool isWorking,
+    required bool isExpanded,
     required AppPalette palette,
     required Color primary,
   }) {
@@ -307,6 +320,21 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
               ),
               child: const Text('停止'),
             ),
+          TextButton.icon(
+            onPressed: widget.onToggleExpanded,
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              foregroundColor: primary,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+            icon: Icon(
+              isExpanded
+                  ? Icons.close_fullscreen_rounded
+                  : Icons.open_in_full_rounded,
+              size: 16,
+            ),
+            label: Text(isExpanded ? '收起' : '展开'),
+          ),
           IconButton(
             tooltip: '关闭',
             onPressed: _close,
@@ -322,7 +350,11 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
     );
   }
 
-  Widget _buildSelectedText(AppPalette palette, Color primary) {
+  Widget _buildSelectedText(
+    AppPalette palette,
+    Color primary, {
+    required bool expanded,
+  }) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
       child: Row(
@@ -340,7 +372,7 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
           Expanded(
             child: Text(
               _selectedText.replaceAll(RegExp(r'\s+'), ' ').trim(),
-              maxLines: 2,
+              maxLines: expanded ? 5 : 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 12.5,

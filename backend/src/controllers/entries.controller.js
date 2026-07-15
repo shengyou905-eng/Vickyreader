@@ -45,8 +45,48 @@ async function deleteEntry(req, res, next) {
   }
 }
 
+async function listFollowUps(req, res, next) {
+  try {
+    const followUps = await entryRepository.listFollowUps(
+      req.user.id,
+      req.params.id,
+    );
+    return res.json({ follow_ups: followUps });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function createFollowUp(req, res, next) {
+  try {
+    const question = String(req.body.question || '').trim();
+    const answer = String(req.body.answer || '').trim();
+    if (!question || !answer) {
+      throw httpError(400, 'question and answer are required');
+    }
+    if (question.length > 4000 || answer.length > 30000) {
+      throw httpError(400, 'Follow-up content is too long');
+    }
+
+    const followUp = await entryRepository.createFollowUp(
+      req.user.id,
+      req.params.id,
+      question,
+      answer,
+    );
+    if (!followUp) {
+      throw httpError(404, 'Entry not found');
+    }
+    return res.status(201).json({ follow_up: followUp });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   createEntry,
   listEntries,
   deleteEntry,
+  listFollowUps,
+  createFollowUp,
 };

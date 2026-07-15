@@ -95,7 +95,7 @@ class _MainScreenState extends State<MainScreen> {
           setState(() {
             _initializedTabs.add(i);
             _lastTabActivatedAt[i] = now;
-            if (shouldCheckForUpdates && i == 1) _xiaouRefreshSignal++;
+            if (wasInitialized && i == 1) _xiaouRefreshSignal++;
             if (shouldCheckForUpdates && i == 2) _freeNotesRefreshSignal++;
             if (shouldCheckForUpdates && i == 3) _mingtaiRefreshSignal++;
             _currentIndex = i;

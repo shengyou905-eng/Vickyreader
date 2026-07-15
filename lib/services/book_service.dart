@@ -12,11 +12,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 import '../config/constants.dart';
+import 'app_http_client.dart';
 import '../models/book.dart';
 import '../models/bookmark.dart';
 import '../models/highlight.dart';
 import '../models/ai_conversation.dart';
 import '../models/user_entry.dart';
+import '../models/user_entry_follow_up.dart';
 import 'auth_service.dart';
 import 'bmob_api.dart';
 import 'database_service.dart';
@@ -1471,15 +1473,16 @@ class BookService {
 
   // ---- User Entries ----
 
-  static Future<void> insertUserEntry(UserEntry entry) async {
+  static Future<String> insertUserEntry(UserEntry entry) async {
     final db = await DatabaseService.database;
     await db.insert(
       'user_entries',
       entry.toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
-    await _createRemoteUserEntryIfPossible(db, entry);
+    final remoteId = await _createRemoteUserEntryIfPossible(db, entry);
     _invalidateMingtaiOverviewCache();
+    return remoteId ?? entry.id;
   }
 
   static Future<List<UserEntry>> getUserEntries({
@@ -1539,6 +1542,113 @@ class BookService {
       tags.addAll(_parseTags((m['auto_tags'] as String?) ?? ''));
     }
     return tags.toList()..sort();
+  }
+
+  static Future<List<UserEntryFollowUp>> getUserEntryFollowUps(
+    String entryId, {
+    bool forceRefresh = false,
+  }) async {
+    final normalizedId = entryId.trim();
+    if (normalizedId.isEmpty) return const [];
+    final db = await DatabaseService.database;
+
+    if (BmobApi.instance.isLoggedIn) {
+      await _syncPendingUserEntryFollowUps(db, normalizedId);
+      try {
+        final rows = await BmobApi.instance.listUserEntryFollowUps(
+          normalizedId,
+        );
+        for (final row in rows) {
+          final followUp = UserEntryFollowUp.fromRemote(row);
+          if (followUp.id.isEmpty) continue;
+          await db.insert('user_entry_follow_ups', {
+            'id': 'remote:${followUp.id}',
+            'entry_id': normalizedId,
+            'question': followUp.question,
+            'answer': followUp.answer,
+            'created_at': followUp.createdAt.toUtc().toIso8601String(),
+            'remote_id': followUp.id,
+            'remote_synced': 1,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+      } catch (_) {
+        // The local timeline remains readable while the server is unavailable.
+      }
+    }
+
+    final rows = await db.query(
+      'user_entry_follow_ups',
+      where: 'entry_id = ?',
+      whereArgs: [normalizedId],
+      orderBy: 'created_at ASC',
+    );
+    final seenRemoteIds = <String>{};
+    final result = <UserEntryFollowUp>[];
+    for (final row in rows) {
+      final remoteId = row['remote_id']?.toString() ?? '';
+      if (remoteId.isNotEmpty && !seenRemoteIds.add(remoteId)) continue;
+      result.add(
+        UserEntryFollowUp(
+          id: remoteId.isNotEmpty ? remoteId : row['id']?.toString() ?? '',
+          entryId: normalizedId,
+          question: row['question']?.toString() ?? '',
+          answer: row['answer']?.toString() ?? '',
+          createdAt:
+              DateTime.tryParse(
+                row['created_at']?.toString() ?? '',
+              )?.toLocal() ??
+              DateTime.now(),
+        ),
+      );
+    }
+    return result;
+  }
+
+  static Future<UserEntryFollowUp> insertUserEntryFollowUp({
+    required String entryId,
+    required String question,
+    required String answer,
+  }) async {
+    final db = await DatabaseService.database;
+    final localId = const Uuid().v4();
+    final createdAt = DateTime.now();
+    await db.insert('user_entry_follow_ups', {
+      'id': localId,
+      'entry_id': entryId,
+      'question': question.trim(),
+      'answer': answer.trim(),
+      'created_at': createdAt.toUtc().toIso8601String(),
+      'remote_id': '',
+      'remote_synced': 0,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+    String remoteId = '';
+    if (BmobApi.instance.isLoggedIn) {
+      try {
+        final row = await BmobApi.instance.createUserEntryFollowUp(
+          entryId: entryId,
+          question: question.trim(),
+          answer: answer.trim(),
+        );
+        remoteId = row['id']?.toString() ?? '';
+        await db.update(
+          'user_entry_follow_ups',
+          {'remote_id': remoteId, 'remote_synced': 1},
+          where: 'id = ?',
+          whereArgs: [localId],
+        );
+      } catch (_) {
+        // Keep a pending local copy and retry when the timeline opens again.
+      }
+    }
+    _applyFollowUpSummary(entryId, question.trim());
+    return UserEntryFollowUp(
+      id: remoteId.isNotEmpty ? remoteId : localId,
+      entryId: entryId,
+      question: question.trim(),
+      answer: answer.trim(),
+      createdAt: createdAt,
+    );
   }
 
   static Future<void> deleteUserEntry(String id) async {
@@ -2573,7 +2683,7 @@ class BookService {
     required File localFile,
   }) async {
     final existingBytes = await tempFile.exists() ? await tempFile.length() : 0;
-    final client = http.Client();
+    final client = AppHttp.createClient();
     IOSink? sink;
     try {
       final request = http.Request('GET', Uri.parse(url))
@@ -2944,7 +3054,24 @@ class BookService {
           row['created_at']?.toString() ??
           DateTime.now().toUtc().toIso8601String(),
       'updated_at': row['updated_at']?.toString() ?? '',
+      'follow_up_count':
+          int.tryParse(row['follow_up_count']?.toString() ?? '') ?? 0,
+      'latest_follow_up_question':
+          row['latest_follow_up_question']?.toString() ?? '',
     };
+  }
+
+  static void _applyFollowUpSummary(String entryId, String question) {
+    final overview = _mingtaiOverviewCache;
+    if (overview == null) return;
+    for (final item in overview.allItems) {
+      if (item['remote_entry_id']?.toString() != entryId) continue;
+      final count =
+          int.tryParse(item['follow_up_count']?.toString() ?? '') ?? 0;
+      item['follow_up_count'] = count + 1;
+      item['latest_follow_up_question'] = question;
+      break;
+    }
   }
 
   static MingtaiInsight _buildMingtaiInsight(
@@ -3128,12 +3255,12 @@ class BookService {
     }
   }
 
-  static Future<void> _createRemoteUserEntryIfPossible(
+  static Future<String?> _createRemoteUserEntryIfPossible(
     Database db,
     UserEntry entry,
   ) async {
     final api = BmobApi.instance;
-    if (!api.isLoggedIn) return;
+    if (!api.isLoggedIn) return null;
 
     try {
       final result = await api.createUserEntry(_userEntryToRemote(entry));
@@ -3145,9 +3272,40 @@ class BookService {
           where: 'id = ?',
           whereArgs: [entry.id],
         );
+        return objectId;
       }
     } catch (_) {
       // Keep local entry; SyncService can retry later.
+    }
+    return null;
+  }
+
+  static Future<void> _syncPendingUserEntryFollowUps(
+    Database db,
+    String entryId,
+  ) async {
+    final pending = await db.query(
+      'user_entry_follow_ups',
+      where: 'entry_id = ? AND remote_synced = 0',
+      whereArgs: [entryId],
+      orderBy: 'created_at ASC',
+    );
+    for (final row in pending) {
+      try {
+        final remote = await BmobApi.instance.createUserEntryFollowUp(
+          entryId: entryId,
+          question: row['question']?.toString() ?? '',
+          answer: row['answer']?.toString() ?? '',
+        );
+        await db.update(
+          'user_entry_follow_ups',
+          {'remote_id': remote['id']?.toString() ?? '', 'remote_synced': 1},
+          where: 'id = ?',
+          whereArgs: [row['id']],
+        );
+      } catch (_) {
+        break;
+      }
     }
   }
 

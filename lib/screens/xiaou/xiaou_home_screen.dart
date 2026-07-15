@@ -9,6 +9,7 @@ import '../../services/book_service.dart';
 import 'topic_screen.dart';
 import 'widgets/xiaou_card.dart';
 import 'widgets/xiaou_presence_orb.dart';
+import '../../utils/markdown_sanitizer.dart';
 
 class XiaouHomeScreen extends StatefulWidget {
   final int refreshSignal;
@@ -34,6 +35,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   bool _refreshing = true;
   bool _loadInFlight = false;
   bool _reloadAfterCurrent = false;
+  bool _forceReloadAfterCurrent = false;
   DateTime? _lastLoadCompletedAt;
   int _presencePulseKey = 0;
   String _searchQuery = '';
@@ -52,7 +54,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   void didUpdateWidget(covariant XiaouHomeScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.refreshSignal != oldWidget.refreshSignal) {
-      _load();
+      _load(forceRefresh: true);
     }
   }
 
@@ -68,6 +70,8 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     }
     if (_loadInFlight) {
       _reloadAfterCurrent = true;
+      _forceReloadAfterCurrent =
+          _forceReloadAfterCurrent || forceRefresh;
       return;
     }
     _loadInFlight = true;
@@ -152,8 +156,10 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
       }
       _loadInFlight = false;
       if (_reloadAfterCurrent && mounted) {
+        final nextForceRefresh = _forceReloadAfterCurrent;
         _reloadAfterCurrent = false;
-        _load();
+        _forceReloadAfterCurrent = false;
+        _load(forceRefresh: nextForceRefresh);
       }
     }
   }
@@ -263,7 +269,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   Widget _buildContent() {
     final visibleItems = _visibleItems();
     return RefreshIndicator(
-      onRefresh: _load,
+      onRefresh: () => _load(forceRefresh: true),
       child: CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -284,6 +290,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
                 final id = (item['id'] as String?) ?? '';
                 final source = (item['source'] as String?) ?? '';
                 return XiaouCard(
+                  entryId: (item['remote_entry_id'] as String?) ?? '',
                   source: source,
                   originalText: (item['original_text'] as String?) ?? '',
                   userNote: (item['user_note'] as String?) ?? '',
@@ -292,6 +299,11 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
                   bookTitle: (item['book_title'] as String?) ?? '',
                   chapterTitle: (item['chapter_title'] as String?) ?? '',
                   createdAt: (item['created_at'] as String?) ?? '',
+                  followUpCount:
+                      int.tryParse(item['follow_up_count']?.toString() ?? '') ??
+                      0,
+                  latestFollowUpQuestion:
+                      item['latest_follow_up_question']?.toString() ?? '',
                   onTagTap: _openTopic,
                   onDelete: _deletingIds.contains(id)
                       ? null
@@ -897,7 +909,9 @@ class _XiaouAgentBubble extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    message.content,
+                    isUser
+                        ? message.content
+                        : stripMarkdownMarkers(message.content),
                     style: TextStyle(
                       color: palette.textPrimary,
                       fontSize: 14,

@@ -86,6 +86,21 @@ CREATE INDEX IF NOT EXISTS idx_user_entries_user_source
 CREATE INDEX IF NOT EXISTS idx_user_entries_tags
   ON user_entries USING GIN(auto_tags);
 
+CREATE TABLE IF NOT EXISTS user_entry_follow_ups (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  entry_id UUID NOT NULL REFERENCES user_entries(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  question TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_entry_follow_ups_entry_created
+  ON user_entry_follow_ups(entry_id, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_user_entry_follow_ups_user_created
+  ON user_entry_follow_ups(user_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS reading_progresses (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
