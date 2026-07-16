@@ -3007,6 +3007,49 @@ class BookService {
     _invalidateMingtaiOverviewCache();
   }
 
+  static Future<void> setMingtaiItemImportance(
+    String id, {
+    required bool isImportant,
+  }) async {
+    final remoteId = id.startsWith('entry:') ? id.substring(6) : id;
+    if (remoteId.isEmpty) {
+      throw Exception('远端 entry id 为空，无法保存重要标记');
+    }
+    final api = BmobApi.instance;
+    if (!api.isLoggedIn) {
+      throw Exception('请先登录后再标记重要');
+    }
+
+    await api.updateUserEntryImportance(remoteId, isImportant: isImportant);
+    final db = await DatabaseService.database;
+    await db.update(
+      'user_entries',
+      {'is_important': isImportant ? 1 : 0},
+      where: 'id = ? OR bmob_id = ?',
+      whereArgs: [remoteId, remoteId],
+    );
+
+    final overview = _mingtaiOverviewCache;
+    if (overview != null) {
+      for (final item in overview.allItems) {
+        if (item['remote_entry_id']?.toString() == remoteId) {
+          item['is_important'] = isImportant;
+          break;
+        }
+      }
+    }
+    final cachedRows = await _readDiskMapList(_xiaouOverviewDiskCacheKey);
+    if (cachedRows != null) {
+      for (final row in cachedRows) {
+        if (row['id']?.toString() == remoteId) {
+          row['is_important'] = isImportant;
+          break;
+        }
+      }
+      unawaited(_writeDiskMapList(_xiaouOverviewDiskCacheKey, cachedRows));
+    }
+  }
+
   static void _invalidateMingtaiBooksCache() {
     _mingtaiBooksCache = null;
     _mingtaiBooksCacheAt = null;
@@ -3058,6 +3101,7 @@ class BookService {
           int.tryParse(row['follow_up_count']?.toString() ?? '') ?? 0,
       'latest_follow_up_question':
           row['latest_follow_up_question']?.toString() ?? '',
+      'is_important': _asBool(row['is_important']),
     };
   }
 
@@ -3359,6 +3403,7 @@ class BookService {
       'auto_tags': entry.autoTags,
       'auto_summary': entry.autoSummary,
       'metadata_json': metadata,
+      'is_important': entry.isImportant,
     };
   }
 
@@ -3386,6 +3431,7 @@ class BookService {
       'auto_summary': (row['auto_summary'] as String?) ?? '',
       'metadata_json': jsonEncode(metadata),
       'embedding': '',
+      'is_important': _asBool(row['is_important']) ? 1 : 0,
       'created_at':
           (row['created_at'] as String?) ??
           (row['createdAt'] as String?) ??
@@ -3457,6 +3503,10 @@ class BookService {
         )
         .where((tag) => tag.isNotEmpty)
         .toList();
+  }
+
+  static bool _asBool(Object? value) {
+    return value == true || value == 1 || value?.toString() == '1';
   }
 
   static Future<Map<String, dynamic>?> _readDiskMap(String key) async {

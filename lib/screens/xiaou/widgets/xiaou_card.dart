@@ -15,11 +15,13 @@ class XiaouCard extends StatefulWidget {
   final String? aiTags;
   final String? aiUnderstanding;
   final String? bookTitle;
+  final String? chapterIndex;
   final String? chapterTitle;
   final String? createdAt;
+  final bool isImportant;
   final int followUpCount;
   final String? latestFollowUpQuestion;
-  final VoidCallback? onDelete;
+  final VoidCallback? onBookTap;
   final ValueChanged<String>? onTagTap;
 
   const XiaouCard({
@@ -31,11 +33,13 @@ class XiaouCard extends StatefulWidget {
     this.aiTags,
     this.aiUnderstanding,
     this.bookTitle,
+    this.chapterIndex,
     this.chapterTitle,
     this.createdAt,
+    this.isImportant = false,
     this.followUpCount = 0,
     this.latestFollowUpQuestion,
-    this.onDelete,
+    this.onBookTap,
     this.onTagTap,
   });
 
@@ -114,6 +118,13 @@ class _XiaouCardState extends State<XiaouCard> {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
+                  const Spacer(),
+                  if (widget.isImportant)
+                    Icon(
+                      Icons.star_rounded,
+                      size: 17,
+                      color: context.appPalette.primaryDark,
+                    ),
                 ],
               ),
               const SizedBox(height: 10),
@@ -275,44 +286,52 @@ class _XiaouCardState extends State<XiaouCard> {
                   }).toList(),
                 ),
               ],
-              if (widget.bookTitle != null && widget.bookTitle!.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.menu_book,
-                      size: 14,
-                      color: AppTheme.textSecondary,
-                    ),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        widget.bookTitle!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.textSecondary,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    if (widget.onDelete != null)
-                      GestureDetector(
-                        onTap: widget.onDelete,
-                        child: const Icon(
-                          Icons.delete_outline,
-                          size: 18,
-                          color: AppTheme.textSecondary,
-                        ),
-                      ),
-                  ],
-                ),
-              ],
+              const SizedBox(height: 10),
+              _buildSourceContext(context),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSourceContext(BuildContext context) {
+    final book = widget.bookTitle?.trim() ?? '';
+    final chapterTitle = widget.chapterTitle?.trim() ?? '';
+    final chapterIndex = widget.chapterIndex?.trim() ?? '';
+    final chapter = chapterTitle.isNotEmpty
+        ? chapterTitle
+        : chapterIndex.isNotEmpty
+        ? '第 $chapterIndex 章'
+        : '章节未记录';
+    final palette = context.appPalette;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(Icons.menu_book_outlined, size: 14, color: palette.icon),
+        const SizedBox(width: 5),
+        Expanded(
+          child: InkWell(
+            onTap: book.isEmpty ? null : widget.onBookTap,
+            borderRadius: BorderRadius.circular(6),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Text(
+                '${book.isEmpty ? '未记录书名' : book} · $chapter',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: book.isEmpty
+                      ? palette.textSecondary
+                      : palette.primaryDark,
+                  fontWeight: book.isEmpty ? FontWeight.w400 : FontWeight.w500,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

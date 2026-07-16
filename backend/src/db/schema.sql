@@ -67,12 +67,16 @@ CREATE TABLE IF NOT EXISTS user_entries (
   auto_tags TEXT[] NOT NULL DEFAULT '{}',
   auto_summary TEXT,
   metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  is_important BOOLEAN NOT NULL DEFAULT false,
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 ALTER TABLE user_entries
   ADD COLUMN IF NOT EXISTS chapter_title TEXT;
+
+ALTER TABLE user_entries
+  ADD COLUMN IF NOT EXISTS is_important BOOLEAN NOT NULL DEFAULT false;
 
 CREATE INDEX IF NOT EXISTS idx_user_entries_user_id
   ON user_entries(user_id);

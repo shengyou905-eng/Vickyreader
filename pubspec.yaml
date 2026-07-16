@@ -76,6 +76,12 @@ flutter:
   uses-material-design: true
   assets:
     - assets/
+    - assets/fonts/OFL-LXGWWenKaiLite.txt
+  fonts:
+    - family: LXGWWenKaiLite
+      fonts:
+        - asset: assets/fonts/LXGWWenKaiLite-Regular.ttf
+          weight: 400
 
 msix_config:
   display_name: 知读

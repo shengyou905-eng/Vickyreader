@@ -15,6 +15,7 @@ class UserEntry {
   final String autoSummary;
   final String metadataJson;
   final String embedding;
+  final bool isImportant;
   final DateTime createdAt;
   final String updatedAt;
   final String bmobId;
@@ -34,6 +35,7 @@ class UserEntry {
     this.autoSummary = '',
     this.metadataJson = '',
     this.embedding = '',
+    this.isImportant = false,
     required this.createdAt,
     this.updatedAt = '',
     this.bmobId = '',
@@ -55,6 +57,7 @@ class UserEntry {
       'auto_summary': autoSummary,
       'metadata_json': metadataJson,
       'embedding': embedding,
+      'is_important': isImportant ? 1 : 0,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt,
       'bmob_id': bmobId,
@@ -77,6 +80,7 @@ class UserEntry {
       autoSummary: (map['auto_summary'] as String?) ?? '',
       metadataJson: (map['metadata_json'] as String?) ?? '',
       embedding: (map['embedding'] as String?) ?? '',
+      isImportant: _parseBool(map['is_important']),
       createdAt: DateTime.parse(map['created_at'] as String),
       updatedAt: (map['updated_at'] as String?) ?? '',
       bmobId: (map['bmob_id'] as String?) ?? '',
@@ -88,13 +92,26 @@ class UserEntry {
     try {
       final decoded = jsonDecode(raw);
       if (decoded is List) {
-        return decoded.map((e) => e.toString()).where((e) => e.isNotEmpty).toList();
+        return decoded
+            .map((e) => e.toString())
+            .where((e) => e.isNotEmpty)
+            .toList();
       }
     } catch (_) {}
     return raw
         .split(',')
-        .map((tag) => tag.trim().replaceAll('"', '').replaceAll('[', '').replaceAll(']', ''))
+        .map(
+          (tag) => tag
+              .trim()
+              .replaceAll('"', '')
+              .replaceAll('[', '')
+              .replaceAll(']', ''),
+        )
         .where((tag) => tag.isNotEmpty)
         .toList();
+  }
+
+  static bool _parseBool(Object? value) {
+    return value == true || value == 1 || value?.toString() == '1';
   }
 }

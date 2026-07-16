@@ -144,6 +144,7 @@ class DatabaseService {
         auto_summary TEXT DEFAULT '',
         metadata_json TEXT DEFAULT '',
         embedding TEXT DEFAULT '',
+        is_important INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT DEFAULT '',
         bmob_id TEXT DEFAULT ''
@@ -260,6 +261,7 @@ class DatabaseService {
           auto_summary TEXT DEFAULT '',
           metadata_json TEXT DEFAULT '',
           embedding TEXT DEFAULT '',
+          is_important INTEGER NOT NULL DEFAULT 0,
           created_at TEXT NOT NULL,
           updated_at TEXT DEFAULT '',
           bmob_id TEXT DEFAULT ''
@@ -302,6 +304,14 @@ class DatabaseService {
         CREATE INDEX IF NOT EXISTS idx_user_entry_follow_ups_entry_created
         ON user_entry_follow_ups(entry_id, created_at ASC)
       ''');
+    }
+    if (oldVersion < 13) {
+      await _addColumnIfMissing(
+        db,
+        'user_entries',
+        'is_important',
+        'INTEGER NOT NULL DEFAULT 0',
+      );
     }
   }
 

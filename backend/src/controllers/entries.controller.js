@@ -45,6 +45,26 @@ async function deleteEntry(req, res, next) {
   }
 }
 
+async function updateEntryImportance(req, res, next) {
+  try {
+    if (typeof req.body.is_important !== 'boolean') {
+      throw httpError(400, 'is_important must be a boolean');
+    }
+
+    const entry = await entryRepository.updateEntryImportance(
+      req.user.id,
+      req.params.id,
+      req.body.is_important,
+    );
+    if (!entry) {
+      throw httpError(404, 'Entry not found');
+    }
+    return res.json({ entry });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function listFollowUps(req, res, next) {
   try {
     const followUps = await entryRepository.listFollowUps(
@@ -87,6 +107,7 @@ module.exports = {
   createEntry,
   listEntries,
   deleteEntry,
+  updateEntryImportance,
   listFollowUps,
   createFollowUp,
 };

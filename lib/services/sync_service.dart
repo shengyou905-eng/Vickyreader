@@ -347,6 +347,7 @@ class SyncService {
           'auto_summary': r['auto_summary'] ?? '',
           'metadata_json': r['metadata_json'] ?? '',
           'embedding': r['embedding'] ?? '',
+          'is_important': r['is_important'] == true ? 1 : 0,
           'created_at': r['created_at'] ?? now,
           'updated_at': r['updatedAt'] ?? now,
         };
@@ -441,6 +442,7 @@ class SyncService {
           'auto_summary': l['auto_summary'],
           'metadata_json': l['metadata_json'],
           'embedding': l['embedding'],
+          'is_important': l['is_important'] == 1,
           'created_at': l['created_at'],
           'updatedAt': l['updated_at'] ?? now,
         };

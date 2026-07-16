@@ -257,6 +257,27 @@ class BmobApi {
     }
   }
 
+  Future<Map<String, dynamic>> updateUserEntryImportance(
+    String id, {
+    required bool isImportant,
+  }) async {
+    final safeId = Uri.encodeComponent(id);
+    final res = await AppHttp.client
+        .patch(
+          Uri.parse(
+            '${AppConstants.apiBaseUrl}/api/entries/$safeId/importance',
+          ),
+          headers: _authHeaders(),
+          body: jsonEncode({'is_important': isImportant}),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return Map<String, dynamic>.from(data['entry'] as Map? ?? const {});
+    }
+    throw Exception('更新重要标记失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
   Future<List<Map<String, dynamic>>> listUserEntryFollowUps(
     String entryId,
   ) async {
@@ -1232,18 +1253,18 @@ class BmobApi {
   Future<http.Response> _postJsonWithRetry(
     Uri uri,
     Map<String, dynamic> body, {
-    int retries = 1,
+    int retries = 2,
   }) async {
     Object? lastError;
     for (var attempt = 0; attempt <= retries; attempt += 1) {
+      final client = AppHttp.createClient();
       try {
-        final res = await AppHttp.client
+        final res = await client
             .post(
               uri,
               headers: const {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
-                'Connection': 'close',
               },
               body: jsonEncode(body),
             )
@@ -1264,10 +1285,12 @@ class BmobApi {
         lastError = e;
       } on http.ClientException catch (e) {
         lastError = e;
+      } finally {
+        client.close();
       }
 
       if (attempt < retries) {
-        await Future<void>.delayed(Duration(milliseconds: 450 * (attempt + 1)));
+        await Future<void>.delayed(Duration(milliseconds: 400 * (attempt + 1)));
       }
     }
 
@@ -1353,7 +1376,7 @@ class BmobApi {
         s.contains('ClientException') ||
         s.contains('SocketException') ||
         s.contains('HandshakeException')) {
-      return '服务器连接被中断，请稍后重试；如果连续出现，请确认后端服务正在运行。';
+      return '安全连接被中断，请重新尝试；如果连续出现，请切换网络并完全重启 App。';
     }
     if (s.contains('TimeoutException')) {
       return '连接超时，请检查网络或稍后重试。';

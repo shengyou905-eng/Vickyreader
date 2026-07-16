@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../../config/reader_paging_mode.dart';
+import '../../config/reader_typography.dart';
 import '../../config/theme.dart';
 import '../../models/highlight.dart';
 import '../../providers/reader_provider.dart';
@@ -11,6 +12,7 @@ import '../../providers/settings_provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/epub_service.dart';
 import '../../services/mingtai_community_api.dart';
+import '../../services/reader_font_service.dart';
 import '../../utils/ai_consent_gate.dart';
 import '../../utils/community_safety.dart';
 import '../mingtai/community_mingtai_screen.dart';
@@ -40,6 +42,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
   int _appliedReadingPositionRevision = -1;
   DateTime _lastChapterBoundaryAt = DateTime.fromMillisecondsSinceEpoch(0);
   double? _pendingRestoreRatio;
+  String? _wenkaiFontUri;
+  String? _activatingTypographyBookId;
 
   @override
   void initState() {
@@ -87,7 +91,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _ignoreChapterMessages = false;
     final reader = context.read<ReaderProvider>();
     final settings = context.read<SettingsProvider>();
-    _applyReaderStyles(settings);
+    unawaited(_applyReaderStyles(settings));
     final pendingRatio = _pendingRestoreRatio;
     if (pendingRatio != null) {
       _pendingRestoreRatio = null;
@@ -159,15 +163,66 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
-  void _applyReaderStyles(SettingsProvider settings) {
+  Future<void> _applyReaderStyles(
+    SettingsProvider settings, {
+    bool preservePosition = false,
+  }) async {
+    final fontUri = await _fontUriFor(settings.readerFontFamily);
+    if (!mounted) return;
+    final family = _jsEscape(settings.readerFontFamily.cssStack);
+    final escapedFontUri = _jsEscape(fontUri ?? '');
+    final preserve = preservePosition ? 'true' : 'false';
     final css =
         '''
-      document.documentElement.style.setProperty('--font-size', '${settings.fontSize}px');
-      document.documentElement.style.setProperty('--line-height', '${settings.lineHeight}');
-      document.documentElement.style.setProperty('--bg-color', '${_colorToHex(settings.backgroundColor)}');
-      document.documentElement.style.setProperty('--text-color', '${_colorToHex(settings.textColor)}');
+      (function() {
+        var root = document.documentElement;
+        if (!root) return;
+        var ratio = ($preserve && window.readerPositionRatio)
+          ? window.readerPositionRatio()
+          : null;
+        var fontUrl = '$escapedFontUri';
+        var fontStyle = document.getElementById('reader-font-face');
+        if (fontUrl) {
+          if (!fontStyle) {
+            fontStyle = document.createElement('style');
+            fontStyle.id = 'reader-font-face';
+            document.head.appendChild(fontStyle);
+          }
+          fontStyle.textContent = '@font-face {' +
+            'font-family: "LXGW WenKai Lite";' +
+            'src: url("' + fontUrl + '") format("truetype");' +
+            'font-weight: 400; font-style: normal; font-display: swap;}';
+        }
+        root.style.setProperty('--reader-font-family', '$family');
+        root.style.setProperty('--font-size', '${settings.fontSize}px');
+        root.style.setProperty('--line-height', '${settings.lineHeight}');
+        root.style.setProperty('--page-pad-x', '${settings.pageMargin}px');
+        root.style.setProperty('--bg-color', '${_colorToHex(settings.backgroundColor)}');
+        root.style.setProperty('--text-color', '${_colorToHex(settings.textColor)}');
+        if (ratio !== null && window.scrollToRatio) {
+          var restore = function() {
+            requestAnimationFrame(function() { window.scrollToRatio(ratio); });
+          };
+          if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(restore, restore);
+          } else {
+            restore();
+          }
+        }
+      })();
     ''';
-    _webViewController.runJavaScript(css);
+    await _webViewController.runJavaScript(css);
+  }
+
+  Future<String?> _fontUriFor(ReaderFontFamily family) async {
+    if (family != ReaderFontFamily.wenkai) return null;
+    if (_wenkaiFontUri != null) return _wenkaiFontUri;
+    try {
+      _wenkaiFontUri = await ReaderFontService.ensureWenkaiFontUri();
+    } catch (_) {
+      // The CSS stack still falls back to the platform Kai/system fonts.
+    }
+    return _wenkaiFontUri;
   }
 
   String _colorToHex(Color color) {
@@ -317,6 +372,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _appliedReadingPositionRevision = reader.readingPositionRevision;
 
     final settings = context.read<SettingsProvider>();
+    final wenkaiFontUri = await _fontUriFor(settings.readerFontFamily);
+    if (!mounted) return;
     final chapterIdx = targetIndex.toString();
     final chapterHighlights = reader.highlights
         .where((h) => h.chapterIndex == chapterIdx)
@@ -327,6 +384,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       chapter.content,
       settings,
       highlights: chapterHighlights,
+      wenkaiFontUri: wenkaiFontUri,
     );
     final filePath = await EpubService.getChapterFilePath(
       reader.book!.id,
@@ -359,6 +417,23 @@ class _ReaderScreenState extends State<ReaderScreen> {
     return true;
   }
 
+  bool _scheduleTypographyActivationIfNeeded(
+    ReaderProvider reader,
+    SettingsProvider settings,
+  ) {
+    final bookId = reader.book?.id;
+    if (bookId == null || settings.typographyReadyFor(bookId)) return false;
+    if (_activatingTypographyBookId == bookId) return true;
+    _activatingTypographyBookId = bookId;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await settings.activateBook(bookId);
+      if (!mounted || context.read<ReaderProvider>().book?.id != bookId) return;
+      _activatingTypographyBookId = null;
+      setState(() => _loadedChapterKey = null);
+    });
+    return true;
+  }
+
   void _scheduleScrollRestoreIfNeeded(
     ReaderProvider reader,
     SettingsProvider settings,
@@ -381,6 +456,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     SettingsProvider settings, {
     List<Highlight> highlights = const [],
     List<Map<String, String>> nextChapters = const [],
+    String? wenkaiFontUri,
   }) {
     final media = MediaQuery.of(context);
     return ReaderDocumentHtml.build(
@@ -392,6 +468,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       topInset: media.padding.top + 64,
       bottomInset: media.padding.bottom + 72,
       nextChapters: nextChapters,
+      wenkaiFontUri: wenkaiFontUri,
     );
   }
 
@@ -445,11 +522,20 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final positionRatioFuture = _captureScrollRatio();
     showModalBottomSheet(
       context: modalContext,
-      builder: (_) => const ReaderSettings(),
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ReaderSettings(
+        onReaderStyleChanged: () {
+          unawaited(
+            _applyReaderStyles(settingsProvider, preservePosition: true),
+          );
+        },
+      ),
     ).then((_) async {
       final positionRatioBefore = await positionRatioFuture;
       if (!mounted) return;
-      _applyReaderStyles(settingsProvider);
+      unawaited(_applyReaderStyles(settingsProvider));
       if (settingsProvider.readerPagingMode != pagingBefore) {
         final book = readerProvider.book;
         if (book != null && book.format != 'pdf') {
@@ -472,11 +558,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
       child: Scaffold(
         body: Consumer2<ReaderProvider, SettingsProvider>(
           builder: (context, reader, settings, _) {
+            final typographyPending =
+                reader.book?.format != 'pdf' &&
+                _scheduleTypographyActivationIfNeeded(reader, settings);
             if (reader.isLoading) {
               return _buildLoading(reader.loadingMessage);
             }
             if (reader.loadError != null) {
               return _buildLoadError(reader.loadError!);
+            }
+            if (typographyPending) {
+              return _buildLoading('正在恢复阅读排版…');
             }
 
             final isPdf = reader.book?.format == 'pdf';

@@ -6,9 +6,12 @@ import '../../models/ai_conversation.dart';
 import '../../services/ai_service.dart';
 import '../../utils/ai_consent_gate.dart';
 import '../../services/book_service.dart';
+import 'book_traces_screen.dart';
 import 'topic_screen.dart';
 import 'widgets/xiaou_card.dart';
 import 'widgets/xiaou_presence_orb.dart';
+import 'widgets/xiaou_swipe_actions.dart';
+import 'xiaou_entry_grouping.dart';
 import '../../utils/markdown_sanitizer.dart';
 
 class XiaouHomeScreen extends StatefulWidget {
@@ -25,6 +28,13 @@ class XiaouHomeScreen extends StatefulWidget {
   State<XiaouHomeScreen> createState() => _XiaouHomeScreenState();
 }
 
+class _BookOption {
+  final String key;
+  final String title;
+
+  const _BookOption({required this.key, required this.title});
+}
+
 class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _items = [];
@@ -39,8 +49,11 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   DateTime? _lastLoadCompletedAt;
   int _presencePulseKey = 0;
   String _searchQuery = '';
+  String _bookFilter = 'all';
   String _sourceFilter = 'all';
+  bool _importantOnly = false;
   final Set<String> _deletingIds = {};
+  final Set<String> _updatingImportanceIds = {};
 
   @override
   void initState() {
@@ -70,8 +83,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     }
     if (_loadInFlight) {
       _reloadAfterCurrent = true;
-      _forceReloadAfterCurrent =
-          _forceReloadAfterCurrent || forceRefresh;
+      _forceReloadAfterCurrent = _forceReloadAfterCurrent || forceRefresh;
       return;
     }
     _loadInFlight = true;
@@ -204,25 +216,123 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     );
   }
 
-  Future<void> _deleteItem(String id) async {
+  Future<void> _deleteItem(Map<String, dynamic> item) async {
+    final id = item['id']?.toString() ?? '';
     if (id.isEmpty || _deletingIds.contains(id)) return;
-    setState(() => _deletingIds.add(id));
+    final source = item['source']?.toString() ?? '';
+    var undone = false;
+    setState(() {
+      _deletingIds.add(id);
+      _removeItemFromLists(id);
+    });
+
+    final controller = ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('已删除${_sourceLabel(source)}'),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: '撤销',
+          onPressed: () {
+            undone = true;
+            if (!mounted) return;
+            setState(() {
+              _restoreItemToLists(item);
+              _deletingIds.remove(id);
+            });
+          },
+        ),
+      ),
+    );
+    await controller.closed;
+    if (undone) return;
     try {
       await BookService.deleteMingtaiItem(id);
       if (!mounted) return;
-      setState(() {
-        _items.removeWhere((item) => item['id'] == id);
-        _allItems.removeWhere((item) => item['id'] == id);
-        _deletingIds.remove(id);
-      });
-      await _load(forceRefresh: true);
+      setState(() => _deletingIds.remove(id));
     } catch (e) {
       if (!mounted) return;
-      setState(() => _deletingIds.remove(id));
+      setState(() {
+        _restoreItemToLists(item);
+        _deletingIds.remove(id);
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('删除失败：$e'), behavior: SnackBarBehavior.floating),
       );
     }
+  }
+
+  Future<void> _toggleImportance(Map<String, dynamic> item) async {
+    final id = item['id']?.toString() ?? '';
+    if (id.isEmpty || _updatingImportanceIds.contains(id)) return;
+    final previous = _isImportant(item);
+    final next = !previous;
+    setState(() {
+      _updatingImportanceIds.add(id);
+      _setImportanceInLists(id, next);
+    });
+    try {
+      await BookService.setMingtaiItemImportance(id, isImportant: next);
+      if (!mounted) return;
+      setState(() => _updatingImportanceIds.remove(id));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _setImportanceInLists(id, previous);
+        _updatingImportanceIds.remove(id);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('重要标记保存失败：$e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _removeItemFromLists(String id) {
+    _items.removeWhere((entry) => entry['id']?.toString() == id);
+    if (!identical(_items, _allItems)) {
+      _allItems.removeWhere((entry) => entry['id']?.toString() == id);
+    }
+  }
+
+  void _restoreItemToLists(Map<String, dynamic> item) {
+    final id = item['id']?.toString() ?? '';
+    void restore(List<Map<String, dynamic>> list) {
+      if (list.any((entry) => entry['id']?.toString() == id)) return;
+      list.add(item);
+      list.sort((a, b) => _itemDate(b).compareTo(_itemDate(a)));
+    }
+
+    restore(_items);
+    if (!identical(_items, _allItems)) restore(_allItems);
+  }
+
+  void _setImportanceInLists(String id, bool value) {
+    final seen = <Map<String, dynamic>>{};
+    for (final item in [..._items, ..._allItems]) {
+      if (!seen.add(item) || item['id']?.toString() != id) continue;
+      item['is_important'] = value;
+    }
+  }
+
+  void _openBookTraces(Map<String, dynamic> item) {
+    final bookId = item['book_id']?.toString() ?? '';
+    final bookTitle = item['book_title']?.toString().trim() ?? '';
+    if (bookId.isEmpty && bookTitle.isEmpty) return;
+    final sourceItems = _allItems.isNotEmpty ? _allItems : _items;
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute(
+            builder: (_) => XiaouBookTracesScreen(
+              bookId: bookTitle.isEmpty ? bookId : '',
+              bookTitle: bookTitle,
+              initialItems: sourceItems,
+            ),
+          ),
+        )
+        .then((_) => _load(forceRefresh: true));
   }
 
   @override
@@ -289,25 +399,38 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
                 final item = visibleItems[i];
                 final id = (item['id'] as String?) ?? '';
                 final source = (item['source'] as String?) ?? '';
-                return XiaouCard(
-                  entryId: (item['remote_entry_id'] as String?) ?? '',
-                  source: source,
-                  originalText: (item['original_text'] as String?) ?? '',
-                  userNote: (item['user_note'] as String?) ?? '',
-                  aiTags: (item['ai_tags'] as String?) ?? '',
-                  aiUnderstanding: (item['ai_understanding'] as String?) ?? '',
-                  bookTitle: (item['book_title'] as String?) ?? '',
-                  chapterTitle: (item['chapter_title'] as String?) ?? '',
-                  createdAt: (item['created_at'] as String?) ?? '',
-                  followUpCount:
-                      int.tryParse(item['follow_up_count']?.toString() ?? '') ??
-                      0,
-                  latestFollowUpQuestion:
-                      item['latest_follow_up_question']?.toString() ?? '',
-                  onTagTap: _openTopic,
+                return XiaouSwipeActions(
+                  key: ValueKey(id),
+                  isImportant: _isImportant(item),
+                  onToggleImportant: _updatingImportanceIds.contains(id)
+                      ? null
+                      : () => _toggleImportance(item),
                   onDelete: _deletingIds.contains(id)
                       ? null
-                      : () => _deleteItem(id),
+                      : () => _deleteItem(item),
+                  child: XiaouCard(
+                    entryId: (item['remote_entry_id'] as String?) ?? '',
+                    source: source,
+                    originalText: (item['original_text'] as String?) ?? '',
+                    userNote: (item['user_note'] as String?) ?? '',
+                    aiTags: (item['ai_tags'] as String?) ?? '',
+                    aiUnderstanding:
+                        (item['ai_understanding'] as String?) ?? '',
+                    bookTitle: (item['book_title'] as String?) ?? '',
+                    chapterIndex: item['chapter_index']?.toString() ?? '',
+                    chapterTitle: (item['chapter_title'] as String?) ?? '',
+                    createdAt: (item['created_at'] as String?) ?? '',
+                    isImportant: _isImportant(item),
+                    followUpCount:
+                        int.tryParse(
+                          item['follow_up_count']?.toString() ?? '',
+                        ) ??
+                        0,
+                    latestFollowUpQuestion:
+                        item['latest_follow_up_question']?.toString() ?? '',
+                    onTagTap: _openTopic,
+                    onBookTap: () => _openBookTraces(item),
+                  ),
                 );
               }, childCount: visibleItems.length),
             ),
@@ -330,6 +453,10 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         _ => true,
       };
       if (!sourceMatches) return false;
+      if (_importantOnly && !_isImportant(item)) return false;
+      if (_bookFilter != 'all' && xiaouBookGroupKey(item) != _bookFilter) {
+        return false;
+      }
       if (query.isEmpty) return true;
       final searchable = [
         item['original_text'],
@@ -345,6 +472,11 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
 
   Widget _buildMemoryTools() {
     final palette = context.appPalette;
+    final bookOptions = _bookOptions();
+    final selectedBook = bookOptions.firstWhere(
+      (option) => option.key == _bookFilter,
+      orElse: () => const _BookOption(key: 'all', title: '全部书籍'),
+    );
     const filters = <(String, String)>[
       ('all', '全部'),
       ('thought', '想法'),
@@ -400,6 +532,51 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
             ),
           ),
           const SizedBox(height: 10),
+          PopupMenuButton<String>(
+            tooltip: '按书籍筛选',
+            initialValue: _bookFilter,
+            onSelected: (value) => setState(() => _bookFilter = value),
+            itemBuilder: (_) => bookOptions
+                .map(
+                  (option) => PopupMenuItem<String>(
+                    value: option.key,
+                    child: Text(
+                      option.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                )
+                .toList(),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: palette.card.withAlpha(180),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: palette.divider.withAlpha(105)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.menu_book_outlined, size: 18, color: palette.icon),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      selectedBook.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: palette.textPrimary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.expand_more_rounded, color: palette.textSecondary),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -425,9 +602,62 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
               }).toList(),
             ),
           ),
+          const SizedBox(height: 6),
+          FilterChip(
+            avatar: Icon(
+              _importantOnly ? Icons.star_rounded : Icons.star_outline_rounded,
+              size: 17,
+              color: _importantOnly
+                  ? palette.primaryDark
+                  : palette.textSecondary,
+            ),
+            label: const Text('仅看重要'),
+            selected: _importantOnly,
+            showCheckmark: false,
+            onSelected: (value) => setState(() => _importantOnly = value),
+            backgroundColor: palette.card.withAlpha(180),
+            selectedColor: palette.primaryLight.withAlpha(105),
+            side: BorderSide(
+              color: _importantOnly
+                  ? palette.primary.withAlpha(90)
+                  : palette.divider.withAlpha(100),
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  List<_BookOption> _bookOptions() {
+    final sourceItems = _allItems.isNotEmpty ? _allItems : _items;
+    final result = <_BookOption>[const _BookOption(key: 'all', title: '全部书籍')];
+    final seen = <String>{'all'};
+    for (final item in sourceItems) {
+      final key = xiaouBookGroupKey(item);
+      final title = item['book_title']?.toString().trim() ?? '';
+      if (key == 'book:unknown' || title.isEmpty || !seen.add(key)) continue;
+      result.add(_BookOption(key: key, title: title));
+    }
+    return result;
+  }
+
+  bool _isImportant(Map<String, dynamic> item) {
+    final value = item['is_important'];
+    return value == true || value == 1 || value?.toString() == '1';
+  }
+
+  DateTime _itemDate(Map<String, dynamic> item) {
+    return DateTime.tryParse(item['created_at']?.toString() ?? '') ??
+        DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  String _sourceLabel(String source) {
+    return switch (source) {
+      'ai_explanation' => '小U解读',
+      'thought' || 'manual' => '想法',
+      'highlight' => '原始划线',
+      _ => '阅读痕迹',
+    };
   }
 
   Widget _buildFilteredEmpty() {

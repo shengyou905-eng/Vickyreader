@@ -140,6 +140,18 @@ async function deleteEntry(userId, entryId) {
   return result.rowCount > 0;
 }
 
+async function updateEntryImportance(userId, entryId, isImportant) {
+  const result = await query(
+    `UPDATE user_entries
+     SET is_important = $3
+     WHERE id = $1 AND user_id = $2
+     RETURNING *`,
+    [entryId, userId, isImportant],
+  );
+
+  return result.rows[0] || null;
+}
+
 async function listFollowUps(userId, entryId) {
   const result = await query(
     `SELECT f.id, f.entry_id, f.question, f.answer, f.created_at
@@ -182,6 +194,7 @@ module.exports = {
   createEntry,
   listEntries,
   deleteEntry,
+  updateEntryImportance,
   listFollowUps,
   createFollowUp,
   normalizeTags,

@@ -17,12 +17,24 @@ class ReaderDocumentHtml {
     double topInset = 16,
     double bottomInset = 32,
     List<Map<String, String>> nextChapters = const [],
+    String? wenkaiFontUri,
   }) {
     final bgHex = _colorToHex(settings.backgroundColor);
     final textHex = _colorToHex(settings.textColor);
     final bodyHtml = _injectHighlights(_chapterBodyHtml(content), highlights);
     final safeTitle = _escapeHtml(title);
     final paging = pagingMode.storageValue;
+    final fontFace = wenkaiFontUri == null
+        ? ''
+        : '''
+  @font-face {
+    font-family: "LXGW WenKai Lite";
+    src: url("${_escapeCssUrl(wenkaiFontUri)}") format("truetype");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+''';
     final nextBuf = StringBuffer();
     for (int i = 0; i < nextChapters.length; i++) {
       final nc = nextChapters[i];
@@ -42,12 +54,14 @@ class ReaderDocumentHtml {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
+$fontFace
   :root {
     --font-size: ${settings.fontSize}px;
     --line-height: ${settings.lineHeight};
+    --reader-font-family: ${settings.readerFontFamily.cssStack};
     --bg-color: $bgHex;
     --text-color: $textHex;
-    --page-pad-x: 18px;
+    --page-pad-x: ${settings.pageMargin}px;
     --page-pad-y: 16px;
     --reader-top-inset: ${topInset.toStringAsFixed(0)}px;
     --reader-bottom-inset: ${bottomInset.toStringAsFixed(0)}px;
@@ -59,7 +73,7 @@ class ReaderDocumentHtml {
     color: var(--text-color);
     font-size: var(--font-size);
     line-height: var(--line-height);
-    font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
     -webkit-text-size-adjust: 100%;
     -webkit-touch-callout: none;
     -webkit-user-select: text;
@@ -98,6 +112,7 @@ class ReaderDocumentHtml {
     width: 100%;
     max-width: 760px;
     margin: 0 auto;
+    font-family: var(--reader-font-family);
     text-align: start;
     overflow-wrap: anywhere;
   }
@@ -527,6 +542,15 @@ class ReaderDocumentHtml {
       return body;
     }
     return content;
+  }
+
+  static String _escapeCssUrl(String value) {
+    return value
+        .replaceAll('\\', '%5C')
+        .replaceAll('"', '%22')
+        .replaceAll("'", '%27')
+        .replaceAll('\n', '')
+        .replaceAll('\r', '');
   }
 
   static String _injectHighlights(String html, List<Highlight> highlights) {
