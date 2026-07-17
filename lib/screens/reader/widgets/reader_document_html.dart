@@ -3,6 +3,7 @@ import 'package:html/parser.dart' as html_parser;
 import '../../../config/reader_paging_mode.dart';
 import '../../../models/highlight.dart';
 import '../../../providers/settings_provider.dart';
+import '../../../services/reader_font_service.dart';
 
 /// WebView reading page: vertical scroll or horizontal multi-column.
 class ReaderDocumentHtml {
@@ -17,19 +18,19 @@ class ReaderDocumentHtml {
     double topInset = 16,
     double bottomInset = 32,
     List<Map<String, String>> nextChapters = const [],
-    String? wenkaiFontUri,
+    ReaderFontAsset? readerFontAsset,
   }) {
     final bgHex = _colorToHex(settings.backgroundColor);
     final textHex = _colorToHex(settings.textColor);
     final bodyHtml = _injectHighlights(_chapterBodyHtml(content), highlights);
     final safeTitle = _escapeHtml(title);
     final paging = pagingMode.storageValue;
-    final fontFace = wenkaiFontUri == null
+    final fontFace = readerFontAsset == null
         ? ''
         : '''
   @font-face {
-    font-family: "LXGW WenKai Lite";
-    src: url("${_escapeCssUrl(wenkaiFontUri)}") format("truetype");
+    font-family: "${_escapeCssString(readerFontAsset.cssFamily)}";
+    src: url("${_escapeCssUrl(readerFontAsset.uri)}") format("${_escapeCssString(readerFontAsset.format)}");
     font-weight: 400;
     font-style: normal;
     font-display: swap;
@@ -551,6 +552,10 @@ $fontFace
         .replaceAll("'", '%27')
         .replaceAll('\n', '')
         .replaceAll('\r', '');
+  }
+
+  static String _escapeCssString(String value) {
+    return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
   }
 
   static String _injectHighlights(String html, List<Highlight> highlights) {

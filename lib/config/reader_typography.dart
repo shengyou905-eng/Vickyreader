@@ -19,13 +19,14 @@ enum ReaderFontFamily {
 
   String? get previewFontFamily => switch (this) {
     ReaderFontFamily.system => null,
-    ReaderFontFamily.serif => 'Songti SC',
+    ReaderFontFamily.serif => 'SourceHanSerifCN',
     ReaderFontFamily.wenkai => 'LXGWWenKaiLite',
   };
 
   List<String>? get previewFontFallback => switch (this) {
     ReaderFontFamily.system => null,
     ReaderFontFamily.serif => const [
+      'Songti SC',
       'STSong',
       'Noto Serif CJK SC',
       'Noto Serif SC',
@@ -44,7 +45,7 @@ enum ReaderFontFamily {
     ReaderFontFamily.system =>
       '-apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif',
     ReaderFontFamily.serif =>
-      '"Songti SC", "STSong", "Noto Serif CJK SC", "Noto Serif SC", "Source Han Serif SC", serif',
+      '"ZhiDu Source Han Serif", "Songti SC", "STSong", "Noto Serif CJK SC", serif',
     ReaderFontFamily.wenkai =>
       '"LXGW WenKai Lite", "Kaiti SC", "STKaiti", "KaiTi", "PingFang SC", sans-serif',
   };

@@ -19,7 +19,7 @@ class ReaderSettings extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
-    final maxHeight = MediaQuery.sizeOf(context).height * 0.84;
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.88;
     return Consumer<SettingsProvider>(
       builder: (context, settings, _) {
         return Container(
@@ -33,7 +33,7 @@ class ReaderSettings extends StatelessWidget {
               20,
               10,
               20,
-              18 + MediaQuery.paddingOf(context).bottom,
+              20 + MediaQuery.paddingOf(context).bottom,
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -41,38 +41,53 @@ class ReaderSettings extends StatelessWidget {
               children: [
                 Center(
                   child: Container(
-                    width: 32,
+                    width: 36,
                     height: 4,
                     decoration: BoxDecoration(
                       color: palette.divider,
-                      borderRadius: BorderRadius.circular(4),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
                 Row(
                   children: [
                     Expanded(
                       child: Text(
                         '阅读排版',
                         style: TextStyle(
-                          fontSize: 19,
+                          fontSize: 20,
                           fontWeight: FontWeight.w700,
                           color: palette.textPrimary,
                         ),
                       ),
                     ),
-                    TextButton.icon(
-                      onPressed: () {
-                        settings.resetTypography();
+                    TextButton(
+                      onPressed: () async {
+                        await settings.resetReaderSettings();
                         onReaderStyleChanged?.call();
                       },
-                      icon: const Icon(Icons.restart_alt_rounded, size: 17),
-                      label: const Text('恢复默认'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: palette.textSecondary,
+                        textStyle: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          fontFamilyFallback: ['SourceHanSerifCN'],
+                        ),
+                        minimumSize: const Size(0, 36),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                      child: const Text('恢复默认'),
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 22),
+                const _SectionTitle('阅读效果'),
+                const SizedBox(height: 10),
+                _ReadingPreview(settings: settings),
+                const SizedBox(height: 24),
+                const _SectionTitle('字体'),
+                const SizedBox(height: 10),
                 Row(
                   children: ReaderFontFamily.values
                       .map(
@@ -93,7 +108,9 @@ class ReaderSettings extends StatelessWidget {
                       )
                       .toList(growable: false),
                 ),
-                const SizedBox(height: 22),
+                const SizedBox(height: 24),
+                const _SectionTitle('排版'),
+                const SizedBox(height: 10),
                 _SliderSetting(
                   label: '字号',
                   valueLabel: '${settings.fontSize.round()}',
@@ -101,12 +118,10 @@ class ReaderSettings extends StatelessWidget {
                   min: 12,
                   max: 28,
                   divisions: 16,
-                  leading: const Text('A', style: TextStyle(fontSize: 13)),
-                  trailing: const Text('A', style: TextStyle(fontSize: 21)),
                   onChanged: (value) =>
                       _update(() => settings.setFontSize(value)),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 16),
                 _SliderSetting(
                   label: '行距',
                   valueLabel: settings.lineHeight.toStringAsFixed(1),
@@ -114,12 +129,10 @@ class ReaderSettings extends StatelessWidget {
                   min: 1.2,
                   max: 2.4,
                   divisions: 12,
-                  leading: const Icon(Icons.density_small_rounded, size: 17),
-                  trailing: const Icon(Icons.density_large_rounded, size: 18),
                   onChanged: (value) =>
                       _update(() => settings.setLineHeight(value)),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 16),
                 _SliderSetting(
                   label: '页边距',
                   valueLabel: '${settings.pageMargin.round()}',
@@ -127,23 +140,11 @@ class ReaderSettings extends StatelessWidget {
                   min: 12,
                   max: 36,
                   divisions: 12,
-                  leading: const Icon(Icons.unfold_less_rounded, size: 18),
-                  trailing: const Icon(Icons.unfold_more_rounded, size: 18),
                   onChanged: (value) =>
                       _update(() => settings.setPageMargin(value)),
                 ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 20),
-                  child: Divider(height: 1, color: palette.divider),
-                ),
-                Text(
-                  '翻页',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: palette.textPrimary,
-                  ),
-                ),
+                const SizedBox(height: 24),
+                const _SectionTitle('翻页方式'),
                 const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
@@ -152,15 +153,47 @@ class ReaderSettings extends StatelessWidget {
                       ButtonSegment<ReaderPagingMode>(
                         value: ReaderPagingMode.vertical,
                         label: Text('上下滚动'),
-                        icon: Icon(Icons.swap_vert_rounded, size: 18),
+                        icon: Icon(Icons.swap_vert_rounded, size: 16),
                       ),
                       ButtonSegment<ReaderPagingMode>(
                         value: ReaderPagingMode.horizontal,
                         label: Text('左右翻页'),
-                        icon: Icon(Icons.swap_horiz_rounded, size: 18),
+                        icon: Icon(Icons.swap_horiz_rounded, size: 16),
                       ),
                     ],
                     selected: {settings.readerPagingMode},
+                    showSelectedIcon: false,
+                    style: ButtonStyle(
+                      visualDensity: VisualDensity.compact,
+                      minimumSize: const WidgetStatePropertyAll(Size(0, 40)),
+                      padding: const WidgetStatePropertyAll(
+                        EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      textStyle: const WidgetStatePropertyAll(
+                        TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          fontFamilyFallback: ['SourceHanSerifCN'],
+                        ),
+                      ),
+                      side: WidgetStateProperty.resolveWith(
+                        (states) => BorderSide(
+                          color: states.contains(WidgetState.selected)
+                              ? palette.primary
+                              : palette.divider,
+                        ),
+                      ),
+                      backgroundColor: WidgetStateProperty.resolveWith(
+                        (states) => states.contains(WidgetState.selected)
+                            ? palette.primary.withValues(alpha: 0.08)
+                            : palette.surface,
+                      ),
+                      foregroundColor: WidgetStateProperty.resolveWith(
+                        (states) => states.contains(WidgetState.selected)
+                            ? palette.primary
+                            : palette.textSecondary,
+                      ),
+                    ),
                     onSelectionChanged: (next) {
                       if (next.isNotEmpty) {
                         settings.setReaderPagingMode(next.first);
@@ -168,15 +201,8 @@ class ReaderSettings extends StatelessWidget {
                     },
                   ),
                 ),
-                const SizedBox(height: 20),
-                Text(
-                  '纸张',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: palette.textPrimary,
-                  ),
-                ),
+                const SizedBox(height: 24),
+                const _SectionTitle('纸张背景'),
                 const SizedBox(height: 10),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -219,6 +245,73 @@ class ReaderSettings extends StatelessWidget {
   }
 }
 
+class _SectionTitle extends StatelessWidget {
+  final String label;
+
+  const _SectionTitle(this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Text(
+      label,
+      style: TextStyle(
+        color: palette.textPrimary,
+        fontSize: 15,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+}
+
+class _ReadingPreview extends StatelessWidget {
+  static const _sample = '山川入卷，灯火落在书页之间。阅读让遥远的思想，在此刻重新发生。';
+
+  final SettingsProvider settings;
+
+  const _ReadingPreview({required this.settings});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    final horizontalPadding =
+        (20 +
+                (settings.pageMargin - ReaderTypographyDefaults.pageMargin) *
+                    0.45)
+            .clamp(14.0, 28.0)
+            .toDouble();
+    final borderColor = settings.themeMode == 'dark'
+        ? Colors.white.withValues(alpha: 0.14)
+        : palette.divider.withValues(alpha: 0.85);
+    return AnimatedContainer(
+      key: const ValueKey('reader-settings-preview-card'),
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOutCubic,
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: horizontalPadding,
+        vertical: 20,
+      ),
+      decoration: BoxDecoration(
+        color: settings.backgroundColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
+      ),
+      child: Text(
+        _sample,
+        key: const ValueKey('reader-settings-preview-text'),
+        style: TextStyle(
+          color: settings.textColor,
+          fontSize: settings.fontSize,
+          height: settings.lineHeight,
+          fontFamily: settings.readerFontFamily.previewFontFamily,
+          fontFamilyFallback: settings.readerFontFamily.previewFontFallback,
+        ),
+      ),
+    );
+  }
+}
+
 class _FontCard extends StatelessWidget {
   final ReaderFontFamily font;
   final bool selected;
@@ -233,53 +326,69 @@ class _FontCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        height: 112,
-        padding: const EdgeInsets.fromLTRB(9, 13, 9, 10),
-        decoration: BoxDecoration(
-          color: selected ? palette.primaryLight : palette.background,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: selected ? palette.primary : palette.divider,
-            width: selected ? 1.5 : 1,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: ValueKey('reader-font-${font.storageValue}'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          height: 82,
+          padding: const EdgeInsets.fromLTRB(11, 10, 9, 10),
+          decoration: BoxDecoration(
+            color: selected
+                ? palette.primary.withValues(alpha: 0.07)
+                : palette.background,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected ? palette.primary : palette.divider,
+              width: selected ? 1.25 : 1,
+            ),
           ),
-        ),
-        child: Column(
-          children: [
-            Expanded(
-              child: Center(
-                child: Text(
-                  '山川\n入卷',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: palette.textPrimary,
-                    fontSize: 19,
-                    height: 1.25,
-                    fontFamily: font.previewFontFamily,
-                    fontFamilyFallback: font.previewFontFallback,
+          child: Stack(
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    font.label,
+                    style: TextStyle(
+                      color: selected ? palette.primary : palette.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '山川入卷',
+                      maxLines: 1,
+                      style: TextStyle(
+                        color: palette.textPrimary,
+                        fontSize: 17,
+                        height: 1.1,
+                        fontFamily: font.previewFontFamily,
+                        fontFamilyFallback: font.previewFontFallback,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (selected)
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: Icon(
+                    Icons.check_circle_rounded,
+                    size: 15,
+                    color: palette.primary,
                   ),
                 ),
-              ),
-            ),
-            Text(
-              font.label,
-              style: TextStyle(
-                color: selected ? palette.primary : palette.textPrimary,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 1),
-            Text(
-              font.description,
-              maxLines: 1,
-              style: TextStyle(color: palette.textSecondary, fontSize: 10),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -293,8 +402,6 @@ class _SliderSetting extends StatelessWidget {
   final double min;
   final double max;
   final int divisions;
-  final Widget leading;
-  final Widget trailing;
   final ValueChanged<double> onChanged;
 
   const _SliderSetting({
@@ -304,8 +411,6 @@ class _SliderSetting extends StatelessWidget {
     required this.min,
     required this.max,
     required this.divisions,
-    required this.leading,
-    required this.trailing,
     required this.onChanged,
   });
 
@@ -322,33 +427,50 @@ class _SliderSetting extends StatelessWidget {
                 style: TextStyle(
                   color: palette.textPrimary,
                   fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            Container(
+              constraints: const BoxConstraints(minWidth: 38),
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              decoration: BoxDecoration(
+                color: palette.background,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: palette.divider.withValues(alpha: 0.7),
+                ),
+              ),
+              child: Text(
+                valueLabel,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: palette.textSecondary,
+                  fontSize: 13,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ),
-            Text(
-              valueLabel,
-              style: TextStyle(color: palette.textSecondary, fontSize: 12),
-            ),
           ],
         ),
-        const SizedBox(height: 2),
-        Row(
-          children: [
-            SizedBox(width: 24, child: Center(child: leading)),
-            Expanded(
-              child: Slider(
-                value: value,
-                min: min,
-                max: max,
-                divisions: divisions,
-                activeColor: palette.primary,
-                inactiveColor: palette.divider,
-                onChanged: onChanged,
-              ),
-            ),
-            SizedBox(width: 24, child: Center(child: trailing)),
-          ],
+        const SizedBox(height: 4),
+        SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            trackHeight: 2,
+            activeTrackColor: palette.primary,
+            inactiveTrackColor: palette.divider,
+            thumbColor: palette.primary,
+            overlayColor: palette.primary.withValues(alpha: 0.08),
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 15),
+          ),
+          child: Slider(
+            value: value,
+            min: min,
+            max: max,
+            divisions: divisions,
+            onChanged: onChanged,
+          ),
         ),
       ],
     );
@@ -371,34 +493,38 @@ class _ThemeOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
+    final checkColor = color.computeLuminance() < 0.35
+        ? Colors.white
+        : palette.primary;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(12),
       child: Padding(
-        padding: const EdgeInsets.all(3),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Column(
           children: [
-            Container(
-              width: 52,
-              height: 42,
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
                 color: color,
-                borderRadius: BorderRadius.circular(8),
+                shape: BoxShape.circle,
                 border: Border.all(
                   color: selected ? palette.primary : palette.divider,
                   width: selected ? 2 : 1,
                 ),
               ),
               child: selected
-                  ? Icon(Icons.check_rounded, color: palette.primary, size: 19)
+                  ? Icon(Icons.check_rounded, color: checkColor, size: 18)
                   : null,
             ),
-            const SizedBox(height: 5),
+            const SizedBox(height: 6),
             Text(
               label,
               style: TextStyle(
                 color: selected ? palette.primary : palette.textSecondary,
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
               ),
             ),

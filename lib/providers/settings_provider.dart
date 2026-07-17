@@ -47,11 +47,9 @@ class SettingsProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _defaultFontSize =
         prefs.getDouble('reader_default_font_size') ??
-        prefs.getDouble('fontSize') ??
         ReaderTypographyDefaults.fontSize;
     _defaultLineHeight =
         prefs.getDouble('reader_default_line_height') ??
-        prefs.getDouble('lineHeight') ??
         ReaderTypographyDefaults.lineHeight;
     _defaultPageMargin =
         prefs.getDouble('reader_default_page_margin') ??
@@ -80,6 +78,7 @@ class SettingsProvider extends ChangeNotifier {
 
   Future<void> activateBook(String bookId) async {
     if (typographyReadyFor(bookId)) return;
+    await flushTypographyPersistence();
     _loadingBookId = bookId;
     final prefs = await SharedPreferences.getInstance();
     if (_loadingBookId != bookId) return;
@@ -132,6 +131,79 @@ class SettingsProvider extends ChangeNotifier {
       prefs.remove('${prefix}line_height'),
       prefs.remove('${prefix}page_margin'),
     ]);
+  }
+
+  Future<void> resetReaderSettings() async {
+    _typographyPersistTimer?.cancel();
+    _readerFontFamily = ReaderTypographyDefaults.fontFamily;
+    _fontSize = ReaderTypographyDefaults.fontSize;
+    _lineHeight = ReaderTypographyDefaults.lineHeight;
+    _pageMargin = ReaderTypographyDefaults.pageMargin;
+    _readerPagingMode = ReaderPagingMode.vertical;
+    _themeMode = 'light';
+    notifyListeners();
+
+    final prefs = await SharedPreferences.getInstance();
+    final writes = <Future<bool>>[
+      prefs.setString(
+        'reader_paging_mode',
+        ReaderPagingMode.vertical.storageValue,
+      ),
+      prefs.setString('themeMode', 'light'),
+    ];
+    final bookId = _activeBookId;
+    if (bookId == null) {
+      _defaultReaderFontFamily = ReaderTypographyDefaults.fontFamily;
+      _defaultFontSize = ReaderTypographyDefaults.fontSize;
+      _defaultLineHeight = ReaderTypographyDefaults.lineHeight;
+      _defaultPageMargin = ReaderTypographyDefaults.pageMargin;
+      writes.addAll([
+        prefs.setString(
+          'reader_default_font_family',
+          ReaderTypographyDefaults.fontFamily.storageValue,
+        ),
+        prefs.setDouble(
+          'reader_default_font_size',
+          ReaderTypographyDefaults.fontSize,
+        ),
+        prefs.setDouble(
+          'reader_default_line_height',
+          ReaderTypographyDefaults.lineHeight,
+        ),
+        prefs.setDouble(
+          'reader_default_page_margin',
+          ReaderTypographyDefaults.pageMargin,
+        ),
+      ]);
+    } else {
+      final prefix = _bookTypographyPrefix(bookId);
+      writes.addAll([
+        prefs.setString(
+          '${prefix}font_family',
+          ReaderTypographyDefaults.fontFamily.storageValue,
+        ),
+        prefs.setDouble(
+          '${prefix}font_size',
+          ReaderTypographyDefaults.fontSize,
+        ),
+        prefs.setDouble(
+          '${prefix}line_height',
+          ReaderTypographyDefaults.lineHeight,
+        ),
+        prefs.setDouble(
+          '${prefix}page_margin',
+          ReaderTypographyDefaults.pageMargin,
+        ),
+      ]);
+    }
+    await Future.wait(writes);
+  }
+
+  Future<void> flushTypographyPersistence() async {
+    final bookId = _activeBookId;
+    if (bookId == null) return;
+    _typographyPersistTimer?.cancel();
+    await _persistBookTypography(bookId);
   }
 
   /// Reserved for a later "apply to all books" action.

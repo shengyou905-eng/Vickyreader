@@ -29,7 +29,8 @@ class ReaderScreen extends StatefulWidget {
   State<ReaderScreen> createState() => _ReaderScreenState();
 }
 
-class _ReaderScreenState extends State<ReaderScreen> {
+class _ReaderScreenState extends State<ReaderScreen>
+    with WidgetsBindingObserver {
   late WebViewController _webViewController;
   bool _showControls = true;
   bool _ignoreChapterMessages = false;
@@ -42,13 +43,29 @@ class _ReaderScreenState extends State<ReaderScreen> {
   int _appliedReadingPositionRevision = -1;
   DateTime _lastChapterBoundaryAt = DateTime.fromMillisecondsSinceEpoch(0);
   double? _pendingRestoreRatio;
-  String? _wenkaiFontUri;
   String? _activatingTypographyBookId;
+  SettingsProvider? _settingsProvider;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initWebView();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _settingsProvider = context.read<SettingsProvider>();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) return;
+    final settings = _settingsProvider;
+    if (settings != null) {
+      unawaited(settings.flushTypographyPersistence().catchError((_) {}));
+    }
   }
 
   void _initWebView() {
@@ -167,10 +184,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
     SettingsProvider settings, {
     bool preservePosition = false,
   }) async {
-    final fontUri = await _fontUriFor(settings.readerFontFamily);
+    var family = settings.readerFontFamily;
+    var fontAsset = await _fontAssetFor(family);
+    if (family != settings.readerFontFamily) {
+      family = settings.readerFontFamily;
+      fontAsset = await _fontAssetFor(family);
+    }
     if (!mounted) return;
-    final family = _jsEscape(settings.readerFontFamily.cssStack);
-    final escapedFontUri = _jsEscape(fontUri ?? '');
+    final cssFamily = _jsEscape(family.cssStack);
+    final fontFaceFamily = _jsEscape(fontAsset?.cssFamily ?? '');
+    final escapedFontUri = _jsEscape(fontAsset?.uri ?? '');
+    final fontFormat = _jsEscape(fontAsset?.format ?? '');
     final preserve = preservePosition ? 'true' : 'false';
     final css =
         '''
@@ -189,11 +213,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
             document.head.appendChild(fontStyle);
           }
           fontStyle.textContent = '@font-face {' +
-            'font-family: "LXGW WenKai Lite";' +
-            'src: url("' + fontUrl + '") format("truetype");' +
+            'font-family: "$fontFaceFamily";' +
+            'src: url("' + fontUrl + '") format("$fontFormat");' +
             'font-weight: 400; font-style: normal; font-display: swap;}';
+        } else if (fontStyle) {
+          fontStyle.remove();
         }
-        root.style.setProperty('--reader-font-family', '$family');
+        root.style.setProperty('--reader-font-family', '$cssFamily');
         root.style.setProperty('--font-size', '${settings.fontSize}px');
         root.style.setProperty('--line-height', '${settings.lineHeight}');
         root.style.setProperty('--page-pad-x', '${settings.pageMargin}px');
@@ -203,7 +229,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
           var restore = function() {
             requestAnimationFrame(function() { window.scrollToRatio(ratio); });
           };
-          if (document.fonts && document.fonts.ready) {
+          if (fontUrl && document.fonts && document.fonts.load) {
+            document.fonts.load('1em "$fontFaceFamily"').then(restore, restore);
+          } else if (document.fonts && document.fonts.ready) {
             document.fonts.ready.then(restore, restore);
           } else {
             restore();
@@ -214,15 +242,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
     await _webViewController.runJavaScript(css);
   }
 
-  Future<String?> _fontUriFor(ReaderFontFamily family) async {
-    if (family != ReaderFontFamily.wenkai) return null;
-    if (_wenkaiFontUri != null) return _wenkaiFontUri;
+  Future<ReaderFontAsset?> _fontAssetFor(ReaderFontFamily family) async {
     try {
-      _wenkaiFontUri = await ReaderFontService.ensureWenkaiFontUri();
+      return await ReaderFontService.ensureFont(family);
     } catch (_) {
-      // The CSS stack still falls back to the platform Kai/system fonts.
+      // Keep the platform fallback stack usable if a bundled font cannot load.
+      return null;
     }
-    return _wenkaiFontUri;
   }
 
   String _colorToHex(Color color) {
@@ -372,7 +398,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _appliedReadingPositionRevision = reader.readingPositionRevision;
 
     final settings = context.read<SettingsProvider>();
-    final wenkaiFontUri = await _fontUriFor(settings.readerFontFamily);
+    final fontAsset = await _fontAssetFor(settings.readerFontFamily);
     if (!mounted) return;
     final chapterIdx = targetIndex.toString();
     final chapterHighlights = reader.highlights
@@ -384,7 +410,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       chapter.content,
       settings,
       highlights: chapterHighlights,
-      wenkaiFontUri: wenkaiFontUri,
+      readerFontAsset: fontAsset,
     );
     final filePath = await EpubService.getChapterFilePath(
       reader.book!.id,
@@ -456,7 +482,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     SettingsProvider settings, {
     List<Highlight> highlights = const [],
     List<Map<String, String>> nextChapters = const [],
-    String? wenkaiFontUri,
+    ReaderFontAsset? readerFontAsset,
   }) {
     final media = MediaQuery.of(context);
     return ReaderDocumentHtml.build(
@@ -468,7 +494,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       topInset: media.padding.top + 64,
       bottomInset: media.padding.bottom + 72,
       nextChapters: nextChapters,
-      wenkaiFontUri: wenkaiFontUri,
+      readerFontAsset: readerFontAsset,
     );
   }
 
@@ -534,6 +560,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       ),
     ).then((_) async {
       final positionRatioBefore = await positionRatioFuture;
+      await settingsProvider.flushTypographyPersistence();
       if (!mounted) return;
       unawaited(_applyReaderStyles(settingsProvider));
       if (settingsProvider.readerPagingMode != pagingBefore) {
@@ -741,15 +768,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
-  void _exitReader() {
+  Future<void> _exitReader() async {
     if (_isExiting) return;
+
+    setState(() => _isExiting = true);
 
     final reader = context.read<ReaderProvider>();
     reader.cancelScheduledSave();
     unawaited(reader.saveProgress().catchError((_) {}));
+    await (_settingsProvider ?? context.read<SettingsProvider>())
+        .flushTypographyPersistence()
+        .catchError((_) {});
 
     if (!mounted) return;
-    setState(() => _isExiting = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       Navigator.of(context).popUntil((route) => route.isFirst);
@@ -1162,6 +1193,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
         SnackBar(content: Text('想法已保存为私密，公开失败：${_readerError(error)}')),
       );
     }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    final settings = _settingsProvider;
+    if (settings != null) {
+      unawaited(settings.flushTypographyPersistence().catchError((_) {}));
+    }
+    super.dispose();
   }
 }
 

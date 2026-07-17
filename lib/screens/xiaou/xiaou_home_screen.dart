@@ -472,6 +472,8 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
 
   Widget _buildMemoryTools() {
     final palette = context.appPalette;
+    final viewportHeight = MediaQuery.sizeOf(context).height;
+    final bookMenuHeight = (viewportHeight * 0.42).clamp(240.0, 380.0);
     final bookOptions = _bookOptions();
     final selectedBook = bookOptions.firstWhere(
       (option) => option.key == _bookFilter,
@@ -535,6 +537,8 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
           PopupMenuButton<String>(
             tooltip: '按书籍筛选',
             initialValue: _bookFilter,
+            position: PopupMenuPosition.under,
+            constraints: BoxConstraints(maxHeight: bookMenuHeight),
             onSelected: (value) => setState(() => _bookFilter = value),
             itemBuilder: (_) => bookOptions
                 .map(

@@ -77,7 +77,12 @@ flutter:
   assets:
     - assets/
     - assets/fonts/OFL-LXGWWenKaiLite.txt
+    - assets/fonts/OFL-SourceHanSerif.txt
   fonts:
+    - family: SourceHanSerifCN
+      fonts:
+        - asset: assets/fonts/SourceHanSerifCN-Regular.otf
+          weight: 400
     - family: LXGWWenKaiLite
       fonts:
         - asset: assets/fonts/LXGWWenKaiLite-Regular.ttf
