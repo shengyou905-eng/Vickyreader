@@ -65,6 +65,7 @@ class _XiaouBookTracesScreenState extends State<XiaouBookTracesScreen> {
         'thought' => source == 'thought' || source == 'manual',
         'highlight' => source == 'highlight',
         'ai_explanation' => source == 'ai_explanation',
+        'ai_question' => source == 'ai_question',
         _ => true,
       };
     }).toList();
@@ -238,6 +239,7 @@ class _XiaouBookTracesScreenState extends State<XiaouBookTracesScreen> {
       ('thought', '想法'),
       ('highlight', '划线'),
       ('ai_explanation', '小U解读'),
+      ('ai_question', '问小U'),
     ];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -273,6 +275,7 @@ class _XiaouBookTracesScreenState extends State<XiaouBookTracesScreen> {
   String _sourceLabel(String source) {
     return switch (source) {
       'ai_explanation' => '小U解读',
+      'ai_question' => '问小U',
       'thought' || 'manual' => '想法',
       'highlight' => '原始划线',
       _ => '阅读痕迹',

@@ -2,7 +2,13 @@ const entryRepository = require('../repositories/entry.repository');
 const { scheduleUserInsightRefresh } = require('../services/insightRefresh.service');
 const httpError = require('../utils/httpError');
 
-const allowedSources = new Set(['highlight', 'thought', 'ai_explanation', 'manual']);
+const allowedSources = new Set([
+  'highlight',
+  'thought',
+  'ai_explanation',
+  'ai_question',
+  'manual',
+]);
 
 async function createEntry(req, res, next) {
   try {

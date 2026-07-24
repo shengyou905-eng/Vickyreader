@@ -149,6 +149,10 @@ class ReaderProvider extends ChangeNotifier {
     return _loadChapterContent(index ?? _currentChapterIndex);
   }
 
+  Future<EpubChapter?> preloadChapter(int index) {
+    return _loadChapterContent(index, notify: false);
+  }
+
   Future<EpubChapter?> _loadChapterContent(
     int index, {
     bool notify = true,
@@ -190,10 +194,13 @@ class ReaderProvider extends ChangeNotifier {
   }
 
   Future<void> _preloadAdjacentChapters(int token, int centerIndex) async {
-    for (final index in [centerIndex + 1, centerIndex - 1]) {
-      if (token != _openBookToken || _disposed) return;
-      await _loadChapterContent(index, notify: false).catchError((_) => null);
-    }
+    if (token != _openBookToken || _disposed) return;
+    await Future.wait(
+      [centerIndex + 1, centerIndex - 1].map(
+        (index) =>
+            _loadChapterContent(index, notify: false).catchError((_) => null),
+      ),
+    );
   }
 
   String _initialLoadingMessage(Book book) {
@@ -444,6 +451,45 @@ class ReaderProvider extends ChangeNotifier {
       ),
     );
     return entryId;
+  }
+
+  Future<String?> addAiQuestion({
+    required String question,
+    required String answer,
+    required String scope,
+    required String contextText,
+    required String pageText,
+  }) async {
+    if (_book == null || question.trim().isEmpty || answer.trim().isEmpty) {
+      return null;
+    }
+    final now = DateTime.now().toUtc().toIso8601String();
+    final entryId = const Uuid().v4();
+    return BookService.insertUserEntry(
+      UserEntry(
+        id: entryId,
+        userId: _getUserId(),
+        source: 'ai_question',
+        bookId: _book!.id,
+        bookTitle: _book!.title,
+        chapterIndex: _currentChapterIndex.toString(),
+        chapterTitle: currentChapter?.title ?? '',
+        originalText: contextText.trim(),
+        userInput: question.trim(),
+        aiExplanation: answer.trim(),
+        autoTags: const ['问小U'],
+        metadataJson: jsonEncode({
+          'question_scope': scope,
+          'page_text': pageText.trim(),
+          'reading_progress': progress,
+          'scroll_offset': _scrollOffset,
+          'book_author': _book!.author,
+          'book_cover': _book!.coverPath ?? '',
+        }),
+        createdAt: DateTime.now(),
+        updatedAt: now,
+      ),
+    );
   }
 
   Future<void> updateHighlightNote(String id, String note) async {

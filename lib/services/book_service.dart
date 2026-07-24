@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -767,6 +767,7 @@ class BookService {
   static XiaouHomeInsight? _xiaouHomeInsightCache;
   static DateTime? _xiaouHomeInsightCacheAt;
   static Future<XiaouHomeInsight>? _xiaouHomeInsightInFlight;
+  static String? _xiaouCacheUserId;
   static const Duration _mingtaiBooksCacheTtl = Duration(seconds: 90);
   static const Duration _mingtaiBookDetailCacheTtl = Duration(seconds: 60);
   static const Duration _mingtaiOverviewCacheTtl = Duration(seconds: 60);
@@ -776,6 +777,7 @@ class BookService {
     'highlight': '划线',
     'thought': '想法',
     'ai_explanation': '小U解释',
+    'ai_question': '问小U',
     'manual': '手动',
   };
 
@@ -1011,6 +1013,7 @@ class BookService {
 
   static Future<List<Map<String, dynamic>>> getFreeNotes({
     String? query,
+    bool syncRemote = true,
   }) async {
     final db = await DatabaseService.database;
     await _ensureFreeNotesTable(db);
@@ -1023,6 +1026,7 @@ class BookService {
       if (localNotes.isEmpty) {
         localNotes = await _claimAnonymousFreeNotes(db);
       }
+      if (!syncRemote) return localNotes;
       if (localNotes.isEmpty) {
         await _syncFreeNotesIfPossible(db);
         return _queryFreeNotes(db);
@@ -1038,11 +1042,11 @@ class BookService {
     return notes;
   }
 
-  static Future<void> syncFreeNotes() async {
+  static Future<bool> syncFreeNotes({bool throwOnFailure = false}) async {
     final db = await DatabaseService.database;
     await _ensureFreeNotesTable(db);
     await _restoreFreeNotesBackup(db);
-    await _syncFreeNotesIfPossible(db);
+    return _syncFreeNotesIfPossible(db, throwOnFailure: throwOnFailure);
   }
 
   static Future<void> saveFreeNote({
@@ -1252,18 +1256,24 @@ class BookService {
     return AuthService.userId?.trim() ?? '';
   }
 
-  static Future<void> _syncFreeNotesIfPossible(Database db) async {
+  static Future<bool> _syncFreeNotesIfPossible(
+    Database db, {
+    bool throwOnFailure = false,
+  }) async {
     final api = BmobApi.instance;
     await api.init();
     final userId = api.userId?.trim() ?? AuthService.userId?.trim() ?? '';
-    if (!api.isLoggedIn || userId.isEmpty) return;
+    if (!api.isLoggedIn || userId.isEmpty) return false;
 
     try {
       await _pullRemoteFreeNotesIfPossible(db, api, userId);
       await _pushLocalFreeNotesIfPossible(db, api, userId);
       await _backupFreeNotes(db);
-    } catch (_) {
+      return true;
+    } catch (error) {
+      if (throwOnFailure) rethrow;
       // 随心记以本地可用为先，云端同步失败不阻塞用户继续写。
+      return false;
     }
   }
 
@@ -1706,14 +1716,19 @@ class BookService {
   }
 
   static XiaouHomeInsight? cachedXiaouHomeInsight() {
+    final currentUserId = BmobApi.instance.userId?.trim() ?? '';
+    if (_xiaouCacheUserId != currentUserId) return null;
     return _xiaouHomeInsightCache;
   }
 
   static Future<XiaouHomeInsight?> restoreCachedXiaouHomeInsight() async {
+    final userId = await _ensureXiaouCacheOwner();
     final memory = _xiaouHomeInsightCache;
     if (memory != null) return memory;
 
-    final row = await _readDiskMap(_xiaouHomeDiskCacheKey);
+    final row = await _readDiskMap(
+      _scopedCacheKey(_xiaouHomeDiskCacheKey, userId),
+    );
     if (row == null) return null;
     final insight = XiaouHomeInsight.fromRemote(row);
     _xiaouHomeInsightCache = insight;
@@ -1723,7 +1738,9 @@ class BookService {
 
   static Future<XiaouHomeInsight> getXiaouHomeInsight({
     bool forceRefresh = false,
+    bool fallbackToCacheOnError = true,
   }) async {
+    final userId = await _ensureXiaouCacheOwner();
     if (!BmobApi.instance.isLoggedIn) return XiaouHomeInsight.empty();
     final cached = _xiaouHomeInsightCache;
     final cacheAt = _xiaouHomeInsightCacheAt;
@@ -1740,12 +1757,18 @@ class BookService {
     request = (() async {
       try {
         final row = await BmobApi.instance.getXiaouHomeInsight();
+        if (!_isCurrentXiaouCacheOwner(userId)) {
+          throw StateError('登录账户已切换，本次小U结果已忽略');
+        }
         final insight = XiaouHomeInsight.fromRemote(row);
         _xiaouHomeInsightCache = insight;
         _xiaouHomeInsightCacheAt = DateTime.now();
-        unawaited(_writeDiskMap(_xiaouHomeDiskCacheKey, row));
+        unawaited(
+          _writeDiskMap(_scopedCacheKey(_xiaouHomeDiskCacheKey, userId), row),
+        );
         return insight;
       } catch (_) {
+        if (!fallbackToCacheOnError) rethrow;
         if (cached != null) return cached;
         final disk = await restoreCachedXiaouHomeInsight();
         if (disk != null) return disk;
@@ -2855,6 +2878,8 @@ class BookService {
   }
 
   static MingtaiOverview? cachedMingtaiOverview({String? tag}) {
+    final currentUserId = BmobApi.instance.userId?.trim() ?? '';
+    if (_xiaouCacheUserId != currentUserId) return null;
     final cached = _mingtaiOverviewCache;
     if (cached == null) return null;
     return _filterMingtaiOverview(cached, tag);
@@ -2863,10 +2888,13 @@ class BookService {
   static Future<MingtaiOverview?> restoreCachedMingtaiOverview({
     String? tag,
   }) async {
+    final userId = await _ensureXiaouCacheOwner();
     final memory = _mingtaiOverviewCache;
     if (memory != null) return _filterMingtaiOverview(memory, tag);
 
-    final rows = await _readDiskMapList(_xiaouOverviewDiskCacheKey);
+    final rows = await _readDiskMapList(
+      _scopedCacheKey(_xiaouOverviewDiskCacheKey, userId),
+    );
     if (rows == null) return null;
     final overview = _buildMingtaiOverviewFromRows(rows);
     _mingtaiOverviewCache = overview;
@@ -2877,8 +2905,10 @@ class BookService {
   static Future<MingtaiOverview> getMingtaiOverview({
     String? tag,
     bool forceRefresh = false,
+    bool fallbackToCacheOnError = true,
   }) async {
     final api = BmobApi.instance;
+    final userId = await _ensureXiaouCacheOwner();
     if (!api.isLoggedIn) {
       return MingtaiOverview(
         items: const [],
@@ -2908,13 +2938,22 @@ class BookService {
       List<Map<String, dynamic>> rows;
       try {
         rows = await api.listUserEntries(limit: 300);
+        if (!_isCurrentXiaouCacheOwner(userId)) {
+          throw StateError('登录账户已切换，本次阅读痕迹结果已忽略');
+        }
       } catch (_) {
+        if (!fallbackToCacheOnError) rethrow;
         if (cached != null) return cached;
         final disk = await restoreCachedMingtaiOverview();
         if (disk != null) return disk;
         rethrow;
       }
-      unawaited(_writeDiskMapList(_xiaouOverviewDiskCacheKey, rows));
+      unawaited(
+        _writeDiskMapList(
+          _scopedCacheKey(_xiaouOverviewDiskCacheKey, userId),
+          rows,
+        ),
+      );
 
       final overview = _buildMingtaiOverviewFromRows(rows);
       _mingtaiOverviewCache = overview;
@@ -3038,7 +3077,9 @@ class BookService {
         }
       }
     }
-    final cachedRows = await _readDiskMapList(_xiaouOverviewDiskCacheKey);
+    final userId = await _ensureXiaouCacheOwner();
+    final cacheKey = _scopedCacheKey(_xiaouOverviewDiskCacheKey, userId);
+    final cachedRows = await _readDiskMapList(cacheKey);
     if (cachedRows != null) {
       for (final row in cachedRows) {
         if (row['id']?.toString() == remoteId) {
@@ -3046,7 +3087,7 @@ class BookService {
           break;
         }
       }
-      unawaited(_writeDiskMapList(_xiaouOverviewDiskCacheKey, cachedRows));
+      unawaited(_writeDiskMapList(cacheKey, cachedRows));
     }
   }
 
@@ -3064,6 +3105,33 @@ class BookService {
     _mingtaiOverviewCacheAt = null;
     _xiaouHomeInsightCache = null;
     _xiaouHomeInsightCacheAt = null;
+  }
+
+  static Future<String> _ensureXiaouCacheOwner() async {
+    await BmobApi.instance.init();
+    final userId = BmobApi.instance.userId?.trim() ?? '';
+    if (_xiaouCacheUserId == userId) return userId;
+
+    _xiaouCacheUserId = userId;
+    _mingtaiOverviewCache = null;
+    _mingtaiOverviewCacheAt = null;
+    _mingtaiOverviewInFlight = null;
+    _xiaouHomeInsightCache = null;
+    _xiaouHomeInsightCacheAt = null;
+    _xiaouHomeInsightInFlight = null;
+    debugPrint(
+      '[XiaouCache] owner changed user=${userId.isEmpty ? 'anonymous' : userId}',
+    );
+    return userId;
+  }
+
+  static bool _isCurrentXiaouCacheOwner(String userId) {
+    return _xiaouCacheUserId == userId &&
+        (BmobApi.instance.userId?.trim() ?? '') == userId;
+  }
+
+  static String _scopedCacheKey(String base, String userId) {
+    return '${base}_${userId.isEmpty ? 'anonymous' : userId}';
   }
 
   static Map<String, dynamic> _remoteUserEntryToMingtaiItem(

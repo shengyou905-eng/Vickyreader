@@ -13,6 +13,7 @@ import 'widgets/xiaou_presence_orb.dart';
 import 'widgets/xiaou_swipe_actions.dart';
 import 'xiaou_entry_grouping.dart';
 import '../../utils/markdown_sanitizer.dart';
+import '../../utils/latest_request_guard.dart';
 
 class XiaouHomeScreen extends StatefulWidget {
   final int refreshSignal;
@@ -35,6 +36,44 @@ class _BookOption {
   const _BookOption({required this.key, required this.title});
 }
 
+class _XiaouLoadNotice extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const _XiaouLoadNotice({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+      decoration: BoxDecoration(
+        color: palette.card.withValues(alpha: 0.86),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: palette.divider.withValues(alpha: 0.65)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.cloud_off_outlined, size: 18, color: palette.icon),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: palette.textSecondary,
+                fontSize: 13,
+                height: 1.4,
+              ),
+            ),
+          ),
+          TextButton(onPressed: onRetry, child: const Text('重试')),
+        ],
+      ),
+    );
+  }
+}
+
 class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _items = [];
@@ -47,6 +86,9 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   bool _reloadAfterCurrent = false;
   bool _forceReloadAfterCurrent = false;
   DateTime? _lastLoadCompletedAt;
+  String? _loadError;
+  bool _hasResolvedLoad = false;
+  final LatestRequestGuard _loadGuard = LatestRequestGuard();
   int _presencePulseKey = 0;
   String _searchQuery = '';
   String _bookFilter = 'all';
@@ -73,6 +115,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
 
   @override
   void dispose() {
+    _loadGuard.invalidate();
     _searchController.dispose();
     super.dispose();
   }
@@ -82,11 +125,17 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
       return;
     }
     if (_loadInFlight) {
+      _loadGuard.invalidate();
       _reloadAfterCurrent = true;
       _forceReloadAfterCurrent = _forceReloadAfterCurrent || forceRefresh;
       return;
     }
     _loadInFlight = true;
+    final requestVersion = _loadGuard.begin();
+    debugPrint(
+      '[XiaouLoad] start version=$requestVersion force=$forceRefresh '
+      'visible=${_allItems.length}',
+    );
     final memoryOverview = BookService.cachedMingtaiOverview();
     final memoryInsight = BookService.cachedXiaouHomeInsight();
     final restored = await Future.wait<Object?>([
@@ -99,8 +148,10 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     ]);
     final cached = restored[0] as MingtaiOverview?;
     final cachedHome = restored[1] as XiaouHomeInsight?;
-    if (!mounted) {
+    if (!mounted || !_loadGuard.isCurrent(requestVersion)) {
+      debugPrint('[XiaouLoad] stale cache ignored version=$requestVersion');
       _loadInFlight = false;
+      _runQueuedLoadIfNeeded();
       return;
     }
     final hasVisibleContent =
@@ -122,58 +173,107 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
       }
       _loading = !hasVisibleContent;
       _refreshing = hasVisibleContent;
+      _loadError = null;
     });
 
-    final waiters = <Future<void>>[
-      BookService.getXiaouHomeInsight(forceRefresh: forceRefresh)
-          .then((insight) {
-            if (!mounted) return;
-            setState(() {
-              if (_shouldPulseForNewInsight(_homeInsight, insight)) {
-                _presencePulseKey++;
-              }
-              _homeInsight = insight;
-              _useInsightSnapshotIfNeeded(insight);
-            });
-          })
-          .catchError((_) {}),
-      BookService.getMingtaiOverview(forceRefresh: forceRefresh)
-          .then((overview) {
-            if (!mounted) return;
-            setState(() {
-              _items = overview.items;
-              _allItems = overview.allItems;
-              _loading = false;
-            });
-          })
-          .catchError((_) {}),
-    ];
+    final errors = <Object>[];
+    final refreshNetwork = forceRefresh || cached != null || cachedHome != null;
+
+    Future<void> loadInsight() async {
+      try {
+        final insight = await BookService.getXiaouHomeInsight(
+          forceRefresh: refreshNetwork,
+          fallbackToCacheOnError: false,
+        );
+        if (!mounted || !_loadGuard.isCurrent(requestVersion)) {
+          debugPrint(
+            '[XiaouLoad] stale insight ignored version=$requestVersion',
+          );
+          return;
+        }
+        setState(() {
+          if (_shouldPulseForNewInsight(_homeInsight, insight)) {
+            _presencePulseKey++;
+          }
+          _homeInsight = insight;
+          _useInsightSnapshotIfNeeded(insight);
+        });
+      } catch (error) {
+        errors.add(error);
+        debugPrint(
+          '[XiaouLoad] insight failed version=$requestVersion: $error',
+        );
+      }
+    }
+
+    Future<void> loadEntries() async {
+      try {
+        final overview = await BookService.getMingtaiOverview(
+          forceRefresh: refreshNetwork,
+          fallbackToCacheOnError: false,
+        );
+        if (!mounted || !_loadGuard.isCurrent(requestVersion)) {
+          debugPrint(
+            '[XiaouLoad] stale entries ignored version=$requestVersion',
+          );
+          return;
+        }
+        setState(() {
+          _items = overview.items;
+          _allItems = overview.allItems;
+          _loading = false;
+        });
+        debugPrint(
+          '[XiaouLoad] server snapshot version=$requestVersion '
+          'items=${overview.allItems.length} '
+          'empty=${overview.allItems.isEmpty}',
+        );
+      } catch (error) {
+        errors.add(error);
+        debugPrint(
+          '[XiaouLoad] entries failed version=$requestVersion: $error',
+        );
+      }
+    }
 
     try {
-      await Future.wait(waiters);
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _refreshing = false;
-        });
-      }
+      await Future.wait([loadInsight(), loadEntries()]);
     } finally {
-      if (mounted) {
+      if (mounted && _loadGuard.isCurrent(requestVersion)) {
         _lastLoadCompletedAt = DateTime.now();
         setState(() {
           _loading = false;
           _refreshing = false;
+          _hasResolvedLoad = true;
+          _loadError = errors.isEmpty ? null : _friendlyLoadError(errors.first);
         });
+        debugPrint(
+          '[XiaouLoad] complete version=$requestVersion '
+          'error=${errors.isNotEmpty} retained=${_allItems.length}',
+        );
       }
       _loadInFlight = false;
-      if (_reloadAfterCurrent && mounted) {
-        final nextForceRefresh = _forceReloadAfterCurrent;
-        _reloadAfterCurrent = false;
-        _forceReloadAfterCurrent = false;
-        _load(forceRefresh: nextForceRefresh);
-      }
+      _runQueuedLoadIfNeeded();
     }
+  }
+
+  void _runQueuedLoadIfNeeded() {
+    if (!_reloadAfterCurrent || !mounted) return;
+    final nextForceRefresh = _forceReloadAfterCurrent;
+    _reloadAfterCurrent = false;
+    _forceReloadAfterCurrent = false;
+    unawaited(_load(forceRefresh: nextForceRefresh));
+  }
+
+  String _friendlyLoadError(Object error) {
+    final message = error.toString().replaceFirst(
+      RegExp(r'^Exception:\s*'),
+      '',
+    );
+    if (message.contains('Timeout') || message.contains('timeout')) {
+      return '网络响应有些慢，已保留上次看到的内容。';
+    }
+    return '暂时无法刷新，已保留上次看到的内容。';
   }
 
   bool _recentlyLoadedWithContent() {
@@ -338,6 +438,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(title: const Text('小U'), centerTitle: true),
       body: Stack(
         children: [
@@ -352,7 +453,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
             ),
           Positioned(
             right: 36,
-            bottom: 88 + MediaQuery.of(context).padding.bottom,
+            bottom: 88 + MediaQuery.viewPaddingOf(context).bottom,
             child: RepaintBoundary(
               child: XiaouPresenceOrb(
                 isThinking: false,
@@ -378,6 +479,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
 
   Widget _buildContent() {
     final visibleItems = _visibleItems();
+    final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
     return RefreshIndicator(
       onRefresh: () => _load(forceRefresh: true),
       child: CustomScrollView(
@@ -390,9 +492,18 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
             ),
             const SliverToBoxAdapter(child: SizedBox(height: 4)),
           ],
+          if (_loadError != null)
+            SliverToBoxAdapter(
+              child: _XiaouLoadNotice(
+                message: _loadError!,
+                onRetry: () => _load(forceRefresh: true),
+              ),
+            ),
           SliverToBoxAdapter(child: _buildMemoryTools()),
           if (visibleItems.isEmpty)
-            SliverToBoxAdapter(child: _buildFilteredEmpty())
+            SliverToBoxAdapter(
+              child: _buildFilteredEmpty(loadFailed: _loadError != null),
+            )
           else ...[
             SliverList(
               delegate: SliverChildBuilderDelegate((_, i) {
@@ -435,7 +546,12 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
               }, childCount: visibleItems.length),
             ),
           ],
-          const SliverToBoxAdapter(child: SizedBox(height: 112)),
+          SliverToBoxAdapter(
+            child: SizedBox(
+              key: const ValueKey('xiaou-scroll-bottom-inset'),
+              height: 112 + keyboardInset,
+            ),
+          ),
         ],
       ),
     );
@@ -450,6 +566,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         'thought' => source == 'thought' || source == 'manual',
         'highlight' => source == 'highlight',
         'ai_explanation' => source == 'ai_explanation',
+        'ai_question' => source == 'ai_question',
         _ => true,
       };
       if (!sourceMatches) return false;
@@ -484,6 +601,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
       ('thought', '想法'),
       ('highlight', '划线'),
       ('ai_explanation', '小U解读'),
+      ('ai_question', '问小U'),
     ];
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -658,13 +776,14 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   String _sourceLabel(String source) {
     return switch (source) {
       'ai_explanation' => '小U解读',
+      'ai_question' => '问小U',
       'thought' || 'manual' => '想法',
       'highlight' => '原始划线',
       _ => '阅读痕迹',
     };
   }
 
-  Widget _buildFilteredEmpty() {
+  Widget _buildFilteredEmpty({bool loadFailed = false}) {
     final palette = context.appPalette;
     final hasAnyItems = (_allItems.isNotEmpty ? _allItems : _items).isNotEmpty;
     return SizedBox(
@@ -673,7 +792,11 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 30),
           child: Text(
-            hasAnyItems ? '这里暂时没有找到对应的阅读痕迹。' : '划线、想法和小U解读会被安静地记在这里。',
+            hasAnyItems
+                ? '这里暂时没有找到对应的阅读痕迹。'
+                : loadFailed && _hasResolvedLoad
+                ? '还没有拿到新的阅读痕迹，可以稍后重试。'
+                : '划线、想法和小U解读会被安静地记在这里。',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: palette.textSecondary,

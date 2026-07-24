@@ -16,6 +16,22 @@ import 'mingtai_screen.dart' show MingtaiProfileScreen;
 
 const _communityApi = MingtaiCommunityApi();
 
+class _CommunityFeedSnapshot {
+  final List<CommunityPost> posts;
+  final List<CommunityBook> books;
+  final List<CommunityReader> readers;
+  final bool usingFallback;
+  final bool requiresAuth;
+
+  const _CommunityFeedSnapshot({
+    required this.posts,
+    required this.books,
+    required this.readers,
+    required this.usingFallback,
+    required this.requiresAuth,
+  });
+}
+
 Future<bool?> showCommunityPostComposer(
   BuildContext context, {
   Book? localBook,
@@ -58,6 +74,9 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
   bool _usingFallback = false;
   bool _requiresAuth = false;
   int _feedRequestVersion = 0;
+  int _searchRequestVersion = 0;
+  String? _searchError;
+  final Map<String, _CommunityFeedSnapshot> _feedSnapshots = {};
   List<CommunityPost> _searchPosts = const [];
   List<CommunityBook> _searchBooks = const [];
 
@@ -79,6 +98,8 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
 
   @override
   void dispose() {
+    _feedRequestVersion++;
+    _searchRequestVersion++;
     _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
@@ -93,9 +114,26 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
       _refreshing = quiet || _posts.isNotEmpty;
       _error = null;
     });
+    debugPrint(
+      '[MingtaiFeed] start version=$requestVersion tab=$requestedTab '
+      'retained=${_posts.length}',
+    );
     try {
       final result = await _communityApi.getFeed(requestedTab);
-      if (!mounted || requestVersion != _feedRequestVersion) return;
+      if (!mounted || requestVersion != _feedRequestVersion) {
+        debugPrint(
+          '[MingtaiFeed] stale result ignored version=$requestVersion',
+        );
+        return;
+      }
+      final snapshot = _CommunityFeedSnapshot(
+        posts: result.posts,
+        books: result.books,
+        readers: result.suggestedReaders,
+        usingFallback: result.fallback,
+        requiresAuth: result.requiresAuth,
+      );
+      _feedSnapshots[requestedTab] = snapshot;
       setState(() {
         _posts = result.posts;
         _books = result.books;
@@ -105,6 +143,12 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
         _loading = false;
         _refreshing = false;
       });
+      debugPrint(
+        '[MingtaiFeed] server snapshot version=$requestVersion '
+        'tab=$requestedTab posts=${result.posts.length} '
+        'books=${result.books.length} '
+        'empty=${result.posts.isEmpty && result.books.isEmpty}',
+      );
     } catch (error) {
       if (!mounted || requestVersion != _feedRequestVersion) return;
       setState(() {
@@ -112,25 +156,32 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
         _loading = false;
         _refreshing = false;
       });
+      debugPrint(
+        '[MingtaiFeed] failed version=$requestVersion tab=$requestedTab '
+        'retained=${_posts.length}: $error',
+      );
     }
   }
 
   void _changeTab(int index) {
     if (_tabIndex == index) return;
+    final nextTab = const ['recommend', 'following', 'same_read'][index];
+    final snapshot = _feedSnapshots[nextTab];
     setState(() {
       _tabIndex = index;
-      _posts = const [];
-      _books = const [];
-      _suggestedReaders = const [];
-      _usingFallback = false;
-      _requiresAuth = false;
+      _posts = snapshot?.posts ?? const [];
+      _books = snapshot?.books ?? const [];
+      _suggestedReaders = snapshot?.readers ?? const [];
+      _usingFallback = snapshot?.usingFallback ?? false;
+      _requiresAuth = snapshot?.requiresAuth ?? false;
       _error = null;
     });
-    _load();
+    _load(quiet: snapshot != null);
   }
 
   void _onSearchChanged(String value) {
     _searchDebounce?.cancel();
+    final requestVersion = ++_searchRequestVersion;
     final query = value.trim();
     setState(() {
       _searchQuery = query;
@@ -138,26 +189,47 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
         _searchBooks = const [];
         _searchPosts = const [];
         _searching = false;
+        _searchError = null;
       } else {
         _searching = true;
+        _searchError = null;
       }
     });
     if (query.isEmpty) return;
     _searchDebounce = Timer(const Duration(milliseconds: 350), () async {
       try {
         final result = await _communityApi.search(query);
-        if (!mounted || _searchQuery != query) return;
+        if (!mounted ||
+            _searchQuery != query ||
+            requestVersion != _searchRequestVersion) {
+          debugPrint(
+            '[MingtaiSearch] stale result ignored version=$requestVersion',
+          );
+          return;
+        }
         setState(() {
           _searchBooks = result.books;
           _searchPosts = result.posts;
           _searching = false;
+          _searchError = null;
         });
+        debugPrint(
+          '[MingtaiSearch] result version=$requestVersion query=$query '
+          'posts=${result.posts.length} books=${result.books.length}',
+        );
       } catch (error) {
-        if (!mounted || _searchQuery != query) return;
+        if (!mounted ||
+            _searchQuery != query ||
+            requestVersion != _searchRequestVersion) {
+          return;
+        }
         setState(() {
           _searching = false;
-          _error = _friendly(error);
+          _searchError = _friendly(error);
         });
+        debugPrint(
+          '[MingtaiSearch] failed version=$requestVersion query=$query: $error',
+        );
       }
     });
   }
@@ -248,6 +320,8 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
   Widget build(BuildContext context) {
     final palette = context.appPalette;
     final searching = _searchQuery.isNotEmpty;
+    final hasFeedSnapshot =
+        _posts.isNotEmpty || _books.isNotEmpty || _suggestedReaders.isNotEmpty;
     return Scaffold(
       appBar: AppBar(
         title: const Text('明台'),
@@ -311,8 +385,10 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
                     child: searching
                         ? _SearchResults(
                             loading: _searching,
+                            error: _searchError,
                             books: _searchBooks,
                             posts: _searchPosts,
+                            onRetry: () => _onSearchChanged(_searchQuery),
                             onOpenBook: _openBook,
                             onOpenProfile: _openProfile,
                             onOpenComments: _openComments,
@@ -328,8 +404,8 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
                                   message: _error!,
                                   action: '再试一次',
                                   onAction: _load,
-                                )
-                              else ...[
+                                ),
+                              if (_error == null || hasFeedSnapshot) ...[
                                 if (_tabIndex == 0 && _books.isNotEmpty)
                                   _DailyReadingQuestion(
                                     book: _books.first,
@@ -2540,30 +2616,53 @@ class _CommunityCommentsSheetState extends State<_CommunityCommentsSheet> {
 
 class _SearchResults extends StatelessWidget {
   final bool loading;
+  final String? error;
   final List<CommunityBook> books;
   final List<CommunityPost> posts;
   final ValueChanged<CommunityBook> onOpenBook;
   final ValueChanged<String> onOpenProfile;
   final ValueChanged<CommunityPost> onOpenComments;
+  final VoidCallback onRetry;
 
   const _SearchResults({
     required this.loading,
+    required this.error,
     required this.books,
     required this.posts,
     required this.onOpenBook,
     required this.onOpenProfile,
     required this.onOpenComments,
+    required this.onRetry,
   });
 
   @override
   Widget build(BuildContext context) {
     if (loading) return const Center(child: CircularProgressIndicator());
+    if (error != null && books.isEmpty && posts.isEmpty) {
+      return _QuietMessage(
+        icon: Icons.cloud_off_outlined,
+        title: '搜索暂时没有回应',
+        message: error!,
+        action: '重试',
+        onAction: onRetry,
+      );
+    }
     if (books.isEmpty && posts.isEmpty) {
       return const Center(child: Text('明台还没有找到相关书页或讨论。'));
     }
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 8, 18, 100),
       children: [
+        if (error != null) ...[
+          _QuietMessage(
+            icon: Icons.cloud_off_outlined,
+            title: '搜索暂时没有回应',
+            message: error!,
+            action: '重试',
+            onAction: onRetry,
+          ),
+          const SizedBox(height: 12),
+        ],
         if (books.isNotEmpty) ...[
           const _SectionHeader(title: '书籍'),
           const SizedBox(height: 10),

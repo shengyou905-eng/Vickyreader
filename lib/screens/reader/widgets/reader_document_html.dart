@@ -1,9 +1,28 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:html/parser.dart' as html_parser;
 import '../../../config/reader_paging_mode.dart';
 import '../../../models/highlight.dart';
 import '../../../providers/settings_provider.dart';
 import '../../../services/reader_font_service.dart';
+
+class ReaderChapterMarkup {
+  final String titleHtml;
+  final String bodyHtml;
+  final String continuationHtml;
+
+  const ReaderChapterMarkup({
+    required this.titleHtml,
+    required this.bodyHtml,
+    this.continuationHtml = '',
+  });
+
+  String get surfaceHtml =>
+      '<h1 class="chapter-title">$titleHtml</h1>'
+      '<div class="chapter-body">$bodyHtml</div>'
+      '$continuationHtml';
+}
 
 /// WebView reading page: vertical scroll or horizontal multi-column.
 class ReaderDocumentHtml {
@@ -19,11 +38,18 @@ class ReaderDocumentHtml {
     double bottomInset = 32,
     List<Map<String, String>> nextChapters = const [],
     ReaderFontAsset? readerFontAsset,
+    ReaderChapterMarkup? preparedChapter,
   }) {
     final bgHex = _colorToHex(settings.backgroundColor);
     final textHex = _colorToHex(settings.textColor);
-    final bodyHtml = _injectHighlights(_chapterBodyHtml(content), highlights);
-    final safeTitle = _escapeHtml(title);
+    final chapterMarkup =
+        preparedChapter ??
+        prepareChapter(
+          title: title,
+          content: content,
+          highlights: highlights,
+          nextChapters: nextChapters,
+        );
     final paging = pagingMode.storageValue;
     final fontFace = readerFontAsset == null
         ? ''
@@ -36,17 +62,13 @@ class ReaderDocumentHtml {
     font-display: swap;
   }
 ''';
-    final nextBuf = StringBuffer();
-    for (int i = 0; i < nextChapters.length; i++) {
-      final nc = nextChapters[i];
-      nextBuf.write(
-        '<div class="chapter-section-title" data-chapter="${i + 1}">',
-      );
-      nextBuf.write('${_escapeHtml(nc['title'] ?? '')}</div>');
-      nextBuf.write(
-        '<div class="chapter-body">${_chapterBodyHtml(nc['content'] ?? '')}</div>',
-      );
-    }
+    final fontFaceFamily = readerFontAsset?.cssFamily ?? '';
+    final fontFaceStyle = readerFontAsset == null
+        ? ''
+        : '<style id="reader-font-face" '
+              'data-family="${_escapeHtml(readerFontAsset.cssFamily)}" '
+              'data-url="${_escapeHtml(readerFontAsset.uri)}">'
+              '$fontFace</style>';
 
     return '''
 <!DOCTYPE html>
@@ -54,8 +76,8 @@ class ReaderDocumentHtml {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+$fontFaceStyle
 <style>
-$fontFace
   :root {
     --font-size: ${settings.fontSize}px;
     --line-height: ${settings.lineHeight};
@@ -102,6 +124,7 @@ $fontFace
   }
   #readSurface[data-paging="horizontal"]::-webkit-scrollbar { display: none; }
   .chapter-title {
+    font-family: var(--reader-font-family) !important;
     font-size: calc(var(--font-size) + 4px);
     font-weight: bold;
     text-align: center;
@@ -113,13 +136,22 @@ $fontFace
     width: 100%;
     max-width: 760px;
     margin: 0 auto;
-    font-family: var(--reader-font-family);
+    font-family: var(--reader-font-family) !important;
     text-align: start;
     overflow-wrap: anywhere;
   }
   .chapter-body * {
+    font-family: var(--reader-font-family) !important;
     max-width: 100% !important;
     box-sizing: border-box;
+  }
+  .chapter-body pre,
+  .chapter-body pre *,
+  .chapter-body code,
+  .chapter-body code *,
+  .chapter-body kbd,
+  .chapter-body samp {
+    font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace !important;
   }
   .chapter-body img { max-width: 100%; height: auto; display: block; margin: 12px auto; border-radius: 4px; }
   .chapter-body h1, .chapter-body h2, .chapter-body h3 { margin: 16px 0 8px; }
@@ -152,6 +184,7 @@ $fontFace
     -webkit-box-decoration-break: clone;
   }
   .chapter-section-title {
+    font-family: var(--reader-font-family) !important;
     font-size: calc(var(--font-size) + 2px);
     font-weight: bold;
     text-align: center;
@@ -164,13 +197,57 @@ $fontFace
 </head>
 <body>
   <div id="readSurface" data-paging="$paging">
-    <h1 class="chapter-title">$safeTitle</h1>
-    <div class="chapter-body">$bodyHtml</div>
-    $nextBuf
+    ${chapterMarkup.surfaceHtml}
   </div>
   <script>
     (function() {
       var s = document.getElementById('readSurface');
+      window.readerFontFaceFamily = ${jsonEncode(fontFaceFamily)};
+${_readerRuntimeScriptTail()}
+''';
+  }
+
+  static ReaderChapterMarkup prepareChapter({
+    required String title,
+    required String content,
+    required List<Highlight> highlights,
+    List<Map<String, String>> nextChapters = const [],
+  }) {
+    final bodyHtml = _injectHighlights(_chapterBodyHtml(content), highlights);
+    final nextBuf = StringBuffer();
+    for (int i = 0; i < nextChapters.length; i++) {
+      final nc = nextChapters[i];
+      nextBuf.write(
+        '<div class="chapter-section-title" data-chapter="${i + 1}">',
+      );
+      nextBuf.write('${_escapeHtml(nc['title'] ?? '')}</div>');
+      nextBuf.write(
+        '<div class="chapter-body">${_chapterBodyHtml(nc['content'] ?? '')}</div>',
+      );
+    }
+    return ReaderChapterMarkup(
+      titleHtml: _escapeHtml(title),
+      bodyHtml: bodyHtml,
+      continuationHtml: nextBuf.toString(),
+    );
+  }
+
+  static String buildUpdateScript({
+    required ReaderChapterMarkup chapter,
+    required int requestId,
+    required ReaderPagingMode pagingMode,
+    bool scrollToEnd = false,
+  }) {
+    final payload = jsonEncode({
+      'requestId': requestId,
+      'surfaceHtml': chapter.surfaceHtml,
+      'paging': pagingMode.storageValue,
+      'scrollToEnd': scrollToEnd,
+    });
+    return 'window.readerReplaceChapter && window.readerReplaceChapter($payload);';
+  }
+
+  static String _readerRuntimeScriptTail() => '''
       var _currentCh = 0; // 0 = current chapter, 1+ = next-chapter offset
       var _selectionActive = false;
       var _activeAiSelectionMark = null;
@@ -272,6 +349,65 @@ $fontFace
         titles.forEach(function(t) { _chObserver.observe(t); });
       }
       setTimeout(setupChapterObserver, 100);
+
+      function postPerf(stage, requestId) {
+        FlutterBridge.postMessage('PERF|' + stage + '|' + requestId);
+      }
+
+      function reportFontAvailable(requestId) {
+        var family = window.readerFontFaceFamily || '';
+        if (!family || !document.fonts || !document.fonts.load) {
+          postPerf('FONT_AVAILABLE', requestId);
+          return;
+        }
+        document.fonts.load('1em "' + family + '"').then(function() {
+          postPerf('FONT_AVAILABLE', requestId);
+        }, function() {
+          postPerf('FONT_FALLBACK', requestId);
+        });
+      }
+
+      window.readerReportInitialReady = function(requestId) {
+        postPerf('HTML_INJECTED', requestId);
+        reportFontAvailable(requestId);
+        requestAnimationFrame(function() {
+          requestAnimationFrame(function() {
+            postPerf('BODY_VISIBLE', requestId);
+          });
+        });
+      };
+
+      window.readerReplaceChapter = function(payload) {
+        if (!s || !payload) return false;
+        releaseAiSelection();
+        var selection = window.getSelection();
+        if (selection) selection.removeAllRanges();
+        _selectionActive = false;
+        _aiInteractionLocked = false;
+        _currentCh = 0;
+        _boundaryUntil = Date.now() + 220;
+        if (_chObserver) _chObserver.disconnect();
+        clearTimeout(_chDebounce);
+
+        s.setAttribute('data-paging', payload.paging || 'vertical');
+        s.innerHTML = payload.surfaceHtml || '';
+        s.scrollLeft = 0;
+        s.scrollTop = 0;
+        setupChapterObserver();
+        postPerf('HTML_INJECTED', payload.requestId);
+        reportFontAvailable(payload.requestId);
+
+        requestAnimationFrame(function() {
+          if (payload.scrollToEnd) {
+            if (isHorizontal()) s.scrollLeft = maxScroll();
+            else s.scrollTop = maxScroll();
+          }
+          requestAnimationFrame(function() {
+            postPerf('BODY_VISIBLE', payload.requestId);
+          });
+        });
+        return true;
+      };
 
       // Snap to nearest column on scroll end
       var _snapT;
@@ -430,6 +566,38 @@ $fontFace
         return scrollRatio();
       };
 
+      window.readerVisibleText = function() {
+        if (!s) return '';
+        var surfaceRect = s.getBoundingClientRect();
+        var root = s.querySelector('.chapter-body') || s;
+        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        var parts = [];
+        var total = 0;
+        while (walker.nextNode() && total < 7000) {
+          var node = walker.currentNode;
+          var value = (node.nodeValue || '').replace(/\\s+/g, ' ').trim();
+          if (!value) continue;
+          var range = document.createRange();
+          range.selectNodeContents(node);
+          var rects = range.getClientRects();
+          var visible = false;
+          for (var i = 0; i < rects.length; i++) {
+            var rect = rects[i];
+            if (rect.right > surfaceRect.left &&
+                rect.left < surfaceRect.right &&
+                rect.bottom > surfaceRect.top &&
+                rect.top < surfaceRect.bottom) {
+              visible = true;
+              break;
+            }
+          }
+          if (!visible) continue;
+          parts.push(value);
+          total += value.length;
+        }
+        return parts.join(' ').slice(0, 7000);
+      };
+
       window.scrollToRatio = function(ratio) {
         if (!s) return;
         var r = Math.max(0, Math.min(1, Number(ratio) || 0));
@@ -517,7 +685,6 @@ $fontFace
   </script>
 </body>
 </html>''';
-  }
 
   static String _chapterBodyHtml(String content) {
     final t = content.trim();

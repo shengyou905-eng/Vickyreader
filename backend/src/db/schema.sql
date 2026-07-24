@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS user_entries (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
   source TEXT NOT NULL CHECK (
-    source IN ('highlight', 'thought', 'ai_explanation', 'manual')
+    source IN ('highlight', 'thought', 'ai_explanation', 'ai_question', 'manual')
   ),
 
   book_id TEXT,
@@ -77,6 +77,14 @@ ALTER TABLE user_entries
 
 ALTER TABLE user_entries
   ADD COLUMN IF NOT EXISTS is_important BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE user_entries
+  DROP CONSTRAINT IF EXISTS user_entries_source_check;
+
+ALTER TABLE user_entries
+  ADD CONSTRAINT user_entries_source_check CHECK (
+    source IN ('highlight', 'thought', 'ai_explanation', 'ai_question', 'manual')
+  );
 
 CREATE INDEX IF NOT EXISTS idx_user_entries_user_id
   ON user_entries(user_id);

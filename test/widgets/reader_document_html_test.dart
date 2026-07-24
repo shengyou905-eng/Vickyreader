@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('ReaderDocumentHtml', () {
-    test('applies typography variables without flattening EPUB semantics', () {
+    test('applies typography to EPUB descendants without flattening semantics', () {
       final settings = SettingsProvider()
         ..setReaderFontFamily(ReaderFontFamily.serif)
         ..setFontSize(20)
@@ -18,7 +18,8 @@ void main() {
         title: '测试章节',
         content: '''
           <h2>原有标题</h2>
-          <p>正文<strong>粗体</strong><em>斜体</em><sup>脚注</sup></p>
+          <style>p, strong { font-family: "Publisher Font"; }</style>
+          <p style="font-family: Publisher Inline">正文<strong>粗体</strong><em>斜体</em><sup>脚注</sup></p>
           <blockquote>原有引用</blockquote>
         ''',
         settings: settings,
@@ -41,7 +42,20 @@ void main() {
       expect(html, contains('<em>斜体</em>'));
       expect(html, contains('<sup>脚注</sup>'));
       expect(html, contains('<blockquote>原有引用</blockquote>'));
-      expect(html, isNot(contains('.chapter-body * { font-family:')));
+      expect(
+        html,
+        contains(
+          '.chapter-body * {\n    font-family: var(--reader-font-family) !important;',
+        ),
+      );
+      expect(
+        html,
+        contains(
+          '.chapter-title {\n    font-family: var(--reader-font-family) !important;',
+        ),
+      );
+      expect(html, contains('font-weight: bold'));
+      expect(html, contains('font-style: italic'));
     });
 
     test('adds the embedded WenKai face and keeps fallback fonts', () {
@@ -115,6 +129,52 @@ void main() {
       expect(html, contains('--page-pad-x: 30.0px'));
       expect(html, contains('font-family: "LXGW WenKai Lite"'));
       expect(html, contains('LXGWWenKaiLite-Regular.ttf'));
+    });
+
+    test('keeps the font face in the reusable document shell only once', () {
+      final settings = SettingsProvider()
+        ..setReaderFontFamily(ReaderFontFamily.serif);
+      final html = ReaderDocumentHtml.build(
+        title: '第一章',
+        content: '<p>正文</p>',
+        settings: settings,
+        highlights: const [],
+        pagingMode: ReaderPagingMode.horizontal,
+        readerFontAsset: const ReaderFontAsset(
+          cssFamily: 'ZhiDu Source Han Serif',
+          uri: 'file:///books/.reader_fonts/SourceHanSerifCN-Regular.otf',
+          format: 'opentype',
+        ),
+      );
+
+      expect('id="reader-font-face"'.allMatches(html).length, 1);
+      expect(html, contains('window.readerReplaceChapter'));
+      expect(html, contains('window.readerReportInitialReady'));
+      expect(html, contains('window.readerVisibleText'));
+      expect(html, contains("return parts.join(' ').slice(0, 7000);"));
+      expect(html, isNot(contains("parts.join('\n')")));
+    });
+
+    test('builds an atomic chapter update without reinjecting font CSS', () {
+      final chapter = ReaderDocumentHtml.prepareChapter(
+        title: '第二章',
+        content: '<p>新的正文<strong>仍保留粗体</strong></p>',
+        highlights: const [],
+      );
+      final script = ReaderDocumentHtml.buildUpdateScript(
+        chapter: chapter,
+        requestId: 7,
+        pagingMode: ReaderPagingMode.vertical,
+        scrollToEnd: true,
+      );
+
+      expect(script, contains('readerReplaceChapter'));
+      expect(script, contains('新的正文'));
+      expect(script, contains('仍保留粗体'));
+      expect(script, contains('"requestId":7'));
+      expect(script, contains('"scrollToEnd":true'));
+      expect(script, isNot(contains('@font-face')));
+      expect(script, isNot(contains('<!DOCTYPE html>')));
     });
   });
 }

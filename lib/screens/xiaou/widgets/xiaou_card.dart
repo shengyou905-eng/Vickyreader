@@ -73,7 +73,8 @@ class _XiaouCardState extends State<XiaouCard> {
   @override
   Widget build(BuildContext context) {
     final tags = _parseTags(widget.aiTags, source: widget.source);
-    final isExplanation = widget.source == 'ai_explanation';
+    final isExplanation =
+        widget.source == 'ai_explanation' || widget.source == 'ai_question';
     final cleanedUnderstanding = stripMarkdownMarkers(
       widget.aiUnderstanding ?? '',
     ).trim();
@@ -95,6 +96,7 @@ class _XiaouCardState extends State<XiaouCard> {
                 context,
                 explanation: cleanedUnderstanding,
                 tags: tags,
+                isQuestion: widget.source == 'ai_question',
               )
             : null,
         child: Padding(
@@ -339,6 +341,7 @@ class _XiaouCardState extends State<XiaouCard> {
     BuildContext context, {
     required String explanation,
     required List<String> tags,
+    required bool isQuestion,
   }) {
     return showModalBottomSheet<_FollowUpSheetResult>(
       context: context,
@@ -353,6 +356,7 @@ class _XiaouCardState extends State<XiaouCard> {
         chapterTitle: widget.chapterTitle ?? '',
         createdAt: widget.createdAt ?? '',
         tags: tags,
+        title: isQuestion ? '问小U' : '小U解读',
       ),
     ).then((result) {
       if (!mounted || result == null) return;
@@ -368,6 +372,7 @@ class _XiaouCardState extends State<XiaouCard> {
       'thought' || 'manual' => '想法',
       'highlight' => '划线',
       'ai_explanation' => '小U解读',
+      'ai_question' => '问小U',
       _ => '阅读痕迹',
     };
   }
@@ -377,6 +382,7 @@ class _XiaouCardState extends State<XiaouCard> {
       'thought' || 'manual' => Icons.edit_note_outlined,
       'highlight' => Icons.format_quote_outlined,
       'ai_explanation' => Icons.auto_awesome_outlined,
+      'ai_question' => Icons.question_answer_outlined,
       _ => Icons.menu_book_outlined,
     };
   }
@@ -412,6 +418,7 @@ class _XiaouCardState extends State<XiaouCard> {
   bool _isSourceTag(String tag, String source) {
     return switch (source) {
       'ai_explanation' => const {'小u解释', '小u解读', 'ai解释', 'ai解读'}.contains(tag),
+      'ai_question' => const {'问小u', '阅读提问', 'ai提问'}.contains(tag),
       'thought' || 'manual' => const {'想法', '阅读想法', 'thought'}.contains(tag),
       'highlight' => const {'划线', 'highlight'}.contains(tag),
       _ => false,
@@ -437,6 +444,7 @@ class _XiaouExplanationSheet extends StatefulWidget {
   final String chapterTitle;
   final String createdAt;
   final List<String> tags;
+  final String title;
 
   const _XiaouExplanationSheet({
     required this.entryId,
@@ -446,6 +454,7 @@ class _XiaouExplanationSheet extends StatefulWidget {
     required this.chapterTitle,
     required this.createdAt,
     required this.tags,
+    required this.title,
   });
 
   @override
@@ -603,7 +612,7 @@ class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '小U解读',
+                            widget.title,
                             style: TextStyle(
                               color: palette.textPrimary,
                               fontSize: 20,

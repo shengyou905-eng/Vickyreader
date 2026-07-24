@@ -7,5 +7,6 @@ const router = express.Router();
 
 router.post('/chat', auth, requireAiConsent, aiController.chat);
 router.post('/explain', auth, requireAiConsent, aiController.explain);
+router.post('/reader-question', auth, requireAiConsent, aiController.readerQuestion);
 
 module.exports = router;

@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../../config/reader_paging_mode.dart';
 import '../../config/reader_typography.dart';
 import '../../config/theme.dart';
@@ -10,6 +12,7 @@ import '../../models/highlight.dart';
 import '../../providers/reader_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/auth_service.dart';
+import '../../services/book_service.dart';
 import '../../services/epub_service.dart';
 import '../../services/mingtai_community_api.dart';
 import '../../services/reader_font_service.dart';
@@ -18,6 +21,7 @@ import '../../utils/community_safety.dart';
 import '../mingtai/community_mingtai_screen.dart';
 import 'widgets/ai_explanation_card.dart';
 import 'widgets/reader_settings.dart';
+import 'widgets/reader_question_sheet.dart';
 import 'widgets/selection_menu.dart';
 import 'widgets/pdf_reader.dart';
 import 'widgets/reader_document_html.dart';
@@ -45,6 +49,16 @@ class _ReaderScreenState extends State<ReaderScreen>
   double? _pendingRestoreRatio;
   String? _activatingTypographyBookId;
   SettingsProvider? _settingsProvider;
+  bool _readerDocumentReady = false;
+  String? _readerDocumentBookId;
+  int _chapterLoadGeneration = 0;
+  int _nextPerformanceRequestId = 0;
+  int? _pendingFullDocumentRequestId;
+  _PendingChapterIntent? _pendingChapterIntent;
+  final Map<int, _ChapterPerformanceTrace> _performanceTraces = {};
+  final Map<String, ReaderChapterMarkup> _chapterMarkupCache = {};
+  final Map<ReaderFontFamily, ReaderFontAsset?> _sessionFontAssets = {};
+  final Set<ReaderFontFamily> _resolvedSessionFonts = {};
 
   @override
   void initState() {
@@ -69,11 +83,12 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   void _initWebView() {
-    _webViewController = WebViewController()
+    final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (_) {
+            _readerDocumentReady = false;
             if (!mounted || _webViewLoadError == null) return;
             setState(() => _webViewLoadError = null);
           },
@@ -98,6 +113,11 @@ class _ReaderScreenState extends State<ReaderScreen>
         ),
       )
       ..addJavaScriptChannel('FlutterBridge', onMessageReceived: _onJsMessage);
+    _webViewController = controller;
+    final platformController = controller.platform;
+    if (platformController is AndroidWebViewController) {
+      unawaited(platformController.setAllowFileAccess(true));
+    }
   }
 
   void _onPageReady() {
@@ -107,8 +127,20 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
     _ignoreChapterMessages = false;
     final reader = context.read<ReaderProvider>();
+    _readerDocumentReady = true;
+    _readerDocumentBookId = reader.book?.id;
     final settings = context.read<SettingsProvider>();
     unawaited(_applyReaderStyles(settings));
+    final performanceRequestId = _pendingFullDocumentRequestId;
+    if (performanceRequestId != null) {
+      _pendingFullDocumentRequestId = null;
+      unawaited(
+        _webViewController.runJavaScript(
+          'window.readerReportInitialReady && '
+          'window.readerReportInitialReady($performanceRequestId);',
+        ),
+      );
+    }
     final pendingRatio = _pendingRestoreRatio;
     if (pendingRatio != null) {
       _pendingRestoreRatio = null;
@@ -212,12 +244,19 @@ class _ReaderScreenState extends State<ReaderScreen>
             fontStyle.id = 'reader-font-face';
             document.head.appendChild(fontStyle);
           }
-          fontStyle.textContent = '@font-face {' +
-            'font-family: "$fontFaceFamily";' +
-            'src: url("' + fontUrl + '") format("$fontFormat");' +
-            'font-weight: 400; font-style: normal; font-display: swap;}';
+          if (fontStyle.dataset.family !== '$fontFaceFamily' ||
+              fontStyle.dataset.url !== fontUrl) {
+            fontStyle.textContent = '@font-face {' +
+              'font-family: "$fontFaceFamily";' +
+              'src: url("' + fontUrl + '") format("$fontFormat");' +
+              'font-weight: 400; font-style: normal; font-display: swap;}';
+            fontStyle.dataset.family = '$fontFaceFamily';
+            fontStyle.dataset.url = fontUrl;
+          }
+          window.readerFontFaceFamily = '$fontFaceFamily';
         } else if (fontStyle) {
           fontStyle.remove();
+          window.readerFontFaceFamily = '';
         }
         root.style.setProperty('--reader-font-family', '$cssFamily');
         root.style.setProperty('--font-size', '${settings.fontSize}px');
@@ -225,6 +264,13 @@ class _ReaderScreenState extends State<ReaderScreen>
         root.style.setProperty('--page-pad-x', '${settings.pageMargin}px');
         root.style.setProperty('--bg-color', '${_colorToHex(settings.backgroundColor)}');
         root.style.setProperty('--text-color', '${_colorToHex(settings.textColor)}');
+        var surface = document.getElementById('readSurface');
+        if (surface) {
+          surface.setAttribute(
+            'data-paging',
+            '${settings.readerPagingMode.storageValue}'
+          );
+        }
         if (ratio !== null && window.scrollToRatio) {
           var restore = function() {
             requestAnimationFrame(function() { window.scrollToRatio(ratio); });
@@ -243,10 +289,18 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   Future<ReaderFontAsset?> _fontAssetFor(ReaderFontFamily family) async {
+    if (_resolvedSessionFonts.contains(family)) {
+      return _sessionFontAssets[family];
+    }
     try {
-      return await ReaderFontService.ensureFont(family);
+      final asset = await ReaderFontService.ensureFont(family);
+      _resolvedSessionFonts.add(family);
+      _sessionFontAssets[family] = asset;
+      return asset;
     } catch (_) {
       // Keep the platform fallback stack usable if a bundled font cannot load.
+      _resolvedSessionFonts.add(family);
+      _sessionFontAssets[family] = null;
       return null;
     }
   }
@@ -281,7 +335,15 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   void _onJsMessage(JavaScriptMessage message) {
     final text = message.message;
-    if (text.startsWith('SELECT|')) {
+    if (text.startsWith('PERF|')) {
+      final parts = text.split('|');
+      if (parts.length >= 3) {
+        final requestId = int.tryParse(parts[2]);
+        if (requestId != null) {
+          _recordPerformanceStage(requestId, parts[1]);
+        }
+      }
+    } else if (text.startsWith('SELECT|')) {
       final selectedText = text.substring(7);
       _hasWebSelection = selectedText.isNotEmpty;
       context.read<ReaderProvider>().selectText(selectedText);
@@ -293,8 +355,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         final newIdx = reader.currentChapterIndex + offset;
         if (newIdx < reader.chapters.length &&
             newIdx != reader.currentChapterIndex) {
-          reader.goToChapter(newIdx);
-          _loadChapter();
+          _navigateToChapter(newIdx, reason: 'continuous_chapter');
         }
       }
     } else if (text.startsWith('SCROLL|')) {
@@ -316,8 +377,7 @@ class _ReaderScreenState extends State<ReaderScreen>
 
     final matchedIndex = _chapterIndexForHref(reader, href);
     if (matchedIndex >= 0) {
-      reader.goToChapter(matchedIndex);
-      _loadChapter();
+      _navigateToChapter(matchedIndex, reason: 'epub_link');
       return;
     }
 
@@ -337,8 +397,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (spine[i].endsWith(targetHref) ||
           targetHref.endsWith(spine[i].split('/').last)) {
         if (i < reader.chapters.length) {
-          reader.goToChapter(i);
-          _loadChapter();
+          _navigateToChapter(i, reason: 'epub_spine_link');
         }
         return;
       }
@@ -386,24 +445,61 @@ class _ReaderScreenState extends State<ReaderScreen>
     return p.basename(_normalizeNavHref(href)).toLowerCase();
   }
 
-  Future<void> _loadChapter() async {
+  Future<void> _loadChapter({bool forceFullDocument = false}) async {
     final reader = context.read<ReaderProvider>();
     final targetIndex = reader.currentChapterIndex;
+    final generation = ++_chapterLoadGeneration;
+    final performanceRequestId = _performanceRequestForLoad(targetIndex);
     final chapter = await reader.ensureChapterLoaded(targetIndex);
-    if (!mounted) return;
+    if (!mounted || generation != _chapterLoadGeneration) return;
     if (chapter == null) return;
     if (reader.currentChapterIndex != targetIndex) return;
     if (reader.book == null) return;
+    _recordPerformanceStage(performanceRequestId, 'CHAPTER_DATA_READY');
     _loadedChapterKey = _chapterLoadKey(reader);
     _appliedReadingPositionRevision = reader.readingPositionRevision;
 
     final settings = context.read<SettingsProvider>();
     final fontAsset = await _fontAssetFor(settings.readerFontFamily);
-    if (!mounted) return;
+    if (!mounted || generation != _chapterLoadGeneration) return;
     final chapterIdx = targetIndex.toString();
     final chapterHighlights = reader.highlights
         .where((h) => h.chapterIndex == chapterIdx)
         .toList();
+    final preparedChapter = _chapterMarkupFor(
+      bookId: reader.book!.id,
+      chapterIndex: targetIndex,
+      title: chapter.title,
+      content: chapter.content,
+      highlights: chapterHighlights,
+    );
+    _recordPerformanceStage(performanceRequestId, 'CHAPTER_MARKUP_READY');
+    if (!mounted ||
+        generation != _chapterLoadGeneration ||
+        context.read<ReaderProvider>().currentChapterIndex != targetIndex) {
+      return;
+    }
+
+    final canReuseDocument =
+        !forceFullDocument &&
+        _readerDocumentReady &&
+        _readerDocumentBookId == reader.book!.id;
+    if (canReuseDocument) {
+      final updateResult = await _webViewController
+          .runJavaScriptReturningResult(
+            ReaderDocumentHtml.buildUpdateScript(
+              chapter: preparedChapter,
+              requestId: performanceRequestId,
+              pagingMode: settings.readerPagingMode,
+              scrollToEnd: reader.scrollOffset < 0,
+            ),
+          );
+      if (!mounted || generation != _chapterLoadGeneration) return;
+      final updated = updateResult == true || updateResult.toString() == 'true';
+      if (updated) {
+        return;
+      }
+    }
 
     final html = _buildChapterHtml(
       chapter.title,
@@ -411,17 +507,78 @@ class _ReaderScreenState extends State<ReaderScreen>
       settings,
       highlights: chapterHighlights,
       readerFontAsset: fontAsset,
+      preparedChapter: preparedChapter,
     );
     final filePath = await EpubService.getChapterFilePath(
       reader.book!.id,
       targetIndex,
     );
-    if (!mounted ||
-        context.read<ReaderProvider>().currentChapterIndex != targetIndex) {
-      return;
+    if (!mounted || generation != _chapterLoadGeneration) return;
+    final booksResourceRoot = p.dirname(p.dirname(filePath));
+    final baseDir = Uri.directory(booksResourceRoot).toString();
+    _readerDocumentReady = false;
+    _pendingFullDocumentRequestId = performanceRequestId;
+    await _webViewController.loadHtmlString(html, baseUrl: baseDir);
+  }
+
+  ReaderChapterMarkup _chapterMarkupFor({
+    required String bookId,
+    required int chapterIndex,
+    required String title,
+    required String content,
+    required List<Highlight> highlights,
+  }) {
+    final highlightSignature = highlights
+        .map((highlight) => '${highlight.id}:${highlight.updatedAt}')
+        .join(',');
+    final key = '$bookId:$chapterIndex:${content.hashCode}:$highlightSignature';
+    final cached = _chapterMarkupCache[key];
+    if (cached != null) return cached;
+    final prepared = ReaderDocumentHtml.prepareChapter(
+      title: title,
+      content: content,
+      highlights: highlights,
+    );
+    _chapterMarkupCache[key] = prepared;
+    return prepared;
+  }
+
+  Future<void> _precacheAdjacentChapterMarkup(int centerIndex) async {
+    if (!mounted) return;
+    final reader = context.read<ReaderProvider>();
+    final bookId = reader.book?.id;
+    if (bookId == null) return;
+    final indexes = [centerIndex - 1, centerIndex + 1]
+        .where((index) => index >= 0 && index < reader.chapters.length)
+        .toList(growable: false);
+    final chapters = await Future.wait(indexes.map(reader.preloadChapter));
+    if (!mounted || context.read<ReaderProvider>().book?.id != bookId) return;
+    for (var i = 0; i < chapters.length; i++) {
+      final chapter = chapters[i];
+      if (chapter == null) continue;
+      final chapterIndex = indexes[i];
+      final chapterHighlights = reader.highlights
+          .where(
+            (highlight) => highlight.chapterIndex == chapterIndex.toString(),
+          )
+          .toList(growable: false);
+      _chapterMarkupFor(
+        bookId: bookId,
+        chapterIndex: chapterIndex,
+        title: chapter.title,
+        content: chapter.content,
+        highlights: chapterHighlights,
+      );
     }
-    final baseDir = Uri.directory(p.dirname(filePath)).toString();
-    _webViewController.loadHtmlString(html, baseUrl: baseDir);
+    if (_chapterMarkupCache.length > 8) {
+      final retainedPrefixes = indexes
+          .followedBy([centerIndex])
+          .map((index) => '$bookId:$index:')
+          .toList(growable: false);
+      _chapterMarkupCache.removeWhere(
+        (key, _) => !retainedPrefixes.any(key.startsWith),
+      );
+    }
   }
 
   String? _chapterLoadKey(ReaderProvider reader) {
@@ -483,6 +640,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     List<Highlight> highlights = const [],
     List<Map<String, String>> nextChapters = const [],
     ReaderFontAsset? readerFontAsset,
+    ReaderChapterMarkup? preparedChapter,
   }) {
     final media = MediaQuery.of(context);
     return ReaderDocumentHtml.build(
@@ -495,22 +653,91 @@ class _ReaderScreenState extends State<ReaderScreen>
       bottomInset: media.padding.bottom + 72,
       nextChapters: nextChapters,
       readerFontAsset: readerFontAsset,
+      preparedChapter: preparedChapter,
     );
+  }
+
+  int _startPerformanceTrace(
+    int targetIndex, {
+    required String reason,
+    DateTime? startedAt,
+  }) {
+    final requestId = ++_nextPerformanceRequestId;
+    _performanceTraces[requestId] = _ChapterPerformanceTrace(
+      requestId: requestId,
+      chapterIndex: targetIndex,
+      reason: reason,
+      startedAt: startedAt ?? DateTime.now(),
+    );
+    _recordPerformanceStage(requestId, 'CHAPTER_TAP');
+    if (_performanceTraces.length > 16) {
+      final oldest = _performanceTraces.keys.reduce(
+        (left, right) => left < right ? left : right,
+      );
+      _performanceTraces.remove(oldest);
+    }
+    return requestId;
+  }
+
+  int _performanceRequestForLoad(int targetIndex) {
+    final pending = _pendingChapterIntent;
+    if (pending != null && pending.chapterIndex == targetIndex) {
+      _pendingChapterIntent = null;
+      return pending.performanceRequestId;
+    }
+    return _startPerformanceTrace(targetIndex, reason: 'state_restore');
+  }
+
+  void _recordPerformanceStage(int requestId, String stage) {
+    final trace = _performanceTraces[requestId];
+    if (trace == null || trace.stages.containsKey(stage)) return;
+    final elapsed = DateTime.now().difference(trace.startedAt).inMilliseconds;
+    trace.stages[stage] = elapsed;
+    debugPrint(
+      '[ReaderPerf] request=$requestId chapter=${trace.chapterIndex} '
+      'reason=${trace.reason} stage=$stage elapsed=${elapsed}ms',
+    );
+    if (stage == 'BODY_VISIBLE') {
+      Future<void>.delayed(const Duration(milliseconds: 80), () {
+        if (!mounted) return;
+        unawaited(_precacheAdjacentChapterMarkup(trace.chapterIndex));
+      });
+    }
+  }
+
+  void _navigateToChapter(
+    int chapterIndex, {
+    double scrollOffset = 0,
+    required String reason,
+  }) {
+    final reader = context.read<ReaderProvider>();
+    if (chapterIndex < 0 ||
+        chapterIndex >= reader.chapters.length ||
+        chapterIndex == reader.currentChapterIndex) {
+      return;
+    }
+    final requestId = _startPerformanceTrace(chapterIndex, reason: reason);
+    _pendingChapterIntent = _PendingChapterIntent(
+      chapterIndex: chapterIndex,
+      performanceRequestId: requestId,
+    );
+    reader.goToChapter(chapterIndex, scrollOffset: scrollOffset);
   }
 
   void _goNextChapter() {
     final reader = context.read<ReaderProvider>();
     if (reader.currentChapterIndex < reader.chapters.length - 1) {
-      reader.goToChapter(reader.currentChapterIndex + 1);
-      _loadChapter();
+      _navigateToChapter(reader.currentChapterIndex + 1, reason: 'next_button');
     }
   }
 
   void _goPrevChapter() {
     final reader = context.read<ReaderProvider>();
     if (reader.currentChapterIndex > 0) {
-      reader.goToChapter(reader.currentChapterIndex - 1);
-      _loadChapter();
+      _navigateToChapter(
+        reader.currentChapterIndex - 1,
+        reason: 'previous_button',
+      );
     }
   }
 
@@ -526,12 +753,17 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (direction == 'next' &&
         reader.currentChapterIndex < reader.chapters.length - 1) {
       _lastChapterBoundaryAt = now;
-      reader.goToChapter(reader.currentChapterIndex + 1);
-      _loadChapter();
+      _navigateToChapter(
+        reader.currentChapterIndex + 1,
+        reason: 'next_boundary',
+      );
     } else if (direction == 'prev' && reader.currentChapterIndex > 0) {
       _lastChapterBoundaryAt = now;
-      reader.goToChapter(reader.currentChapterIndex - 1, scrollOffset: -1);
-      _loadChapter();
+      _navigateToChapter(
+        reader.currentChapterIndex - 1,
+        scrollOffset: -1,
+        reason: 'previous_boundary',
+      );
     }
   }
 
@@ -562,13 +794,11 @@ class _ReaderScreenState extends State<ReaderScreen>
       final positionRatioBefore = await positionRatioFuture;
       await settingsProvider.flushTypographyPersistence();
       if (!mounted) return;
-      unawaited(_applyReaderStyles(settingsProvider));
+      await _applyReaderStyles(settingsProvider);
       if (settingsProvider.readerPagingMode != pagingBefore) {
-        final book = readerProvider.book;
-        if (book != null && book.format != 'pdf') {
-          _ignoreChapterMessages = true;
-          _pendingRestoreRatio = positionRatioBefore;
-          _loadChapter();
+        if (readerProvider.book?.format != 'pdf' &&
+            positionRatioBefore != null) {
+          _restoreScrollRatio(positionRatioBefore);
         }
       }
     });
@@ -666,7 +896,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                             TextButton.icon(
                               onPressed: () {
                                 setState(() => _webViewLoadError = null);
-                                _loadChapter();
+                                _loadChapter(forceFullDocument: true);
                               },
                               icon: const Icon(Icons.refresh_rounded),
                               label: const Text('重新载入正文'),
@@ -685,6 +915,11 @@ class _ReaderScreenState extends State<ReaderScreen>
                     child: SelectionMenu(
                       onExplain: () {
                         unawaited(_beginAiExplanation(reader));
+                      },
+                      onAsk: () {
+                        unawaited(
+                          _showReaderQuestion(reader, fromSelection: true),
+                        );
                       },
                       onHighlight: (color) async {
                         final chapter = reader.currentChapter;
@@ -881,6 +1116,156 @@ class _ReaderScreenState extends State<ReaderScreen>
         _showControls != restoreControls) {
       setState(() => _showControls = restoreControls);
     }
+  }
+
+  Future<void> _showReaderQuestion(
+    ReaderProvider reader, {
+    bool fromSelection = false,
+  }) async {
+    final book = reader.book;
+    final chapter = reader.currentChapter;
+    if (book == null || chapter == null || book.format == 'pdf') {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('当前格式暂时无法提取这一页的文字')));
+      }
+      return;
+    }
+    if (!await AiConsentGate.ensure(context) || !mounted) return;
+
+    final selectedText = fromSelection
+        ? (reader.selectedText?.trim() ?? '')
+        : '';
+    final plainText = EpubService.getPlainText(
+      chapter.content,
+    ).replaceAll(RegExp(r'\s+'), ' ').trim();
+    final ratio = await _captureScrollRatio() ?? 0.5;
+    if (!mounted) return;
+    var pageText = await _captureVisibleReaderText();
+    if (!mounted) return;
+    if (pageText.isEmpty) {
+      pageText = _textWindowAtRatio(plainText, ratio, 5000);
+    }
+    final chapterText = _textWindowAtRatio(plainText, ratio, 24000);
+    var contextBefore = '';
+    var contextAfter = '';
+    if (selectedText.isNotEmpty) {
+      final selectedOffset = _findSelectedTextOffset(plainText, selectedText);
+      if (selectedOffset >= 0) {
+        final beforeStart = (selectedOffset - 2600).clamp(0, selectedOffset);
+        contextBefore = plainText.substring(beforeStart, selectedOffset);
+        final afterStart = (selectedOffset + selectedText.length).clamp(
+          0,
+          plainText.length,
+        );
+        final afterEnd = (afterStart + 2600).clamp(
+          afterStart,
+          plainText.length,
+        );
+        contextAfter = plainText.substring(afterStart, afterEnd);
+      }
+    }
+
+    final initialScope = selectedText.isNotEmpty
+        ? ReaderQuestionScope.selection
+        : ReaderQuestionScope.page;
+    final questionContext = ReaderQuestionContext(
+      bookTitle: _bookTitleForDisplay(reader),
+      bookAuthor: book.author,
+      chapterTitle: chapter.title,
+      selectedText: selectedText,
+      pageText: pageText,
+      chapterText: chapterText,
+      contextBefore: contextBefore,
+      contextAfter: contextAfter,
+    );
+
+    final controlsBefore = _showControls;
+    if (selectedText.isNotEmpty) {
+      try {
+        await _webViewController.runJavaScript(
+          'window.freezeSelectionForAi && window.freezeSelectionForAi();',
+        );
+      } catch (_) {}
+      reader.clearSelection();
+      _hasWebSelection = false;
+    }
+    if (_showControls && mounted) setState(() => _showControls = false);
+    if (!mounted) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ReaderQuestionSheet(
+        readerContext: questionContext,
+        initialScope: initialScope,
+        onSaveFirstAnswer: (question, answer, scope) {
+          final recordText = questionContext.previewFor(scope);
+          return reader.addAiQuestion(
+            question: question,
+            answer: answer,
+            scope: scope.apiValue,
+            contextText: recordText.length > 6000
+                ? '${recordText.substring(0, 6000)}……'
+                : recordText,
+            pageText: pageText.length > 4000
+                ? '${pageText.substring(0, 4000)}……'
+                : pageText,
+          );
+        },
+        onSaveFollowUp: (entryId, question, answer) async {
+          await BookService.insertUserEntryFollowUp(
+            entryId: entryId,
+            question: question,
+            answer: answer,
+          );
+        },
+      ),
+    );
+
+    if (!mounted) return;
+    if (selectedText.isNotEmpty) {
+      unawaited(
+        _webViewController
+            .runJavaScript(
+              'window.releaseAiSelection && window.releaseAiSelection();',
+            )
+            .catchError((_) {}),
+      );
+    }
+    if (_showControls != controlsBefore) {
+      setState(() => _showControls = controlsBefore);
+    }
+  }
+
+  Future<String> _captureVisibleReaderText() async {
+    try {
+      final result = await _webViewController.runJavaScriptReturningResult(
+        'window.readerVisibleText ? window.readerVisibleText() : "";',
+      );
+      if (result is String) {
+        final raw = result.trim();
+        if (raw.startsWith('"') && raw.endsWith('"')) {
+          final decoded = jsonDecode(raw);
+          return decoded?.toString().trim() ?? '';
+        }
+        return raw;
+      }
+      return result.toString().trim();
+    } catch (_) {
+      return '';
+    }
+  }
+
+  String _textWindowAtRatio(String text, double ratio, int maxChars) {
+    if (text.length <= maxChars) return text;
+    final safeRatio = ratio.clamp(0.0, 1.0).toDouble();
+    final center = (text.length * safeRatio).round();
+    final start = (center - maxChars ~/ 2).clamp(0, text.length - maxChars);
+    return text.substring(start, start + maxChars);
   }
 
   String _bookTitleForDisplay(ReaderProvider reader) {
@@ -1087,8 +1472,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                     ),
                   ),
                   onTap: () {
-                    reader.goToChapter(i);
-                    _loadChapter();
+                    _navigateToChapter(i, reason: 'table_of_contents');
                     Navigator.pop(context);
                   },
                 ),
@@ -1392,6 +1776,31 @@ class _ReaderThoughtSheetState extends State<ReaderThoughtSheet> {
       ),
     );
   }
+}
+
+class _PendingChapterIntent {
+  final int chapterIndex;
+  final int performanceRequestId;
+
+  const _PendingChapterIntent({
+    required this.chapterIndex,
+    required this.performanceRequestId,
+  });
+}
+
+class _ChapterPerformanceTrace {
+  final int requestId;
+  final int chapterIndex;
+  final String reason;
+  final DateTime startedAt;
+  final Map<String, int> stages = {};
+
+  _ChapterPerformanceTrace({
+    required this.requestId,
+    required this.chapterIndex,
+    required this.reason,
+    required this.startedAt,
+  });
 }
 
 String _readerError(Object error) {

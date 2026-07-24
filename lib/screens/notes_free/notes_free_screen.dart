@@ -7,6 +7,7 @@ import '../../config/theme.dart';
 import '../../models/user_entry.dart';
 import '../../services/book_service.dart';
 import '../../services/share_service.dart';
+import '../../utils/latest_request_guard.dart';
 
 class NotesFreeScreen extends StatefulWidget {
   final int refreshSignal;
@@ -21,6 +22,10 @@ class _NotesFreeScreenState extends State<NotesFreeScreen> {
   final _searchController = TextEditingController();
   List<Map<String, dynamic>> _notes = [];
   bool _loading = true;
+  bool _refreshing = false;
+  bool _hasResolvedLoad = false;
+  String? _loadError;
+  final LatestRequestGuard _loadGuard = LatestRequestGuard();
   String _query = '';
 
   List<Map<String, dynamic>> get _visibleNotes {
@@ -49,28 +54,66 @@ class _NotesFreeScreenState extends State<NotesFreeScreen> {
 
   @override
   void dispose() {
+    _loadGuard.invalidate();
     _searchController.dispose();
     super.dispose();
   }
 
   Future<void> _loadNotes() async {
-    setState(() => _loading = true);
+    final requestVersion = _loadGuard.begin();
+    setState(() {
+      _loading = _notes.isEmpty && !_hasResolvedLoad;
+      _refreshing = _notes.isNotEmpty || _hasResolvedLoad;
+      _loadError = null;
+    });
+    debugPrint(
+      '[FreeNotesLoad] start version=$requestVersion retained=${_notes.length}',
+    );
     try {
-      final notes = await BookService.getFreeNotes();
-      if (!mounted) return;
+      final localNotes = await BookService.getFreeNotes(syncRemote: false);
+      if (!mounted || !_loadGuard.isCurrent(requestVersion)) {
+        debugPrint(
+          '[FreeNotesLoad] stale local result ignored version=$requestVersion',
+        );
+        return;
+      }
       setState(() {
-        _notes = notes;
+        _notes = localNotes;
+        _loading = false;
+        _hasResolvedLoad = true;
+      });
+      debugPrint(
+        '[FreeNotesLoad] local cache version=$requestVersion '
+        'items=${localNotes.length}',
+      );
+
+      final synced = await BookService.syncFreeNotes(throwOnFailure: true);
+      if (!mounted || !_loadGuard.isCurrent(requestVersion)) return;
+      if (synced) {
+        final refreshed = await BookService.getFreeNotes(syncRemote: false);
+        if (!mounted || !_loadGuard.isCurrent(requestVersion)) return;
+        setState(() => _notes = refreshed);
+        debugPrint(
+          '[FreeNotesLoad] server sync version=$requestVersion '
+          'items=${refreshed.length} empty=${refreshed.isEmpty}',
+        );
+      } else {
+        debugPrint('[FreeNotesLoad] local-only version=$requestVersion');
+      }
+    } catch (error) {
+      if (!mounted || !_loadGuard.isCurrent(requestVersion)) return;
+      debugPrint('[FreeNotesLoad] failed version=$requestVersion: $error');
+      setState(() {
+        _loadError = '同步暂时失败，已保留本机记录。';
         _loading = false;
       });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('随心记加载失败：$e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    } finally {
+      if (mounted && _loadGuard.isCurrent(requestVersion)) {
+        setState(() {
+          _loading = false;
+          _refreshing = false;
+        });
+      }
     }
   }
 
@@ -159,6 +202,10 @@ class _NotesFreeScreenState extends State<NotesFreeScreen> {
         child: CustomScrollView(
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           slivers: [
+            if (_refreshing)
+              const SliverToBoxAdapter(
+                child: LinearProgressIndicator(minHeight: 2),
+              ),
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
               sliver: SliverToBoxAdapter(
@@ -183,10 +230,25 @@ class _NotesFreeScreenState extends State<NotesFreeScreen> {
                   ),
                 ),
               ),
+            if (_loadError != null && _notes.isNotEmpty)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+                sliver: SliverToBoxAdapter(
+                  child: _FreeNotesLoadNotice(
+                    message: _loadError!,
+                    onRetry: _loadNotes,
+                  ),
+                ),
+              ),
             if (_loading)
               const SliverFillRemaining(
                 hasScrollBody: false,
                 child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_loadError != null && _notes.isEmpty)
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: _FreeNotesLoadFailure(onRetry: _loadNotes),
               )
             else if (notes.isEmpty)
               SliverFillRemaining(
@@ -233,6 +295,78 @@ class _NotesFreeScreenState extends State<NotesFreeScreen> {
         ),
       ],
     ];
+  }
+}
+
+class _FreeNotesLoadNotice extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const _FreeNotesLoadNotice({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+      decoration: BoxDecoration(
+        color: palette.card.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: palette.divider.withValues(alpha: 0.7)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.cloud_off_outlined, size: 18, color: palette.icon),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(color: palette.textSecondary, fontSize: 13),
+            ),
+          ),
+          TextButton(onPressed: onRetry, child: const Text('重试')),
+        ],
+      ),
+    );
+  }
+}
+
+class _FreeNotesLoadFailure extends StatelessWidget {
+  final VoidCallback onRetry;
+
+  const _FreeNotesLoadFailure({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 34),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.cloud_off_outlined, size: 34, color: palette.icon),
+            const SizedBox(height: 14),
+            Text(
+              '暂时没能同步随心记',
+              style: TextStyle(
+                color: palette.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '本机记录没有被清空，网络恢复后可以重新加载。',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: palette.textSecondary, height: 1.5),
+            ),
+            const SizedBox(height: 10),
+            TextButton(onPressed: onRetry, child: const Text('重试')),
+          ],
+        ),
+      ),
+    );
   }
 }
 

@@ -11,7 +11,6 @@ import 'screens/bookmarks/bookmarks_screen.dart';
 import 'screens/bookshelf/bookshelf_screen.dart';
 import 'screens/mingtai/community_mingtai_screen.dart';
 import 'screens/xiaou/xiaou_home_screen.dart';
-import 'screens/notes/notes_screen.dart';
 import 'screens/notes_free/notes_free_screen.dart';
 import 'screens/settings/settings_screen.dart';
 
@@ -37,7 +36,6 @@ class AiReaderApp extends StatelessWidget {
           theme: AppTheme.forTheme(settings.appThemeId),
           home: const MainScreen(),
           routes: {
-            '/notes': (_) => const NotesScreen(),
             '/bookmarks': (_) => const BookmarksScreen(),
             '/settings': (_) => const SettingsScreen(),
           },
@@ -54,13 +52,46 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
   int _xiaouRefreshSignal = 0;
   int _freeNotesRefreshSignal = 0;
   int _mingtaiRefreshSignal = 0;
   final Set<int> _initializedTabs = {0};
   final Map<int, DateTime> _lastTabActivatedAt = {0: DateTime.now()};
+  bool _wasBackgrounded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _wasBackgrounded = true;
+      return;
+    }
+    if (state != AppLifecycleState.resumed || !_wasBackgrounded || !mounted) {
+      return;
+    }
+    _wasBackgrounded = false;
+    debugPrint('[AppDataRefresh] resumed; refreshing initialized tabs');
+    setState(() {
+      if (_initializedTabs.contains(1)) _xiaouRefreshSignal++;
+      if (_initializedTabs.contains(2)) _freeNotesRefreshSignal++;
+      if (_initializedTabs.contains(3)) _mingtaiRefreshSignal++;
+    });
+    context.read<BookshelfProvider>().loadBooks();
+  }
 
   Widget _pageAt(int index) {
     if (!_initializedTabs.contains(index)) return const SizedBox.shrink();
@@ -76,6 +107,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       body: IndexedStack(
         index: _currentIndex,
         children: List.generate(4, _pageAt, growable: false),

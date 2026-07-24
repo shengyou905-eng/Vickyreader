@@ -6,10 +6,12 @@ const actionTags = new Set([
   '划线',
   '想法',
   '小U解释',
+  '问小U',
   '手动',
   'highlight',
   'thought',
   'ai_explanation',
+  'ai_question',
   'manual',
 ]);
 

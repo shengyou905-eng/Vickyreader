@@ -173,13 +173,6 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.note_alt_outlined),
-            tooltip: '阅读回应',
-            onPressed: () {
-              Navigator.of(context).pushNamed('/notes');
-            },
-          ),
-          IconButton(
             icon: const Icon(Icons.settings_outlined),
             tooltip: '设置',
             onPressed: () {
@@ -190,41 +183,129 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
       ),
       body: Consumer<BookshelfProvider>(
         builder: (context, provider, _) {
-          if (provider.isLoading) {
+          if (provider.isInitialLoading) {
             return const Center(child: CircularProgressIndicator());
+          }
+
+          if (provider.error != null && provider.books.isEmpty) {
+            return _BookshelfLoadFailure(
+              message: provider.error!,
+              onRetry: provider.loadBooks,
+            );
           }
 
           if (provider.isEmpty) {
             return EmptyBookshelf(onImport: _showImportDialog);
           }
 
-          return RefreshIndicator(
-            onRefresh: provider.loadBooks,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: GridView.builder(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: AppConstants.bookshelfColumns,
-                  childAspectRatio: 0.65,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 16,
+          return Column(
+            children: [
+              if (provider.isRefreshing)
+                const LinearProgressIndicator(minHeight: 2),
+              if (provider.error != null)
+                _BookshelfLoadNotice(onRetry: provider.loadBooks),
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: provider.loadBooks,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: GridView.builder(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: AppConstants.bookshelfColumns,
+                            childAspectRatio: 0.65,
+                            crossAxisSpacing: 12,
+                            mainAxisSpacing: 16,
+                          ),
+                      itemCount: provider.books.length + 1,
+                      itemBuilder: (context, index) {
+                        if (index == provider.books.length) {
+                          return _AddBookTile(onTap: _showImportDialog);
+                        }
+                        final book = provider.books[index];
+                        return BookGridTile(
+                          book: book,
+                          onTap: () => _openBook(book),
+                          onLongPress: () => _showBookActions(book),
+                        );
+                      },
+                    ),
+                  ),
                 ),
-                itemCount: provider.books.length + 1, // +1 for add button
-                itemBuilder: (context, index) {
-                  if (index == provider.books.length) {
-                    return _AddBookTile(onTap: _showImportDialog);
-                  }
-                  final book = provider.books[index];
-                  return BookGridTile(
-                    book: book,
-                    onTap: () => _openBook(book),
-                    onLongPress: () => _showBookActions(book),
-                  );
-                },
               ),
-            ),
+            ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _BookshelfLoadNotice extends StatelessWidget {
+  final VoidCallback onRetry;
+
+  const _BookshelfLoadNotice({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline_rounded, size: 18, color: palette.icon),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '刷新失败，书架内容已保留。',
+              style: TextStyle(color: palette.textSecondary, fontSize: 13),
+            ),
+          ),
+          TextButton(onPressed: onRetry, child: const Text('重试')),
+        ],
+      ),
+    );
+  }
+}
+
+class _BookshelfLoadFailure extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const _BookshelfLoadFailure({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 36),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline_rounded, size: 34, color: palette.icon),
+            const SizedBox(height: 14),
+            Text(
+              '书架暂时没有打开',
+              style: TextStyle(
+                color: palette.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: palette.textSecondary, height: 1.5),
+            ),
+            const SizedBox(height: 10),
+            TextButton(onPressed: onRetry, child: const Text('重试')),
+          ],
+        ),
       ),
     );
   }

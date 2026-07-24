@@ -6,31 +6,63 @@ import 'package:path/path.dart' as p;
 import '../models/book.dart';
 import '../services/book_service.dart';
 import '../services/import_service.dart';
+import '../utils/latest_request_guard.dart';
 
 class BookshelfProvider extends ChangeNotifier {
   List<Book> _books = [];
   bool _isLoading = false;
+  bool _hasLoadedOnce = false;
   String? _error;
+  final LatestRequestGuard _loadGuard = LatestRequestGuard();
 
   List<Book> get books => _books;
   bool get isLoading => _isLoading;
-  bool get isEmpty => _books.isEmpty && !_isLoading;
+  bool get isInitialLoading => _isLoading && _books.isEmpty && !_hasLoadedOnce;
+  bool get isRefreshing => _isLoading && (_books.isNotEmpty || _hasLoadedOnce);
+  bool get hasLoadedOnce => _hasLoadedOnce;
+  bool get isEmpty =>
+      _hasLoadedOnce && _books.isEmpty && !_isLoading && _error == null;
   String? get error => _error;
 
   Future<void> loadBooks() async {
+    final requestVersion = _loadGuard.begin();
     _isLoading = true;
     _error = null;
     notifyListeners();
+    debugPrint(
+      '[BookshelfLoad] start version=$requestVersion retained=${_books.length}',
+    );
     try {
-      _books = await BookService.getBooks();
+      final books = await BookService.getBooks();
+      if (!_loadGuard.isCurrent(requestVersion)) {
+        debugPrint(
+          '[BookshelfLoad] stale result ignored version=$requestVersion',
+        );
+        return;
+      }
+      _books = books;
+      _hasLoadedOnce = true;
+      debugPrint(
+        '[BookshelfLoad] local snapshot version=$requestVersion '
+        'items=${books.length} empty=${books.isEmpty}',
+      );
     } catch (e) {
+      if (!_loadGuard.isCurrent(requestVersion)) return;
       _error = e.toString();
+      debugPrint(
+        '[BookshelfLoad] failed version=$requestVersion '
+        'retained=${_books.length}: $e',
+      );
+    } finally {
+      if (_loadGuard.isCurrent(requestVersion)) {
+        _isLoading = false;
+        notifyListeners();
+      }
     }
-    _isLoading = false;
-    notifyListeners();
   }
 
   Future<Book?> importFromFile(String filePath) async {
+    _loadGuard.invalidate();
     _isLoading = true;
     notifyListeners();
     try {
@@ -49,6 +81,7 @@ class BookshelfProvider extends ChangeNotifier {
   }
 
   Future<Book?> importFromUrl(String url) async {
+    _loadGuard.invalidate();
     _isLoading = true;
     notifyListeners();
     try {
@@ -102,5 +135,11 @@ class BookshelfProvider extends ChangeNotifier {
   void clearError() {
     _error = null;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _loadGuard.invalidate();
+    super.dispose();
   }
 }

@@ -67,6 +67,38 @@ class AiService {
     return _sseStream('/api/ai/chat', {'message': message, 'history': history});
   }
 
+  /// 阅读页自由提问：只使用用户指定的当前阅读上下文。
+  static Stream<String> readerQuestionStream({
+    required String message,
+    required String scope,
+    required String selectedText,
+    required String pageText,
+    required String chapterText,
+    required String contextBefore,
+    required String contextAfter,
+    required String bookTitle,
+    required String bookAuthor,
+    required String chapterTitle,
+    required List<AiMessage> conversationHistory,
+  }) {
+    final history = conversationHistory
+        .map((m) => {'role': m.role, 'content': m.content})
+        .toList();
+    return _sseStream('/api/ai/reader-question', {
+      'message': message,
+      'scope': scope,
+      'selectedText': selectedText,
+      'pageText': pageText,
+      'chapterText': chapterText,
+      'contextBefore': contextBefore,
+      'contextAfter': contextAfter,
+      'bookTitle': bookTitle,
+      'bookAuthor': bookAuthor,
+      'chapterTitle': chapterTitle,
+      'history': history,
+    });
+  }
+
   /// 连接后端 SSE，逐 chunk yield
   static Stream<String> _sseStream(
     String path,

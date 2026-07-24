@@ -1,6 +1,12 @@
 const { query, withTransaction } = require('../config/db');
 
-const allowedSources = new Set(['highlight', 'thought', 'ai_explanation', 'manual']);
+const allowedSources = new Set([
+  'highlight',
+  'thought',
+  'ai_explanation',
+  'ai_question',
+  'manual',
+]);
 
 function normalizeTags(tags) {
   if (Array.isArray(tags)) {

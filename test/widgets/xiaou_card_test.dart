@@ -42,4 +42,32 @@ void main() {
       expect(find.byType(DraggableScrollableSheet), findsOneWidget);
     },
   );
+
+  testWidgets('reader question card keeps its own source and detail title', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.forTheme(AppThemeId.lavender),
+        home: const Scaffold(
+          body: XiaouCard(
+            entryId: 'question-entry',
+            source: 'ai_question',
+            originalText: '惩罚是一种权力技术。',
+            userNote: '这句话里的技术是什么意思？',
+            aiUnderstanding: '这里的技术不是器械，而是一套组织权力的方法。',
+            bookTitle: '规训与惩罚',
+            chapterTitle: '第一章',
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('问小U'), findsOneWidget);
+    expect(find.text('展开完整解读'), findsOneWidget);
+
+    await tester.tap(find.text('展开完整解读'));
+    await tester.pumpAndSettle();
+    expect(find.text('问小U'), findsWidgets);
+  });
 }

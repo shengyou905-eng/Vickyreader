@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../config/constants.dart';
 import '../config/reader_typography.dart';
 
 class ReaderFontAsset {
@@ -49,8 +50,12 @@ class ReaderFontService {
   static Future<ReaderFontAsset> _copyFontToReadableLocation(
     _ReaderFontDefinition definition,
   ) async {
-    final supportDir = await getApplicationSupportDirectory();
-    final fontDir = Directory(p.join(supportDir.path, 'reader_fonts'));
+    // Keep WebView fonts under the same local resource root as chapter files.
+    // Android and WKWebView can reject fonts loaded across sandbox directories.
+    final documentsDir = await getApplicationDocumentsDirectory();
+    final fontDir = Directory(
+      p.join(documentsDir.path, AppConstants.booksDir, '.reader_fonts'),
+    );
     await fontDir.create(recursive: true);
     final target = File(p.join(fontDir.path, definition.fileName));
 

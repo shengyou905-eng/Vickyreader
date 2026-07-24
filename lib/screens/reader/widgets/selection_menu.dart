@@ -6,6 +6,7 @@ import '../../../config/theme.dart';
 
 class SelectionMenu extends StatelessWidget {
   final VoidCallback onExplain;
+  final VoidCallback onAsk;
   final Function(String color) onHighlight;
   final VoidCallback onNote;
   final VoidCallback onDismiss;
@@ -13,6 +14,7 @@ class SelectionMenu extends StatelessWidget {
   const SelectionMenu({
     super.key,
     required this.onExplain,
+    required this.onAsk,
     required this.onHighlight,
     required this.onNote,
     required this.onDismiss,
@@ -61,7 +63,8 @@ class SelectionMenu extends StatelessWidget {
                   Expanded(
                     child: _CapsuleAction(
                       icon: Icons.auto_awesome_rounded,
-                      label: '小U解读',
+                      label: '解读',
+                      semanticLabel: '小U解读',
                       color: primary,
                       emphasized: true,
                       onTap: onExplain,
@@ -70,8 +73,19 @@ class SelectionMenu extends StatelessWidget {
                   _GlassDivider(color: palette.divider),
                   Expanded(
                     child: _CapsuleAction(
+                      icon: Icons.question_answer_outlined,
+                      label: '提问',
+                      semanticLabel: '问小U',
+                      color: palette.icon,
+                      onTap: onAsk,
+                    ),
+                  ),
+                  _GlassDivider(color: palette.divider),
+                  Expanded(
+                    child: _CapsuleAction(
                       icon: Icons.chat_bubble_outline_rounded,
-                      label: '写想法',
+                      label: '想法',
+                      semanticLabel: '写想法',
                       color: palette.icon,
                       onTap: onNote,
                     ),
@@ -103,6 +117,7 @@ class SelectionMenu extends StatelessWidget {
 class _CapsuleAction extends StatelessWidget {
   final IconData icon;
   final String label;
+  final String semanticLabel;
   final Color color;
   final bool emphasized;
   final VoidCallback onTap;
@@ -110,6 +125,7 @@ class _CapsuleAction extends StatelessWidget {
   const _CapsuleAction({
     required this.icon,
     required this.label,
+    required this.semanticLabel,
     required this.color,
     required this.onTap,
     this.emphasized = false,
@@ -119,28 +135,37 @@ class _CapsuleAction extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = context.appPalette;
 
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 17, color: color),
-            const SizedBox(width: 7),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: emphasized ? color : palette.textPrimary,
-                  fontSize: 13,
-                  fontWeight: emphasized ? FontWeight.w600 : FontWeight.w500,
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      child: Tooltip(
+        message: semanticLabel,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 16, color: color),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.clip,
+                    style: TextStyle(
+                      color: emphasized ? color : palette.textPrimary,
+                      fontSize: 13,
+                      fontWeight: emphasized
+                          ? FontWeight.w600
+                          : FontWeight.w500,
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
