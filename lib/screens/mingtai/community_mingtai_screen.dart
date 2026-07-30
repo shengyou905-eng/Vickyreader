@@ -9,9 +9,11 @@ import '../../models/mingtai_community.dart';
 import '../../services/auth_service.dart';
 import '../../services/app_image_cache.dart';
 import '../../services/book_service.dart';
+import '../../services/first_use_guide_service.dart';
 import '../../services/mingtai_community_api.dart';
 import '../../services/privacy_service.dart';
 import '../../utils/community_safety.dart';
+import '../../widgets/first_use_guides.dart';
 import 'mingtai_screen.dart' show MingtaiProfileScreen;
 
 const _communityApi = MingtaiCommunityApi();
@@ -52,8 +54,13 @@ Future<bool?> showCommunityPostComposer(
 
 class CommunityMingtaiScreen extends StatefulWidget {
   final int refreshSignal;
+  final bool isActive;
 
-  const CommunityMingtaiScreen({super.key, this.refreshSignal = 0});
+  const CommunityMingtaiScreen({
+    super.key,
+    this.refreshSignal = 0,
+    this.isActive = true,
+  });
 
   @override
   State<CommunityMingtaiScreen> createState() => _CommunityMingtaiScreenState();
@@ -79,6 +86,7 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
   final Map<String, _CommunityFeedSnapshot> _feedSnapshots = {};
   List<CommunityPost> _searchPosts = const [];
   List<CommunityBook> _searchBooks = const [];
+  bool _showIntroductionGuide = false;
 
   String get _tab => const ['recommend', 'following', 'same_read'][_tabIndex];
 
@@ -86,6 +94,9 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
   void initState() {
     super.initState();
     _load();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_maybeShowIntroductionGuide());
+    });
   }
 
   @override
@@ -93,6 +104,9 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.refreshSignal != widget.refreshSignal) {
       _load(quiet: true);
+    }
+    if (widget.isActive && !oldWidget.isActive) {
+      unawaited(_maybeShowIntroductionGuide());
     }
   }
 
@@ -103,6 +117,27 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
     _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _maybeShowIntroductionGuide() async {
+    final shouldShow = await FirstUseGuideService.claim(
+      FirstUseGuide.mingtaiIntroduction,
+    );
+    if (!mounted || !shouldShow) return;
+    setState(() => _showIntroductionGuide = true);
+  }
+
+  Future<void> _dismissIntroductionGuide() async {
+    await FirstUseGuideService.complete(FirstUseGuide.mingtaiIntroduction);
+    if (!mounted) return;
+    setState(() => _showIntroductionGuide = false);
+  }
+
+  Future<void> _showSharingGuide() async {
+    await FirstUseGuideService.complete(FirstUseGuide.mingtaiIntroduction);
+    if (!mounted) return;
+    setState(() => _showIntroductionGuide = false);
+    await showMingtaiSharingGuide(context);
   }
 
   Future<void> _load({bool quiet = false}) async {
@@ -337,6 +372,17 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
       body: Column(
         children: [
           if (_refreshing) const LinearProgressIndicator(minHeight: 2),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            child: _showIntroductionGuide
+                ? MingtaiIntroductionGuide(
+                    onBrowse: _dismissIntroductionGuide,
+                    onLearnSharing: _showSharingGuide,
+                    onDismiss: _dismissIntroductionGuide,
+                  )
+                : const SizedBox.shrink(),
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 12, 18, 10),
             child: TextField(

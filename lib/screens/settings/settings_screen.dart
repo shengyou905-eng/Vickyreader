@@ -6,6 +6,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/sync_service.dart';
 import '../../services/privacy_service.dart';
+import '../../services/first_use_guide_service.dart';
 import '../auth/auth_screen.dart';
 import '../mingtai/community_mingtai_screen.dart';
 
@@ -55,6 +56,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const _SectionHeader(title: '界面氛围'),
           const SizedBox(height: 8),
           const _AppearanceSection(),
+          const SizedBox(height: 24),
+
+          const _SectionHeader(title: '功能引导'),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: palette.card,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: palette.divider),
+            ),
+            child: ListTile(
+              leading: const Icon(Icons.help_outline_rounded),
+              title: const Text('重新查看功能引导'),
+              subtitle: const Text('下次进入对应场景时，再看一次简短提示'),
+              trailing: const Icon(Icons.refresh_rounded),
+              onTap: _resetFirstUseGuides,
+            ),
+          ),
           const SizedBox(height: 24),
 
           // About
@@ -315,6 +334,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await SyncService.instance.mergeAnonymousData(userId);
       await SyncService.instance.pullAll();
     } catch (_) {}
+  }
+
+  Future<void> _resetFirstUseGuides() async {
+    await FirstUseGuideService.resetAll();
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('功能引导已重置，将在下次进入对应场景时出现')));
   }
 }
 

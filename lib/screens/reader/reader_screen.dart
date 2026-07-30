@@ -14,10 +14,12 @@ import '../../providers/settings_provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/book_service.dart';
 import '../../services/epub_service.dart';
+import '../../services/first_use_guide_service.dart';
 import '../../services/mingtai_community_api.dart';
 import '../../services/reader_font_service.dart';
 import '../../utils/ai_consent_gate.dart';
 import '../../utils/community_safety.dart';
+import '../../widgets/first_use_guides.dart';
 import '../mingtai/community_mingtai_screen.dart';
 import 'widgets/ai_explanation_card.dart';
 import 'widgets/reader_settings.dart';
@@ -59,6 +61,11 @@ class _ReaderScreenState extends State<ReaderScreen>
   final Map<String, ReaderChapterMarkup> _chapterMarkupCache = {};
   final Map<ReaderFontFamily, ReaderFontAsset?> _sessionFontAssets = {};
   final Set<ReaderFontFamily> _resolvedSessionFonts = {};
+  bool _showLongPressGuide = false;
+  bool _awaitingLongPressSelection = false;
+  bool _showSelectionGuideTip = false;
+  bool _readerGuideChecked = false;
+  Timer? _selectionGuideTimer;
 
   @override
   void initState() {
@@ -153,6 +160,56 @@ class _ReaderScreenState extends State<ReaderScreen>
       _webViewController.runJavaScript("scrollToText('${_jsEscape(target)}')");
       reader.setScrollTarget(null);
     }
+    unawaited(_maybeShowLongPressGuide());
+  }
+
+  Future<void> _maybeShowLongPressGuide() async {
+    if (_readerGuideChecked || !mounted) return;
+    final reader = context.read<ReaderProvider>();
+    if (reader.book?.format == 'pdf' || !_readerDocumentReady) return;
+    _readerGuideChecked = true;
+    final shouldShow = await FirstUseGuideService.claim(
+      FirstUseGuide.readerLongPress,
+    );
+    if (!mounted || !shouldShow) return;
+    setState(() => _showLongPressGuide = true);
+  }
+
+  void _tryLongPressGuide() {
+    setState(() {
+      _showLongPressGuide = false;
+      _awaitingLongPressSelection = true;
+    });
+  }
+
+  Future<void> _dismissLongPressGuide() async {
+    await FirstUseGuideService.complete(FirstUseGuide.readerLongPress);
+    if (!mounted) return;
+    setState(() {
+      _showLongPressGuide = false;
+      _awaitingLongPressSelection = false;
+      _showSelectionGuideTip = false;
+    });
+  }
+
+  void _completeLongPressGesture() {
+    if (!_awaitingLongPressSelection || !mounted) return;
+    _selectionGuideTimer?.cancel();
+    setState(() {
+      _awaitingLongPressSelection = false;
+      _showSelectionGuideTip = true;
+    });
+    unawaited(FirstUseGuideService.complete(FirstUseGuide.readerLongPress));
+    _selectionGuideTimer = Timer(const Duration(seconds: 4), () {
+      if (!mounted) return;
+      setState(() => _showSelectionGuideTip = false);
+    });
+  }
+
+  void _hideSelectionGuideTip() {
+    _selectionGuideTimer?.cancel();
+    if (!_showSelectionGuideTip || !mounted) return;
+    setState(() => _showSelectionGuideTip = false);
   }
 
   void _restoreScrollOffset(double offset, SettingsProvider settings) {
@@ -347,6 +404,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       final selectedText = text.substring(7);
       _hasWebSelection = selectedText.isNotEmpty;
       context.read<ReaderProvider>().selectText(selectedText);
+      if (selectedText.isNotEmpty) _completeLongPressGesture();
     } else if (text.startsWith('CHAPTER|')) {
       if (_ignoreChapterMessages) return;
       final offset = int.tryParse(text.substring(8)) ?? 0;
@@ -914,14 +972,17 @@ class _ReaderScreenState extends State<ReaderScreen>
                     right: 0,
                     child: SelectionMenu(
                       onExplain: () {
+                        _hideSelectionGuideTip();
                         unawaited(_beginAiExplanation(reader));
                       },
                       onAsk: () {
+                        _hideSelectionGuideTip();
                         unawaited(
                           _showReaderQuestion(reader, fromSelection: true),
                         );
                       },
                       onHighlight: (color) async {
+                        _hideSelectionGuideTip();
                         final chapter = reader.currentChapter;
                         if (chapter != null) {
                           final plainText = EpubService.getPlainText(
@@ -964,10 +1025,18 @@ class _ReaderScreenState extends State<ReaderScreen>
                         }
                         reader.clearSelection();
                       },
-                      onNote: () => _showNoteDialog(reader),
-                      onDismiss: () => _clearReaderSelection(reader),
+                      onNote: () {
+                        _hideSelectionGuideTip();
+                        unawaited(_showNoteDialog(reader));
+                      },
+                      onDismiss: () {
+                        _hideSelectionGuideTip();
+                        _clearReaderSelection(reader);
+                      },
                     ),
                   ),
+
+                if (_showSelectionGuideTip) const ReaderSelectionGuideTip(),
 
                 if (reader.showAiPanel)
                   AnimatedPositioned(
@@ -995,6 +1064,11 @@ class _ReaderScreenState extends State<ReaderScreen>
 
                 if (_showControls) _buildTopBar(reader),
                 if (_showControls) _buildBottomBar(reader),
+                if (_showLongPressGuide)
+                  ReaderLongPressGuide(
+                    onTry: _tryLongPressGuide,
+                    onDismiss: _dismissLongPressGuide,
+                  ),
               ],
             );
           },
@@ -1582,6 +1656,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _selectionGuideTimer?.cancel();
     final settings = _settingsProvider;
     if (settings != null) {
       unawaited(settings.flushTypographyPersistence().catchError((_) {}));
@@ -1725,8 +1800,8 @@ class _ReaderThoughtSheetState extends State<ReaderThoughtSheet> {
                 const SizedBox(height: 14),
                 SegmentedButton<bool>(
                   segments: const [
-                    ButtonSegment(value: false, label: Text('仅自己')),
-                    ButtonSegment(value: true, label: Text('公开到明台')),
+                    ButtonSegment(value: false, label: Text('仅自己可见')),
+                    ButtonSegment(value: true, label: Text('分享到明台')),
                   ],
                   selected: {_isPublic},
                   showSelectedIcon: false,
@@ -1744,7 +1819,7 @@ class _ReaderThoughtSheetState extends State<ReaderThoughtSheet> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _isPublic ? '只会公开这段短摘录和你的想法，电子书文件不会上传。' : '保存在私人阅读记录中。',
+                  _isPublic ? '这段话会出现在书页边缘。未发布的记录仍只属于你。' : '保存在私人阅读记录中，不会自动公开。',
                   style: TextStyle(color: palette.textSecondary, fontSize: 12),
                 ),
                 if (_error != null) ...[
@@ -1765,7 +1840,7 @@ class _ReaderThoughtSheetState extends State<ReaderThoughtSheet> {
                     const SizedBox(width: 8),
                     FilledButton(
                       onPressed: _submit,
-                      child: Text(_isPublic ? '发布' : '保存'),
+                      child: Text(_isPublic ? '发布到明台' : '暂时留给自己'),
                     ),
                   ],
                 ),

@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import '../../config/theme.dart';
 import '../../models/ai_conversation.dart';
 import '../../services/ai_service.dart';
+import '../../services/first_use_guide_service.dart';
 import '../../utils/ai_consent_gate.dart';
 import '../../services/book_service.dart';
+import '../../widgets/first_use_guides.dart';
 import 'book_traces_screen.dart';
 import 'topic_screen.dart';
 import 'widgets/xiaou_card.dart';
@@ -18,11 +20,13 @@ import '../../utils/latest_request_guard.dart';
 class XiaouHomeScreen extends StatefulWidget {
   final int refreshSignal;
   final bool autoLoad;
+  final bool isActive;
 
   const XiaouHomeScreen({
     super.key,
     this.refreshSignal = 0,
     this.autoLoad = true,
+    this.isActive = true,
   });
 
   @override
@@ -96,6 +100,8 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   bool _importantOnly = false;
   final Set<String> _deletingIds = {};
   final Set<String> _updatingImportanceIds = {};
+  bool _showPresenceGuide = false;
+  Timer? _presenceGuidePulseTimer;
 
   @override
   void initState() {
@@ -103,6 +109,9 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     if (widget.autoLoad) {
       _load();
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_maybeShowPresenceGuide());
+    });
   }
 
   @override
@@ -111,13 +120,46 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     if (widget.refreshSignal != oldWidget.refreshSignal) {
       _load(forceRefresh: true);
     }
+    if (widget.isActive && !oldWidget.isActive) {
+      unawaited(_maybeShowPresenceGuide());
+    }
   }
 
   @override
   void dispose() {
     _loadGuard.invalidate();
+    _presenceGuidePulseTimer?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _maybeShowPresenceGuide() async {
+    final shouldShow = await FirstUseGuideService.claim(
+      FirstUseGuide.xiaouPresence,
+    );
+    if (!mounted || !shouldShow) return;
+    setState(() {
+      _showPresenceGuide = true;
+      _presencePulseKey++;
+    });
+    _presenceGuidePulseTimer?.cancel();
+    _presenceGuidePulseTimer = Timer(const Duration(milliseconds: 1500), () {
+      if (!mounted || !_showPresenceGuide) return;
+      setState(() => _presencePulseKey++);
+    });
+  }
+
+  Future<void> _dismissPresenceGuide() async {
+    await FirstUseGuideService.complete(FirstUseGuide.xiaouPresence);
+    if (!mounted) return;
+    setState(() => _showPresenceGuide = false);
+  }
+
+  Future<void> _openPresenceGuide() async {
+    await FirstUseGuideService.complete(FirstUseGuide.xiaouPresence);
+    if (!mounted) return;
+    setState(() => _showPresenceGuide = false);
+    await _showAgentChat(onboarding: true);
   }
 
   Future<void> _load({bool forceRefresh = false}) async {
@@ -451,14 +493,19 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
                 Expanded(child: _buildContent()),
               ],
             ),
+          if (_showPresenceGuide)
+            XiaouPresenceGuide(
+              onOpen: _openPresenceGuide,
+              onDismiss: _dismissPresenceGuide,
+            ),
           Positioned(
             right: 36,
             bottom: 88 + MediaQuery.viewPaddingOf(context).bottom,
             child: RepaintBoundary(
               child: XiaouPresenceOrb(
-                isThinking: false,
+                isThinking: _showPresenceGuide,
                 pulseKey: _presencePulseKey,
-                onTap: _showAgentChat,
+                onTap: _showPresenceGuide ? _openPresenceGuide : _showAgentChat,
               ),
             ),
           ),
@@ -467,13 +514,13 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     );
   }
 
-  Future<void> _showAgentChat() async {
+  Future<void> _showAgentChat({bool onboarding = false}) async {
     if (!await AiConsentGate.ensure(context) || !mounted) return;
-    showModalBottomSheet<void>(
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => const _XiaouAgentChatSheet(),
+      builder: (_) => _XiaouAgentChatSheet(showOnboardingEntries: onboarding),
     );
   }
 
@@ -699,29 +746,61 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
             ),
           ),
           const SizedBox(height: 10),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
+          SizedBox(
+            height: 42,
             child: Row(
-              children: filters.map((filter) {
-                final selected = _sourceFilter == filter.$1;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: ChoiceChip(
-                    label: Text(filter.$2),
-                    selected: selected,
-                    showCheckmark: false,
-                    onSelected: (_) =>
-                        setState(() => _sourceFilter = filter.$1),
-                    backgroundColor: palette.card.withAlpha(180),
-                    selectedColor: palette.primaryLight.withAlpha(105),
-                    side: BorderSide(
-                      color: selected
-                          ? palette.primary.withAlpha(90)
-                          : palette.divider.withAlpha(100),
+              children: [
+                for (var index = 0; index < filters.length; index++) ...[
+                  if (index > 0) const SizedBox(width: 6),
+                  Expanded(
+                    child: Semantics(
+                      button: true,
+                      selected: _sourceFilter == filters[index].$1,
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(11),
+                          onTap: () =>
+                              setState(() => _sourceFilter = filters[index].$1),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 160),
+                            curve: Curves.easeOut,
+                            alignment: Alignment.center,
+                            padding: const EdgeInsets.symmetric(horizontal: 2),
+                            decoration: BoxDecoration(
+                              color: _sourceFilter == filters[index].$1
+                                  ? palette.primaryLight.withAlpha(92)
+                                  : palette.card.withAlpha(180),
+                              borderRadius: BorderRadius.circular(11),
+                              border: Border.all(
+                                color: _sourceFilter == filters[index].$1
+                                    ? palette.primary.withAlpha(90)
+                                    : palette.divider.withAlpha(100),
+                              ),
+                            ),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                filters[index].$2,
+                                maxLines: 1,
+                                style: TextStyle(
+                                  color: _sourceFilter == filters[index].$1
+                                      ? palette.primaryDark
+                                      : palette.textPrimary,
+                                  fontSize: 12.5,
+                                  fontWeight: _sourceFilter == filters[index].$1
+                                      ? FontWeight.w600
+                                      : FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                );
-              }).toList(),
+                ],
+              ],
             ),
           ),
           const SizedBox(height: 6),
@@ -893,7 +972,9 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
 }
 
 class _XiaouAgentChatSheet extends StatefulWidget {
-  const _XiaouAgentChatSheet();
+  final bool showOnboardingEntries;
+
+  const _XiaouAgentChatSheet({this.showOnboardingEntries = false});
 
   @override
   State<_XiaouAgentChatSheet> createState() => _XiaouAgentChatSheetState();
@@ -911,6 +992,16 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
     '为什么这句话让我停下来？',
     '这几本书之间有没有联系？',
     '你最近发现了什么？',
+  ];
+
+  static const List<(IconData, String, String)> _onboardingEntries = [
+    (Icons.auto_awesome_outlined, '解读刚才读到的内容', '请结合我最近读到的内容，帮我看清其中最需要理解的一处。'),
+    (
+      Icons.format_quote_rounded,
+      '回顾我的划线与批注',
+      '请回看我最近的划线与批注，告诉我其中有没有值得继续追问的联系。',
+    ),
+    (Icons.menu_book_outlined, '和小U聊聊这本书', '请从我最近正在读的书开始，陪我聊聊我停留最多的那个问题。'),
   ];
 
   @override
@@ -1161,6 +1252,71 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
   }
 
   Widget _buildEmptyState(AppPalette palette) {
+    if (widget.showOnboardingEntries) {
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(22, 16, 22, 24),
+        children: [
+          Text(
+            '从正在读的地方开始',
+            style: TextStyle(
+              color: palette.textPrimary,
+              fontSize: 17,
+              height: 1.55,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            '你可以直接输入，也可以先从下面的一件事开始。',
+            style: TextStyle(
+              color: palette.textSecondary,
+              fontSize: 13,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 18),
+          for (final entry in _onboardingEntries)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 9),
+              child: Material(
+                color: palette.card.withValues(alpha: 0.72),
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => _send(entry.$3),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 14,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(entry.$1, size: 19, color: palette.icon),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            entry.$2,
+                            style: TextStyle(
+                              color: palette.textPrimary,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          size: 19,
+                          color: palette.textSecondary,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      );
+    }
     return ListView(
       padding: const EdgeInsets.fromLTRB(22, 18, 22, 22),
       children: [

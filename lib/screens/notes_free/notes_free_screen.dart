@@ -1298,20 +1298,31 @@ class _FreeNotesEmpty extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
+    if (!hasQuery) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(28, 24, 28, 96),
+          child: Text(
+            '写下此刻想到的。',
+            style: TextStyle(
+              color: palette.textSecondary,
+              fontSize: 15,
+              height: 1.6,
+            ),
+          ),
+        ),
+      );
+    }
     return Center(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(28, 24, 28, 96),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              hasQuery ? Icons.search_off : Icons.local_florist_outlined,
-              size: 54,
-              color: palette.illustration,
-            ),
+            Icon(Icons.search_off, size: 54, color: palette.illustration),
             const SizedBox(height: 18),
             Text(
-              hasQuery ? '没有找到那句话' : '这里还很安静',
+              '没有找到那句话',
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
@@ -1320,7 +1331,7 @@ class _FreeNotesEmpty extends StatelessWidget {
             ),
             const SizedBox(height: 9),
             Text(
-              hasQuery ? '换个词，再慢慢找找' : '随手写下一点什么，让它在这里安静生长',
+              '换个词，再慢慢找找',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 height: 1.6,

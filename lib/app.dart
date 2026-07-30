@@ -97,9 +97,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (!_initializedTabs.contains(index)) return const SizedBox.shrink();
     return switch (index) {
       0 => const BookshelfScreen(),
-      1 => XiaouHomeScreen(refreshSignal: _xiaouRefreshSignal),
+      1 => XiaouHomeScreen(
+        refreshSignal: _xiaouRefreshSignal,
+        isActive: _currentIndex == 1,
+      ),
       2 => NotesFreeScreen(refreshSignal: _freeNotesRefreshSignal),
-      3 => CommunityMingtaiScreen(refreshSignal: _mingtaiRefreshSignal),
+      3 => CommunityMingtaiScreen(
+        refreshSignal: _mingtaiRefreshSignal,
+        isActive: _currentIndex == 3,
+      ),
       _ => const SizedBox.shrink(),
     };
   }
