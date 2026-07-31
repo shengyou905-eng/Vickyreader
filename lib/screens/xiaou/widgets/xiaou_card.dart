@@ -72,6 +72,8 @@ class _XiaouCardState extends State<XiaouCard> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    final visuals = context.appVisuals;
     final tags = _parseTags(widget.aiTags, source: widget.source);
     final isExplanation =
         widget.source == 'ai_explanation' || widget.source == 'ai_question';
@@ -88,7 +90,9 @@ class _XiaouCardState extends State<XiaouCard> {
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(visuals.cardRadius),
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: isExplanation && cleanedUnderstanding.isNotEmpty
@@ -109,13 +113,13 @@ class _XiaouCardState extends State<XiaouCard> {
                   Icon(
                     _sourceIcon(widget.source),
                     size: 14,
-                    color: AppTheme.textSecondary,
+                    color: visuals.inkMuted,
                   ),
                   const SizedBox(width: 6),
                   Text(
                     _sourceLabel(widget.source),
-                    style: const TextStyle(
-                      color: AppTheme.textSecondary,
+                    style: TextStyle(
+                      color: visuals.inkMuted,
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
                     ),
@@ -125,7 +129,7 @@ class _XiaouCardState extends State<XiaouCard> {
                     Icon(
                       Icons.star_rounded,
                       size: 17,
-                      color: context.appPalette.primaryDark,
+                      color: palette.primaryDeep,
                     ),
                 ],
               ),
@@ -134,7 +138,7 @@ class _XiaouCardState extends State<XiaouCard> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppTheme.primaryLight.withAlpha(18),
+                  color: palette.primarySoft.withValues(alpha: 0.42),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
@@ -163,10 +167,10 @@ class _XiaouCardState extends State<XiaouCard> {
                         overflow: _expanded
                             ? TextOverflow.visible
                             : TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
                           height: 1.5,
-                          color: AppTheme.textSecondary,
+                          color: visuals.inkMuted,
                         ),
                       ),
                     ),
@@ -178,12 +182,12 @@ class _XiaouCardState extends State<XiaouCard> {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Padding(
-                      padding: EdgeInsets.only(top: 2, right: 7),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2, right: 7),
                       child: Icon(
                         Icons.auto_awesome_outlined,
                         size: 14,
-                        color: AppTheme.textSecondary,
+                        color: visuals.inkMuted,
                       ),
                     ),
                     Expanded(
@@ -193,10 +197,10 @@ class _XiaouCardState extends State<XiaouCard> {
                         overflow: !isExplanation && _expanded
                             ? TextOverflow.visible
                             : TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
                           height: 1.5,
-                          color: AppTheme.textSecondary,
+                          color: visuals.inkMuted,
                         ),
                       ),
                     ),
@@ -212,7 +216,7 @@ class _XiaouCardState extends State<XiaouCard> {
                     Text(
                       '展开完整解读',
                       style: TextStyle(
-                        color: context.appPalette.primaryDark,
+                        color: palette.primaryDeep,
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
@@ -221,7 +225,7 @@ class _XiaouCardState extends State<XiaouCard> {
                     Icon(
                       Icons.open_in_full_rounded,
                       size: 14,
-                      color: context.appPalette.primaryDark,
+                      color: palette.primaryDeep,
                     ),
                   ],
                 ),
@@ -236,7 +240,7 @@ class _XiaouCardState extends State<XiaouCard> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: context.appPalette.textSecondary,
+                        color: visuals.inkMuted,
                         fontSize: 11.5,
                         height: 1.4,
                       ),
@@ -273,7 +277,9 @@ class _XiaouCardState extends State<XiaouCard> {
                         label: label,
                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         visualDensity: VisualDensity.compact,
-                        backgroundColor: AppTheme.primaryLight.withAlpha(25),
+                        backgroundColor: palette.primarySoft.withValues(
+                          alpha: 0.48,
+                        ),
                         side: BorderSide.none,
                       );
                     }
@@ -281,7 +287,9 @@ class _XiaouCardState extends State<XiaouCard> {
                       label: label,
                       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       visualDensity: VisualDensity.compact,
-                      backgroundColor: AppTheme.primaryLight.withAlpha(25),
+                      backgroundColor: palette.primarySoft.withValues(
+                        alpha: 0.48,
+                      ),
                       side: BorderSide.none,
                       onPressed: () => widget.onTagTap!(tag),
                     );

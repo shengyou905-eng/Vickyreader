@@ -34,6 +34,8 @@ class AiReaderApp extends StatelessWidget {
           title: AppConstants.appName,
           debugShowCheckedModeBanner: false,
           theme: AppTheme.forTheme(settings.appThemeId),
+          themeAnimationDuration: AppVisualFoundation.standard.motionDuration,
+          themeAnimationCurve: Curves.easeOutCubic,
           home: const MainScreen(),
           routes: {
             '/bookmarks': (_) => const BookmarksScreen(),
@@ -134,7 +136,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             _initializedTabs.add(i);
             _lastTabActivatedAt[i] = now;
             if (wasInitialized && i == 1) _xiaouRefreshSignal++;
-            if (shouldCheckForUpdates && i == 2) _freeNotesRefreshSignal++;
+            // Free notes can be created from Xiaou while this tab stays alive.
+            // Always re-read the fast local cache when returning to the tab.
+            if (wasInitialized && i == 2) _freeNotesRefreshSignal++;
             if (shouldCheckForUpdates && i == 3) _mingtaiRefreshSignal++;
             _currentIndex = i;
           });

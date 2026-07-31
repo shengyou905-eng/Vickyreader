@@ -158,6 +158,37 @@ CREATE TABLE IF NOT EXISTS xiaou_free_note_grants (
 CREATE INDEX IF NOT EXISTS idx_xiaou_free_note_grants_user
   ON xiaou_free_note_grants(user_id, granted_at DESC);
 
+CREATE TABLE IF NOT EXISTS xiaou_conversations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL DEFAULT '',
+  book_id TEXT,
+  book_title TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_xiaou_conversations_user_updated
+  ON xiaou_conversations(user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS xiaou_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID NOT NULL REFERENCES xiaou_conversations(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  content TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'completed' CHECK (
+    status IN ('completed', 'cancelled', 'error')
+  ),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_xiaou_messages_conversation_created
+  ON xiaou_messages(conversation_id, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_xiaou_messages_user_created
+  ON xiaou_messages(user_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS user_insights (
   user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   recent_focus JSONB NOT NULL DEFAULT '{}'::jsonb,

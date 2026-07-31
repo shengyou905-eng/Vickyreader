@@ -1,11 +1,27 @@
 import 'package:ai_reader/config/reader_paging_mode.dart';
 import 'package:ai_reader/config/reader_typography.dart';
+import 'package:ai_reader/config/theme.dart';
 import 'package:ai_reader/providers/settings_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('app accent theme persists and defaults to lavender', () async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsProvider();
+    await settings.loadSettings();
+
+    expect(settings.appThemeId, AppThemeId.lavender);
+    await settings.setAppThemeId(AppThemeId.sage);
+
+    final restored = SettingsProvider();
+    await restored.loadSettings();
+    expect(restored.appThemeId, AppThemeId.sage);
+    restored.dispose();
+    settings.dispose();
+  });
 
   test('reader typography is stored independently for each book', () async {
     SharedPreferences.setMockInitialValues({});

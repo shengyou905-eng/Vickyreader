@@ -350,29 +350,34 @@ class _AppearanceSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.appPalette;
+    final visuals = context.appVisuals;
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
       decoration: BoxDecoration(
-        color: palette.card,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: palette.divider),
+        color: visuals.surface,
+        borderRadius: BorderRadius.circular(visuals.controlRadius),
+        border: Border.all(color: visuals.divider),
       ),
       child: Consumer<SettingsProvider>(
         builder: (context, settings, _) {
-          return Row(
-            children: [
-              for (var i = 0; i < AppThemeId.values.length; i++) ...[
-                if (i > 0) const SizedBox(width: 8),
-                Expanded(
-                  child: _ThemeChoice(
-                    themeId: AppThemeId.values[i],
-                    selected: settings.appThemeId == AppThemeId.values[i],
-                    onTap: () => settings.setAppThemeId(AppThemeId.values[i]),
-                  ),
-                ),
-              ],
-            ],
+          return GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: AppThemeId.values.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 9,
+              mainAxisSpacing: 9,
+              childAspectRatio: 1.48,
+            ),
+            itemBuilder: (context, index) {
+              final themeId = AppThemeId.values[index];
+              return _ThemeChoice(
+                themeId: themeId,
+                selected: settings.appThemeId == themeId,
+                onTap: () => settings.setAppThemeId(themeId),
+              );
+            },
           );
         },
       ),
@@ -740,69 +745,79 @@ class _ThemeChoice extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = AppTheme.paletteFor(themeId);
     final currentPalette = context.appPalette;
+    final visuals = context.appVisuals;
     return InkWell(
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(visuals.controlRadius),
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.fromLTRB(7, 8, 7, 7),
+        duration: visuals.motionDuration,
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.fromLTRB(9, 9, 9, 8),
         decoration: BoxDecoration(
-          color: palette.background,
-          borderRadius: BorderRadius.circular(10),
+          color: selected
+              ? palette.selectedBackground.withValues(alpha: 0.36)
+              : visuals.surfaceSoft,
+          borderRadius: BorderRadius.circular(visuals.controlRadius),
           border: Border.all(
-            color: selected ? currentPalette.primary : palette.divider,
-            width: selected ? 1.8 : 1,
+            color: selected ? currentPalette.primary : visuals.divider,
+            width: selected ? 1.5 : 1,
           ),
         ),
         child: Column(
           children: [
-            Container(
-              height: 54,
-              padding: const EdgeInsets.all(7),
-              decoration: BoxDecoration(
-                color: palette.card,
-                borderRadius: BorderRadius.circular(7),
-                border: Border.all(color: palette.divider),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Icon(
-                    Icons.auto_stories_outlined,
-                    size: 18,
-                    color: palette.illustration,
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: visuals.surface,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: palette.primary.withValues(alpha: 0.16),
                   ),
-                  const Spacer(),
-                  Container(
-                    width: 21,
-                    height: 9,
-                    decoration: BoxDecoration(
-                      color: palette.primary,
-                      borderRadius: BorderRadius.circular(5),
+                ),
+                child: Stack(
+                  children: [
+                    Align(
+                      alignment: Alignment.bottomLeft,
+                      child: Icon(
+                        Icons.auto_stories_outlined,
+                        size: 18,
+                        color: palette.glow,
+                      ),
                     ),
-                  ),
-                ],
+                    Align(
+                      alignment: Alignment.bottomRight,
+                      child: Container(
+                        width: 28,
+                        height: 9,
+                        decoration: BoxDecoration(
+                          color: palette.primary,
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                      ),
+                    ),
+                    if (selected)
+                      Align(
+                        alignment: Alignment.topRight,
+                        child: Icon(
+                          Icons.check_circle_rounded,
+                          size: 16,
+                          color: currentPalette.primaryDeep,
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
-            const SizedBox(height: 7),
+            const SizedBox(height: 6),
             Text(
-              themeId.label,
+              '${themeId.label} · ${themeId.chineseLabel}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: selected
-                    ? currentPalette.primaryDark
-                    : currentPalette.textPrimary,
-                fontSize: 11,
+                color: selected ? currentPalette.primaryDeep : visuals.ink,
+                fontSize: 12,
                 fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              themeId.chineseLabel,
-              style: TextStyle(
-                color: currentPalette.textSecondary,
-                fontSize: 10,
               ),
             ),
           ],

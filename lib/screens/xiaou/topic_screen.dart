@@ -1,19 +1,17 @@
 import 'package:flutter/material.dart';
 import '../../config/theme.dart';
 import '../../services/book_service.dart';
+import '../../widgets/app_paper_surface.dart';
 
 class XiaouTopicScreen extends StatelessWidget {
   final String tag;
   final List<Map<String, dynamic>> items;
 
-  const XiaouTopicScreen({
-    super.key,
-    required this.tag,
-    required this.items,
-  });
+  const XiaouTopicScreen({super.key, required this.tag, required this.items});
 
   @override
   Widget build(BuildContext context) {
+    final visuals = context.appVisuals;
     final topicItems = _topicItems();
     final groups = _groupByBook(topicItems);
     final recentAt = topicItems.isEmpty
@@ -22,22 +20,29 @@ class XiaouTopicScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('主题')),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-        children: [
-          _TopicHeader(
-            tag: tag,
-            count: topicItems.length,
-            recentAt: recentAt,
+      body: AppPaperSurface(
+        child: ListView(
+          padding: EdgeInsets.fromLTRB(
+            visuals.pagePadding,
+            12,
+            visuals.pagePadding,
+            32,
           ),
-          const SizedBox(height: 18),
-          if (topicItems.isEmpty)
-            const _TopicEmpty()
-          else
-            ...groups.map((group) => _BookEntryGroup(group: group)),
-          const SizedBox(height: 8),
-          _TopicSummary(tag: tag, items: topicItems),
-        ],
+          children: [
+            _TopicHeader(
+              tag: tag,
+              count: topicItems.length,
+              recentAt: recentAt,
+            ),
+            SizedBox(height: visuals.sectionSpacing),
+            if (topicItems.isEmpty)
+              const _TopicEmpty()
+            else
+              ...groups.map((group) => _BookEntryGroup(group: group)),
+            const SizedBox(height: 4),
+            _TopicSummary(tag: tag, items: topicItems),
+          ],
+        ),
       ),
     );
   }
@@ -103,25 +108,37 @@ class _TopicHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    final visuals = context.appVisuals;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(22, 22, 22, 24),
+      padding: EdgeInsets.fromLTRB(
+        visuals.cardPadding + 4,
+        20,
+        visuals.cardPadding + 4,
+        22,
+      ),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFFFFBF8), Color(0xFFF2EEFF)],
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withAlpha(180)),
+        color: palette.primarySoft.withValues(alpha: 0.56),
+        borderRadius: BorderRadius.circular(visuals.cardRadius),
+        border: Border.all(color: palette.primary.withValues(alpha: 0.14)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
+            '回望',
+            style: TextStyle(
+              color: palette.primaryDeep,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
             tag,
-            style: const TextStyle(
-              color: AppTheme.textPrimary,
+            style: TextStyle(
+              color: visuals.ink,
               fontSize: 28,
               fontWeight: FontWeight.w700,
               height: 1.2,
@@ -130,10 +147,7 @@ class _TopicHeader extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             '$count 条摘录 · 最近记录 ${_formatDate(recentAt)}',
-            style: const TextStyle(
-              color: AppTheme.textSecondary,
-              fontSize: 13,
-            ),
+            style: TextStyle(color: visuals.inkMuted, fontSize: 13),
           ),
         ],
       ),
@@ -148,26 +162,34 @@ class _BookEntryGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    final visuals = context.appVisuals;
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: EdgeInsets.fromLTRB(
+        visuals.cardPadding,
+        15,
+        visuals.cardPadding,
+        8,
+      ),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.dividerColor.withAlpha(130)),
+        color: visuals.surface,
+        borderRadius: BorderRadius.circular(visuals.cardRadius),
+        border: Border.all(color: visuals.divider.withValues(alpha: 0.72)),
+        boxShadow: visuals.cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.menu_book_outlined, size: 16, color: AppTheme.primary),
+              Icon(Icons.menu_book_outlined, size: 16, color: palette.primary),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   group.bookTitle,
-                  style: const TextStyle(
-                    color: AppTheme.textPrimary,
+                  style: TextStyle(
+                    color: visuals.ink,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                   ),
@@ -176,7 +198,7 @@ class _BookEntryGroup extends StatelessWidget {
               ),
               Text(
                 '${group.items.length} 条',
-                style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                style: TextStyle(color: visuals.inkMuted, fontSize: 12),
               ),
             ],
           ),
@@ -195,6 +217,8 @@ class _TopicEntryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    final visuals = context.appVisuals;
     final originalText = (item['original_text'] as String?)?.trim() ?? '';
     final userNote = (item['user_note'] as String?)?.trim() ?? '';
     final createdAt = BookService.mingtaiItemCreatedAt(item);
@@ -202,9 +226,12 @@ class _TopicEntryTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.only(left: 12, bottom: 14),
       margin: const EdgeInsets.only(left: 3),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         border: Border(
-          left: BorderSide(color: AppTheme.dividerColor, width: 1),
+          left: BorderSide(
+            color: palette.primary.withValues(alpha: 0.24),
+            width: 1,
+          ),
         ),
       ),
       child: Column(
@@ -212,14 +239,14 @@ class _TopicEntryTile extends StatelessWidget {
         children: [
           Text(
             _formatDate(createdAt),
-            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+            style: TextStyle(color: visuals.inkMuted, fontSize: 11),
           ),
           const SizedBox(height: 7),
           if (originalText.isNotEmpty)
             Text(
               originalText,
-              style: const TextStyle(
-                color: AppTheme.textPrimary,
+              style: TextStyle(
+                color: visuals.ink,
                 fontSize: 14,
                 height: 1.55,
                 fontStyle: FontStyle.italic,
@@ -229,8 +256,8 @@ class _TopicEntryTile extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               userNote,
-              style: const TextStyle(
-                color: AppTheme.textSecondary,
+              style: TextStyle(
+                color: visuals.inkMuted,
                 fontSize: 13,
                 height: 1.45,
               ),
@@ -246,27 +273,23 @@ class _TopicSummary extends StatelessWidget {
   final String tag;
   final List<Map<String, dynamic>> items;
 
-  const _TopicSummary({
-    required this.tag,
-    required this.items,
-  });
+  const _TopicSummary({required this.tag, required this.items});
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    final visuals = context.appVisuals;
     return Container(
       margin: const EdgeInsets.only(top: 4),
-      padding: const EdgeInsets.all(18),
+      padding: EdgeInsets.all(visuals.cardPadding),
       decoration: BoxDecoration(
-        color: AppTheme.primaryLight.withAlpha(22),
-        borderRadius: BorderRadius.circular(18),
+        color: visuals.surfaceSoft,
+        borderRadius: BorderRadius.circular(visuals.cardRadius),
+        border: Border(left: BorderSide(color: palette.primary, width: 2)),
       ),
       child: Text(
         _summaryText(),
-        style: const TextStyle(
-          color: AppTheme.textSecondary,
-          fontSize: 13,
-          height: 1.55,
-        ),
+        style: TextStyle(color: visuals.inkMuted, fontSize: 13, height: 1.55),
       ),
     );
   }
@@ -304,13 +327,11 @@ class _TopicEmpty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 80),
+    final visuals = context.appVisuals;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 80),
       child: Center(
-        child: Text(
-          '这个主题下还没有条目',
-          style: TextStyle(color: AppTheme.textSecondary),
-        ),
+        child: Text('这个主题下还没有条目', style: TextStyle(color: visuals.inkMuted)),
       ),
     );
   }
@@ -320,10 +341,7 @@ class _BookGroup {
   final String bookTitle;
   final List<Map<String, dynamic>> items;
 
-  const _BookGroup({
-    required this.bookTitle,
-    required this.items,
-  });
+  const _BookGroup({required this.bookTitle, required this.items});
 
   DateTime? get latestAt {
     if (items.isEmpty) return null;

@@ -2,7 +2,8 @@
 
 第一阶段后端地基：Node.js + Express + PostgreSQL + JWT + bcrypt。
 
-暂不实现 embedding、RAG、思维导图、小U对话。
+暂不实现 embedding、RAG 和思维导图。小U对话使用独立会话表保存，
+不会混入 `user_entries` 或自动写入随心记。
 
 ## 文件结构
 
@@ -337,6 +338,13 @@ JWT 生效的判断：
 - DeepSeek Key 只配置在服务器 `.env` 的 `DEEPSEEK_API_KEY`。
 - `POST /api/ai/chat` 与 `POST /api/ai/explain` 要求用户先完成
   `POST /api/auth/ai-consent`。
+- 小U对话历史接口均要求 JWT，并且只允许访问当前用户自己的数据：
+  - `GET /api/xiaou/conversations`
+  - `POST /api/xiaou/conversations`
+  - `GET /api/xiaou/conversations/:id`
+  - `POST /api/xiaou/conversations/:id/messages`
+  - `DELETE /api/xiaou/conversations/:id`
+- 用户主动将单条对话存入随心记时，会创建独立私密副本，默认不会授权给小U。
 - `POST /api/auth/logout` 会撤销该账号现有 JWT；默认有效期为 7 天。
 - `DELETE /api/auth/account` 需要当前密码，并删除账号关联云端数据。
 - 明台帖子和评论要求先接受 `/api/mingtai/community/guidelines` 返回的当前规范。
