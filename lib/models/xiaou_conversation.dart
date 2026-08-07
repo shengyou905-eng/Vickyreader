@@ -2,6 +2,7 @@ import 'ai_conversation.dart';
 
 class XiaouConversationSummary {
   final String id;
+  final String kind;
   final String title;
   final String bookId;
   final String bookTitle;
@@ -12,6 +13,7 @@ class XiaouConversationSummary {
 
   const XiaouConversationSummary({
     required this.id,
+    this.kind = 'chat',
     required this.title,
     required this.bookId,
     required this.bookTitle,
@@ -24,6 +26,7 @@ class XiaouConversationSummary {
   factory XiaouConversationSummary.fromJson(Map<String, dynamic> json) {
     return XiaouConversationSummary(
       id: json['id']?.toString() ?? '',
+      kind: json['kind']?.toString() == 'xiaou_asks' ? 'xiaou_asks' : 'chat',
       title: json['title']?.toString().trim() ?? '',
       bookId: json['book_id']?.toString() ?? '',
       bookTitle: json['book_title']?.toString() ?? '',
@@ -35,6 +38,8 @@ class XiaouConversationSummary {
   }
 
   String get displayTitle => title.isEmpty ? '和小U说话' : title;
+
+  bool get isXiaouAsks => kind == 'xiaou_asks';
 }
 
 class XiaouConversationThread {

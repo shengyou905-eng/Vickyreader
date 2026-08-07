@@ -336,7 +336,8 @@ JWT 生效的判断：
 ## 隐私与社区治理
 
 - DeepSeek Key 只配置在服务器 `.env` 的 `DEEPSEEK_API_KEY`。
-- `POST /api/ai/chat` 与 `POST /api/ai/explain` 要求用户先完成
+- `POST /api/ai/chat`、`POST /api/ai/xiaou-asks` 与
+  `POST /api/ai/explain` 要求用户先完成
   `POST /api/auth/ai-consent`。
 - 小U对话历史接口均要求 JWT，并且只允许访问当前用户自己的数据：
   - `GET /api/xiaou/conversations`
@@ -345,6 +346,8 @@ JWT 生效的判断：
   - `POST /api/xiaou/conversations/:id/messages`
   - `DELETE /api/xiaou/conversations/:id`
 - 用户主动将单条对话存入随心记时，会创建独立私密副本，默认不会授权给小U。
+- `xiaou_conversations.kind = xiaou_asks` 表示独立的「小U问我」对谈；
+  对谈本身只进入聊天历史，只有用户结束时主动确认，才另存为私人想法。
 - `POST /api/auth/logout` 会撤销该账号现有 JWT；默认有效期为 7 天。
 - `DELETE /api/auth/account` 需要当前密码，并删除账号关联云端数据。
 - 明台帖子和评论要求先接受 `/api/mingtai/community/guidelines` 返回的当前规范。

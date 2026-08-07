@@ -29,6 +29,7 @@ class XiaouConversationService {
   }
 
   static Future<XiaouConversationSummary> create({
+    String kind = 'chat',
     String title = '',
     String bookId = '',
     String bookTitle = '',
@@ -36,7 +37,12 @@ class XiaouConversationService {
     final data = await _send(
       'POST',
       Uri.parse('${AppConstants.apiBaseUrl}/api/xiaou/conversations'),
-      body: {'title': title, 'book_id': bookId, 'book_title': bookTitle},
+      body: {
+        'kind': kind == 'xiaou_asks' ? 'xiaou_asks' : 'chat',
+        'title': title,
+        'book_id': bookId,
+        'book_title': bookTitle,
+      },
     );
     return XiaouConversationSummary.fromJson(
       Map<String, dynamic>.from(data['conversation'] as Map? ?? const {}),

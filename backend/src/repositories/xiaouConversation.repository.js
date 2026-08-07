@@ -1,19 +1,21 @@
 const { query, withTransaction } = require('../config/db');
 
 async function createConversation(userId, payload = {}) {
+  const kind = payload.kind === 'xiaou_asks' ? 'xiaou_asks' : 'chat';
   const title = clean(payload.title, 80);
   const bookId = clean(payload.book_id, 300) || null;
   const bookTitle = clean(payload.book_title, 300) || null;
   const result = await query(
-    `INSERT INTO xiaou_conversations (
+     `INSERT INTO xiaou_conversations (
        user_id,
+       kind,
        title,
        book_id,
        book_title
      )
-     VALUES ($1, $2, $3, $4)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
-    [userId, title, bookId, bookTitle],
+    [userId, kind, title, bookId, bookTitle],
   );
   return result.rows[0];
 }

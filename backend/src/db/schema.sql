@@ -161,12 +161,16 @@ CREATE INDEX IF NOT EXISTS idx_xiaou_free_note_grants_user
 CREATE TABLE IF NOT EXISTS xiaou_conversations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'chat',
   title TEXT NOT NULL DEFAULT '',
   book_id TEXT,
   book_title TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE xiaou_conversations
+  ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'chat';
 
 CREATE INDEX IF NOT EXISTS idx_xiaou_conversations_user_updated
   ON xiaou_conversations(user_id, updated_at DESC);

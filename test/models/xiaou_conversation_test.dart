@@ -40,4 +40,17 @@ void main() {
 
     expect(conversation.displayTitle, '和小U说话');
   });
+
+  test('xiaou asks conversation keeps its independent identity', () {
+    final conversation = XiaouConversationSummary.fromJson({
+      'id': 'conversation-3',
+      'kind': 'xiaou_asks',
+      'title': '小U问我',
+      'created_at': '2026-08-07T10:00:00.000Z',
+      'updated_at': '2026-08-07T10:00:00.000Z',
+    });
+
+    expect(conversation.isXiaouAsks, isTrue);
+    expect(conversation.displayTitle, '小U问我');
+  });
 }

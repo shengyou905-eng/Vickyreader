@@ -119,6 +119,31 @@ const XIAOU_AGENT_PROMPT = `你是「小U」，知读 App 里的阅读 Agent。
 我不确定，但……
 你可以继续问我……`;
 
+const XIAOU_ASKS_OPENING_PROMPT = `你是「小U」，正在主动邀请用户谈一谈自己的阅读。
+
+你的任务不是回答问题，而是结合提供的阅读上下文，只提出一个真正开放、具体、值得回答的问题。
+
+提问规则：
+1. 优先从用户当前或最近阅读、近期划线、批注、想法和长期重复关注的问题中选择一个具体切口。
+2. 问题需要帮助用户重新看见自己的阅读，不做知识测验，不考查记忆，不索取标准答案。
+3. 尽量指出具体书名、原句、概念或两条痕迹之间的张力；没有足够依据时，可以从“此刻正在读到哪里”开始问。
+4. 不替用户总结，不做心理分析，不预设用户立场。
+5. 一次只问一个问题，控制在 2-4 句，不附带答案、分析、选项或解释。
+6. 如果上下文中已有上一轮问题，必须换一个真实不同的角度，不要只改写措辞。
+7. 使用自然中文纯文本，不使用 Markdown 标记。
+
+好的问题应该让用户愿意停一下，说出自己的理解；而不是让用户感觉正在填写问卷。`;
+
+const XIAOU_ASKS_DIALOGUE_PROMPT = `当前是「小U问我」对谈。
+
+小U先前提出了一个开放问题。接下来：
+1. 认真回应用户刚才说的具体内容，先让用户知道你听见了什么。
+2. 结合阅读痕迹指出一处可能的联系、差异或尚未说清的地方，再自然追问。
+3. 用户反问时先直接回答，不要为了维持形式强行反问。
+4. 用户说“换题”时，换一个不同的阅读切口；用户说想结束时，安静收束，不强留。
+5. 不限固定轮次，不做心理分析，不替用户下结论，不把对话变成问卷。
+6. 一般控制在 150-500 字，只在确实有必要时更长。`;
+
 const READER_QUESTION_PROMPT = `你是「小U」，正在陪用户阅读眼前这本书。
 
 用户会针对所选文字、当前页或当前章节提出具体问题。你的首要任务是准确回应问题，而不是自动生成泛泛的摘要或读后感。
@@ -218,7 +243,7 @@ async function explain(req, res, next) {
 
 async function chat(req, res, next) {
   try {
-    const { message, history = [] } = req.body;
+    const { message, history = [], interaction_mode: interactionMode } = req.body;
     const text = String(message || '').trim();
     if (!text) {
       throw httpError(400, '消息不能为空');
@@ -240,7 +265,12 @@ async function chat(req, res, next) {
     });
 
     const messages = [
-      { role: 'system', content: XIAOU_AGENT_PROMPT },
+      {
+        role: 'system',
+        content: interactionMode === 'xiaou_asks'
+          ? `${XIAOU_AGENT_PROMPT}\n\n${XIAOU_ASKS_DIALOGUE_PROMPT}`
+          : XIAOU_AGENT_PROMPT,
+      },
       {
         role: 'system',
         content:
@@ -434,6 +464,65 @@ async function readerQuestion(req, res, next) {
   }
 }
 
+async function xiaouAsks(req, res, next) {
+  try {
+    const {
+      history = [],
+      current_book_id: currentBookId,
+      current_book_title: currentBookTitle,
+    } = req.body;
+    if (!DEEPSEEK_API_KEY) {
+      throw httpError(500, '未配置 DEEPSEEK_API_KEY 环境变量');
+    }
+
+    const [entries, authorizedFreeNotes, publicTraces] = await Promise.all([
+      entryRepository.listEntries(req.user.id, { limit: 180 }),
+      freeNoteRepository.listAuthorizedForXiaou(req.user.id, { limit: 60 }),
+      listPublicReadingTraces({ limit: 40 }),
+    ]);
+    const context = buildXiaouAgentContext({
+      entries,
+      authorizedFreeNotes,
+      publicTraces,
+    });
+    const recentDialogue = normalizeChatHistory(history).slice(-12);
+    const messages = [
+      { role: 'system', content: XIAOU_ASKS_OPENING_PROMPT },
+      {
+        role: 'system',
+        content:
+          '以下是可用的阅读上下文。不要把授权随心记说成读书笔记；不要把明台公开痕迹说成用户自己的记录。\n\n' +
+          context,
+      },
+      ...(clean(currentBookTitle) || clean(currentBookId)
+        ? [
+            {
+              role: 'system',
+              content: `当前阅读线索：${clean(currentBookTitle) || '未命名书籍'}${clean(currentBookId) ? `（book_id: ${clean(currentBookId)}）` : ''}。只有在上下文确实支持时才围绕它提问。`,
+            },
+          ]
+        : []),
+      ...recentDialogue,
+      {
+        role: 'user',
+        content: recentDialogue.length
+          ? '请换一个真正不同的阅读切口，只提出新的开放问题。'
+          : '请从我的阅读里，提出第一个值得慢慢回答的开放问题。',
+      },
+    ];
+
+    await streamDeepSeek(req, res, messages, {
+      status: '小U正在想一个值得问的问题…',
+      temperature: 0.75,
+      maxTokens: 420,
+    });
+  } catch (error) {
+    if (!res.headersSent) return next(error);
+    res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+    res.end();
+  }
+}
+
 function explainLoadingStatus(mode) {
   return {
     auto: '小U正在判断这段难在哪里…',
@@ -567,4 +656,4 @@ function clip(value, maxLength) {
   return value.length > maxLength ? `${value.slice(0, maxLength)}……` : value;
 }
 
-module.exports = { explain, readerQuestion, chat };
+module.exports = { explain, readerQuestion, chat, xiaouAsks };

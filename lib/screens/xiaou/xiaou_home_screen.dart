@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 import '../../config/theme.dart';
 import '../../models/ai_conversation.dart';
+import '../../models/user_entry.dart';
 import '../../models/xiaou_conversation.dart';
 import '../../services/ai_service.dart';
 import '../../services/first_use_guide_service.dart';
@@ -518,11 +521,18 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
 
   Future<void> _showAgentChat() async {
     if (!await AiConsentGate.ensure(context) || !mounted) return;
+    final contextItem = _allItems.cast<Map<String, dynamic>?>().firstWhere(
+      (item) => (item?['book_id']?.toString().trim() ?? '').isNotEmpty,
+      orElse: () => null,
+    );
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => const _XiaouAgentChatSheet(),
+      builder: (_) => _XiaouAgentChatSheet(
+        contextBookId: contextItem?['book_id']?.toString() ?? '',
+        contextBookTitle: contextItem?['book_title']?.toString() ?? '',
+      ),
     );
   }
 
@@ -974,7 +984,13 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
 }
 
 class _XiaouAgentChatSheet extends StatefulWidget {
-  const _XiaouAgentChatSheet();
+  final String contextBookId;
+  final String contextBookTitle;
+
+  const _XiaouAgentChatSheet({
+    this.contextBookId = '',
+    this.contextBookTitle = '',
+  });
 
   @override
   State<_XiaouAgentChatSheet> createState() => _XiaouAgentChatSheetState();
@@ -991,6 +1007,9 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
   String? _historySyncWarning;
   String? _conversationId;
   String _conversationTitle = '';
+  String _conversationBookId = '';
+  String _conversationBookTitle = '';
+  bool _isXiaouAsks = false;
   bool _currentAssistantPersisted = false;
 
   static const List<(IconData, String, String)> _quickActions = [
@@ -1065,6 +1084,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
         AiService.xiaouAgentStream(
           message: text,
           conversationHistory: history,
+          interactionMode: _isXiaouAsks ? 'xiaou_asks' : 'chat',
         ).listen(
           (chunk) {
             if (!mounted) return;
@@ -1126,11 +1146,22 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
   Future<String> _ensureConversation(String firstMessage) async {
     final currentId = _conversationId;
     if (currentId != null && currentId.isNotEmpty) return currentId;
-    final conversation = await XiaouConversationService.create();
+    final conversation = await XiaouConversationService.create(
+      kind: _isXiaouAsks ? 'xiaou_asks' : 'chat',
+      title: _isXiaouAsks ? '小U问我' : '',
+      bookId: _conversationBookId.isNotEmpty
+          ? _conversationBookId
+          : widget.contextBookId,
+      bookTitle: _conversationBookTitle.isNotEmpty
+          ? _conversationBookTitle
+          : widget.contextBookTitle,
+    );
     if (!mounted) return conversation.id;
     setState(() {
       _conversationId = conversation.id;
-      _conversationTitle = _titleFrom(firstMessage);
+      _conversationTitle = _isXiaouAsks ? '小U问我' : _titleFrom(firstMessage);
+      _conversationBookId = conversation.bookId;
+      _conversationBookTitle = conversation.bookTitle;
     });
     return conversation.id;
   }
@@ -1167,10 +1198,201 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
       _messages.clear();
       _conversationId = null;
       _conversationTitle = '';
+      _conversationBookId = '';
+      _conversationBookTitle = '';
+      _isXiaouAsks = false;
       _error = null;
       _historySyncWarning = null;
       _currentAssistantPersisted = false;
     });
+  }
+
+  Future<void> _startXiaouAsksConversation() async {
+    if (_loading || _openingConversation) return;
+    await _subscription?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _messages.clear();
+      _conversationId = null;
+      _conversationTitle = '小U问我';
+      _conversationBookId = widget.contextBookId;
+      _conversationBookTitle = widget.contextBookTitle;
+      _isXiaouAsks = true;
+      _error = null;
+      _historySyncWarning = null;
+      _currentAssistantPersisted = false;
+    });
+    await _requestXiaouQuestion();
+  }
+
+  Future<void> _requestXiaouQuestion() async {
+    if (_loading || _openingConversation || !_isXiaouAsks) return;
+    await _subscription?.cancel();
+    final history = _messages
+        .where((message) => message.content.trim().isNotEmpty)
+        .toList(growable: false);
+    final assistantTime = DateTime.now();
+    setState(() {
+      _error = null;
+      _historySyncWarning = null;
+      _loading = true;
+      _currentAssistantPersisted = false;
+      _messages.add(
+        AiMessage(role: 'assistant', content: '', timestamp: assistantTime),
+      );
+    });
+    _scrollToBottom();
+
+    try {
+      await _ensureConversation('小U问我');
+    } catch (error) {
+      _setHistorySyncWarning('这次对谈暂未同步到历史记录：${_shortError(error)}');
+    }
+    if (!mounted) return;
+
+    final buffer = StringBuffer();
+    _subscription =
+        AiService.xiaouOpeningQuestionStream(
+          conversationHistory: history,
+          currentBookId: _conversationBookId,
+          currentBookTitle: _conversationBookTitle,
+        ).listen(
+          (chunk) {
+            if (!mounted) return;
+            buffer.write(chunk);
+            setState(() {
+              _messages[_messages.length - 1] = AiMessage(
+                role: 'assistant',
+                content: buffer.toString(),
+                timestamp: assistantTime,
+              );
+            });
+            _scrollToBottom();
+          },
+          onError: (Object error) {
+            if (!mounted) return;
+            final partial = buffer.toString().trim();
+            if (partial.isNotEmpty) {
+              unawaited(_persistAssistant(partial, status: 'error'));
+            }
+            setState(() {
+              _loading = false;
+              _error = AiService.friendlyError(error);
+              _removeEmptyAssistantTail();
+            });
+          },
+          onDone: () {
+            if (!mounted) return;
+            final question = buffer.toString().trim();
+            if (question.isNotEmpty) {
+              unawaited(_persistAssistant(question));
+            }
+            setState(() {
+              _loading = false;
+              if (question.isEmpty) {
+                _error = '小U还没有想好从哪里问起，可以再换一个问题。';
+                _removeEmptyAssistantTail();
+              }
+            });
+          },
+          cancelOnError: true,
+        );
+  }
+
+  Future<void> _endXiaouAsks() async {
+    if (!_isXiaouAsks || _loading || _openingConversation) return;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('结束这次对谈？'),
+        content: const Text('这段内容不会自动进入你的阅读痕迹。你可以只结束，也可以把自己的回答保存为一条想法。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('继续聊'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, 'discard'),
+            child: const Text('不保存，结束'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, 'save'),
+            child: const Text('保存为想法'),
+          ),
+        ],
+      ),
+    );
+    if (choice == null || !mounted) return;
+    if (choice == 'save' && !await _saveXiaouAsksAsThought()) return;
+    if (mounted) Navigator.pop(context);
+  }
+
+  Future<bool> _saveXiaouAsksAsThought() async {
+    final userAnswers = _messages
+        .where(
+          (message) =>
+              message.role == 'user' && message.content.trim().isNotEmpty,
+        )
+        .map((message) => message.content.trim())
+        .toList(growable: false);
+    if (userAnswers.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('你还没有写下回答，暂时没有可保存的想法')));
+      return false;
+    }
+    final openingQuestion = _messages
+        .where(
+          (message) =>
+              message.role == 'assistant' && message.content.trim().isNotEmpty,
+        )
+        .map((message) => stripMarkdownMarkers(message.content).trim())
+        .firstWhere((content) => content.isNotEmpty, orElse: () => '小U问我');
+    final thought = userAnswers.join('\n\n');
+    final now = DateTime.now();
+    try {
+      await BookService.insertUserEntry(
+        UserEntry(
+          id: const Uuid().v4(),
+          source: 'thought',
+          bookId: _conversationBookId,
+          bookTitle: _conversationBookTitle,
+          originalText: openingQuestion,
+          userInput: thought,
+          autoTags: const ['小U问我'],
+          autoSummary: thought.length > 120
+              ? '${thought.substring(0, 120)}…'
+              : thought,
+          metadataJson: jsonEncode({
+            'origin': 'xiaou_asks',
+            'conversation_id': _conversationId ?? '',
+            'transcript': _messages
+                .where((message) => message.content.trim().isNotEmpty)
+                .map(
+                  (message) => {
+                    'role': message.role,
+                    'content': message.content.trim(),
+                  },
+                )
+                .toList(growable: false),
+          }),
+          createdAt: now,
+          updatedAt: now.toUtc().toIso8601String(),
+        ),
+      );
+      if (!mounted) return true;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已保存为想法')));
+      return true;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('保存想法失败：${_shortError(error)}')));
+      }
+      return false;
+    }
   }
 
   Future<void> _showHistory() async {
@@ -1192,6 +1414,9 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
       setState(() {
         _conversationId = thread.conversation.id;
         _conversationTitle = thread.conversation.displayTitle;
+        _conversationBookId = thread.conversation.bookId;
+        _conversationBookTitle = thread.conversation.bookTitle;
+        _isXiaouAsks = thread.conversation.isXiaouAsks;
         _messages
           ..clear()
           ..addAll(thread.messages);
@@ -1320,7 +1545,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '和小U说话',
+                            _isXiaouAsks ? '小U问我' : '和小U说话',
                             style: TextStyle(
                               color: palette.textPrimary,
                               fontSize: 20,
@@ -1330,7 +1555,9 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                           const SizedBox(height: 5),
                           Text(
                             _conversationTitle.isEmpty
-                                ? '直接问。小U会尽量把问题放回你的阅读里。'
+                                ? _isXiaouAsks
+                                      ? '从你的阅读里开始一场开放对谈。'
+                                      : '直接问。小U会尽量把问题放回你的阅读里。'
                                 : _conversationTitle,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -1342,43 +1569,45 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                         ],
                       ),
                     ),
-                    IconButton(
-                      tooltip: '历史记录',
-                      onPressed: _loading ? null : _showHistory,
-                      icon: const Icon(Icons.history_rounded),
-                    ),
-                    PopupMenuButton<String>(
-                      tooltip: '对话操作',
-                      enabled: !_loading && !_openingConversation,
-                      onSelected: (value) {
-                        if (value == 'new') {
-                          _startNewConversation();
-                        } else if (value == 'save') {
-                          unawaited(_saveConversationAsFreeNote());
-                        }
-                      },
-                      itemBuilder: (_) => [
-                        const PopupMenuItem(
-                          value: 'new',
-                          child: ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: Icon(Icons.edit_square),
-                            title: Text('新对话'),
-                          ),
-                        ),
-                        if (_messages.any(
-                          (message) => message.content.trim().isNotEmpty,
-                        ))
+                    if (!_isXiaouAsks) ...[
+                      IconButton(
+                        tooltip: '历史记录',
+                        onPressed: _loading ? null : _showHistory,
+                        icon: const Icon(Icons.history_rounded),
+                      ),
+                      PopupMenuButton<String>(
+                        tooltip: '对话操作',
+                        enabled: !_loading && !_openingConversation,
+                        onSelected: (value) {
+                          if (value == 'new') {
+                            _startNewConversation();
+                          } else if (value == 'save') {
+                            unawaited(_saveConversationAsFreeNote());
+                          }
+                        },
+                        itemBuilder: (_) => [
                           const PopupMenuItem(
-                            value: 'save',
+                            value: 'new',
                             child: ListTile(
                               contentPadding: EdgeInsets.zero,
-                              leading: Icon(Icons.bookmark_add_outlined),
-                              title: Text('整段存入随心记'),
+                              leading: Icon(Icons.edit_square),
+                              title: Text('新对话'),
                             ),
                           ),
-                      ],
-                    ),
+                          if (_messages.any(
+                            (message) => message.content.trim().isNotEmpty,
+                          ))
+                            const PopupMenuItem(
+                              value: 'save',
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(Icons.bookmark_add_outlined),
+                                title: Text('整段存入随心记'),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
                     if (_loading)
                       TextButton(onPressed: _cancel, child: const Text('停止')),
                     IconButton(
@@ -1388,6 +1617,29 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                   ],
                 ),
               ),
+              if (_isXiaouAsks)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                  child: Row(
+                    children: [
+                      TextButton.icon(
+                        onPressed: _loading || _openingConversation
+                            ? null
+                            : _requestXiaouQuestion,
+                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                        label: const Text('换个问题'),
+                      ),
+                      const SizedBox(width: 4),
+                      TextButton.icon(
+                        onPressed: _loading || _openingConversation
+                            ? null
+                            : _endXiaouAsks,
+                        icon: const Icon(Icons.stop_circle_outlined, size: 18),
+                        label: const Text('结束对谈'),
+                      ),
+                    ],
+                  ),
+                ),
               Expanded(
                 child: _openingConversation
                     ? const Center(child: CircularProgressIndicator())
@@ -1401,7 +1653,8 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                           return _XiaouAgentBubble(
                             message: _messages[index],
                             onSaveToFreeNote:
-                                _messages[index].content.trim().isEmpty
+                                _isXiaouAsks ||
+                                    _messages[index].content.trim().isEmpty
                                 ? null
                                 : () =>
                                       _saveMessageAsFreeNote(_messages[index]),
@@ -1448,7 +1701,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                           maxLines: 4,
                           textInputAction: TextInputAction.newline,
                           decoration: InputDecoration(
-                            hintText: '直接问小U…',
+                            hintText: _isXiaouAsks ? '回答、反问，或继续说…' : '直接问小U…',
                             filled: true,
                             fillColor: palette.card.withAlpha(235),
                             contentPadding: const EdgeInsets.symmetric(
@@ -1515,6 +1768,56 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
           ),
         ),
         const SizedBox(height: 18),
+        Material(
+          color: palette.primarySoft.withValues(alpha: 0.56),
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: _startXiaouAsksConversation,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.question_answer_outlined,
+                    size: 19,
+                    color: palette.primary,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '小U问我',
+                          style: TextStyle(
+                            color: palette.textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '让小U从你的阅读里提出一个问题',
+                          style: TextStyle(
+                            color: palette.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 19,
+                    color: palette.textSecondary,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 9),
         for (final action in _quickActions)
           Padding(
             padding: const EdgeInsets.only(bottom: 9),

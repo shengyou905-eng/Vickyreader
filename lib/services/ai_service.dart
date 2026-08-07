@@ -59,12 +59,34 @@ class AiService {
   static Stream<String> xiaouAgentStream({
     required String message,
     required List<AiMessage> conversationHistory,
+    String interactionMode = 'chat',
   }) {
     final history = conversationHistory
         .map((m) => {'role': m.role, 'content': m.content})
         .toList();
 
-    return _sseStream('/api/ai/chat', {'message': message, 'history': history});
+    return _sseStream('/api/ai/chat', {
+      'message': message,
+      'history': history,
+      'interaction_mode': interactionMode,
+    });
+  }
+
+  /// 「小U问我」：结合阅读痕迹提出一个开放问题。
+  static Stream<String> xiaouOpeningQuestionStream({
+    required List<AiMessage> conversationHistory,
+    String currentBookId = '',
+    String currentBookTitle = '',
+  }) {
+    final history = conversationHistory
+        .where((message) => message.content.trim().isNotEmpty)
+        .map((message) => {'role': message.role, 'content': message.content})
+        .toList(growable: false);
+    return _sseStream('/api/ai/xiaou-asks', {
+      'history': history,
+      'current_book_id': currentBookId,
+      'current_book_title': currentBookTitle,
+    });
   }
 
   /// 阅读页自由提问：只使用用户指定的当前阅读上下文。
