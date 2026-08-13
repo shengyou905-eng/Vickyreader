@@ -102,6 +102,31 @@ CORS_ORIGIN=http://localhost:3000
 
 `JWT_SECRET` 请换成足够长的随机字符串。
 
+### App Store 法律页面
+
+上架前必须在生产环境的 `backend/.env` 配置真实主体：
+
+```env
+PRIVACY_EMAIL=2931952407@qq.com
+LEGAL_OPERATOR_NAME=Apple Developer 账号登记的法定姓名或公司全称
+LEGAL_EFFECTIVE_DATE=2026-08-10
+LEGAL_POLICY_VERSION=1.0
+```
+
+部署后以下页面无需登录即可访问：
+
+```txt
+https://api.youxugarden.com/legal/privacy
+https://api.youxugarden.com/legal/privacy/en
+https://api.youxugarden.com/legal/data-collection
+https://api.youxugarden.com/legal/third-parties
+https://api.youxugarden.com/legal/ai
+https://api.youxugarden.com/legal/account-deletion
+```
+
+`https://api.youxugarden.com/privacy` 会重定向到中文隐私政策，可作为
+App Store Connect 的 Privacy Policy URL。不要带着默认占位主体提交审核。
+
 ## 初始化数据库表
 
 后端启动时会自动执行 `src/db/schema.sql` 创建表。也可以手动执行：

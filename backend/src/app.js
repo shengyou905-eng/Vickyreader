@@ -10,6 +10,7 @@ const readingProgressRoutes = require('./routes/readingProgress.routes');
 const aiRoutes = require('./routes/ai.routes');
 const freeNotesRoutes = require('./routes/freeNotes.routes');
 const xiaouConversationRoutes = require('./routes/xiaouConversation.routes');
+const legalRoutes = require('./routes/legal.routes');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -30,6 +31,11 @@ app.use(
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', env: nodeEnv });
 });
+
+// Legal documents must remain publicly accessible without an account so they
+// can be linked from App Store Connect and reviewed before registration.
+app.get('/privacy', (_req, res) => res.redirect(302, '/legal/privacy'));
+app.use('/legal', legalRoutes);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/entries', entriesRoutes);

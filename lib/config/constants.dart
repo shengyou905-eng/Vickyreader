@@ -32,6 +32,13 @@ class AppConstants {
     return value;
   }
 
+  static String get privacyPolicyUrl => '$apiBaseUrl/legal/privacy';
+  static String get privacyPolicyEnglishUrl => '$apiBaseUrl/legal/privacy/en';
+  static String get dataCollectionUrl => '$apiBaseUrl/legal/data-collection';
+  static String get thirdPartiesUrl => '$apiBaseUrl/legal/third-parties';
+  static String get aiDataProcessingUrl => '$apiBaseUrl/legal/ai';
+  static String get accountDeletionUrl => '$apiBaseUrl/legal/account-deletion';
+
   // Storage
   static const String dbName = 'ai_reader.db';
   static const int dbVersion = 13;

@@ -9,6 +9,7 @@ import '../../services/privacy_service.dart';
 import '../../services/first_use_guide_service.dart';
 import '../auth/auth_screen.dart';
 import '../mingtai/community_mingtai_screen.dart';
+import 'legal_document_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -46,11 +47,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 24),
 
-          Consumer<AuthProvider>(
-            builder: (context, auth, _) => auth.isLoggedIn
-                ? const _PrivacyAndSafetySection()
-                : const SizedBox.shrink(),
-          ),
+          const _PrivacyAndSafetySection(),
           const SizedBox(height: 24),
 
           const _SectionHeader(title: '界面氛围'),
@@ -391,6 +388,7 @@ class _PrivacyAndSafetySection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
+    final isLoggedIn = context.watch<AuthProvider>().isLoggedIn;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -404,26 +402,28 @@ class _PrivacyAndSafetySection extends StatelessWidget {
           ),
           child: Column(
             children: [
-              ListTile(
-                leading: const Icon(Icons.psychology_outlined),
-                title: const Text('小U与第三方 AI'),
-                subtitle: const Text('查看或撤回 DeepSeek 数据处理授权'),
-                trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: () => _showAiPrivacy(context),
-              ),
-              Divider(height: 1, color: palette.divider),
-              ListTile(
-                leading: const Icon(Icons.visibility_outlined),
-                title: const Text('明台公开范围'),
-                subtitle: const Text('控制阅读状态、进度、关注和同书发现'),
-                trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const CommunityPrivacyScreen(),
+              if (isLoggedIn) ...[
+                ListTile(
+                  leading: const Icon(Icons.psychology_outlined),
+                  title: const Text('小U与第三方 AI'),
+                  subtitle: const Text('查看或撤回 DeepSeek 数据处理授权'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => _showAiPrivacy(context),
+                ),
+                Divider(height: 1, color: palette.divider),
+                ListTile(
+                  leading: const Icon(Icons.visibility_outlined),
+                  title: const Text('明台公开范围'),
+                  subtitle: const Text('控制阅读状态、进度、关注和同书发现'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const CommunityPrivacyScreen(),
+                    ),
                   ),
                 ),
-              ),
-              Divider(height: 1, color: palette.divider),
+                Divider(height: 1, color: palette.divider),
+              ],
               ListTile(
                 leading: const Icon(Icons.gavel_outlined),
                 title: const Text('社区规范与举报'),
@@ -431,10 +431,70 @@ class _PrivacyAndSafetySection extends StatelessWidget {
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => _showCommunityPolicy(context),
               ),
+              Divider(height: 1, color: palette.divider),
+              _legalTile(
+                context,
+                icon: Icons.shield_outlined,
+                title: '隐私政策',
+                subtitle: '知读如何处理和保护你的数据',
+                url: AppConstants.privacyPolicyUrl,
+              ),
+              Divider(height: 1, color: palette.divider),
+              _legalTile(
+                context,
+                icon: Icons.list_alt_outlined,
+                title: '个人信息收集清单',
+                subtitle: '逐项查看信息、用途、上传与保存期限',
+                url: AppConstants.dataCollectionUrl,
+              ),
+              Divider(height: 1, color: palette.divider),
+              _legalTile(
+                context,
+                icon: Icons.hub_outlined,
+                title: '第三方服务清单',
+                subtitle: '云服务、DeepSeek 与 Apple 系统能力',
+                url: AppConstants.thirdPartiesUrl,
+              ),
+              Divider(height: 1, color: palette.divider),
+              _legalTile(
+                context,
+                icon: Icons.auto_awesome_outlined,
+                title: 'AI 功能与数据处理',
+                subtitle: '小U会发送什么，以及如何撤回授权',
+                url: AppConstants.aiDataProcessingUrl,
+              ),
+              Divider(height: 1, color: palette.divider),
+              _legalTile(
+                context,
+                icon: Icons.person_remove_outlined,
+                title: '账号与数据删除',
+                subtitle: '注销路径、删除范围和处理时间',
+                url: AppConstants.accountDeletionUrl,
+              ),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  static Widget _legalTile(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String url,
+  }) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(title),
+      subtitle: Text(subtitle),
+      trailing: const Icon(Icons.chevron_right_rounded),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => LegalDocumentScreen(title: title, url: url),
+        ),
+      ),
     );
   }
 
