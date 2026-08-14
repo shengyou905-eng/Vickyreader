@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../config/theme.dart';
+import '../../../l10n/l10n.dart';
 import '../../../models/ai_conversation.dart';
 import '../../../models/ai_explain_mode.dart';
 import '../../../providers/ai_provider.dart';
@@ -85,7 +86,7 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
       if (!mounted) return;
       setState(() {
         _preparing = false;
-        _setupError = '这一段暂时没能打开，请稍后重试。';
+        _setupError = context.l10n.passageUnavailable;
       });
     }
   }
@@ -272,10 +273,10 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
     required Color primary,
   }) {
     final title = _preparing
-        ? '小U正在读这一段'
+        ? context.l10n.readerQuestionThinking
         : ai.isLoading
-        ? ai.loadingText ?? '小U正在组织语言'
-        : _activeMode.fullLabel;
+        ? ai.loadingText ?? context.l10n.xiaouOrganizing
+        : _modeFullLabel(context, _activeMode);
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 5, 10, 8),
       child: Row(
@@ -318,7 +319,7 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
                 visualDensity: VisualDensity.compact,
                 foregroundColor: palette.textSecondary,
               ),
-              child: const Text('停止'),
+              child: Text(context.l10n.stop),
             ),
           TextButton.icon(
             onPressed: widget.onToggleExpanded,
@@ -333,10 +334,12 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
                   : Icons.open_in_full_rounded,
               size: 16,
             ),
-            label: Text(isExpanded ? '收起' : '展开'),
+            label: Text(
+              isExpanded ? context.l10n.collapse : context.l10n.expand,
+            ),
           ),
           IconButton(
-            tooltip: '关闭',
+            tooltip: context.l10n.close,
             onPressed: _close,
             visualDensity: VisualDensity.compact,
             icon: Icon(
@@ -420,7 +423,7 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
                   ),
                 ),
                 child: Text(
-                  mode.label,
+                  _modeLabel(context, mode),
                   style: TextStyle(
                     fontSize: 12.5,
                     fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
@@ -453,7 +456,7 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
 
     if (nonEmptyMessages.isEmpty) {
       return _ReadingStatus(
-        text: loadingText ?? '小U正在读这一段…',
+        text: loadingText ?? context.l10n.readerQuestionThinking,
         color: palette.textSecondary,
         accent: primary,
       );
@@ -466,7 +469,7 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
       itemBuilder: (context, index) {
         if (index >= nonEmptyMessages.length) {
           return _InlineThinking(
-            text: loadingText ?? '正在组织语言…',
+            text: loadingText ?? context.l10n.xiaouOrganizing,
             color: palette.textSecondary,
             accent: primary,
           );
@@ -526,7 +529,7 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
               ),
             ),
             const SizedBox(height: 8),
-            TextButton(onPressed: _retry, child: const Text('再试一次')),
+            TextButton(onPressed: _retry, child: Text(context.l10n.tryAgain)),
           ],
         ),
       ),
@@ -558,7 +561,7 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
                 child: TextField(
                   controller: _followUpController,
                   decoration: InputDecoration(
-                    hintText: '继续问一句…',
+                    hintText: context.l10n.followUpHint,
                     filled: true,
                     fillColor: Colors.white.withAlpha(88),
                     contentPadding: const EdgeInsets.symmetric(
@@ -577,7 +580,7 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
                 ),
               ),
               IconButton(
-                tooltip: '发送',
+                tooltip: context.l10n.send,
                 onPressed: _sendFollowUp,
                 visualDensity: VisualDensity.compact,
                 icon: Icon(
@@ -604,6 +607,26 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
         curve: Curves.easeOut,
       );
     });
+  }
+
+  String _modeLabel(BuildContext context, AiExplainMode mode) {
+    return switch (mode) {
+      AiExplainMode.auto => context.l10n.explainModeAuto,
+      AiExplainMode.plain => context.l10n.explainModePlain,
+      AiExplainMode.structure => context.l10n.explainModeStructure,
+      AiExplainMode.concept => context.l10n.explainModeConcept,
+      AiExplainMode.argument => context.l10n.explainModeArgument,
+    };
+  }
+
+  String _modeFullLabel(BuildContext context, AiExplainMode mode) {
+    return switch (mode) {
+      AiExplainMode.auto => context.l10n.explainModeAutoFull,
+      AiExplainMode.plain => context.l10n.explainModePlainFull,
+      AiExplainMode.structure => context.l10n.explainModeStructureFull,
+      AiExplainMode.concept => context.l10n.explainModeConceptFull,
+      AiExplainMode.argument => context.l10n.explainModeArgumentFull,
+    };
   }
 
   @override

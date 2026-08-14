@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config/reader_paging_mode.dart';
 import '../config/reader_typography.dart';
 import '../config/theme.dart';
+import '../l10n/app_locale_state.dart';
 
 class SettingsProvider extends ChangeNotifier {
   double _fontSize = ReaderTypographyDefaults.fontSize;
@@ -21,6 +22,7 @@ class SettingsProvider extends ChangeNotifier {
       ReaderTypographyDefaults.fontFamily;
 
   String _themeMode = 'light';
+  String _localeCode = 'system';
   AppThemeId _appThemeId = AppThemeId.lavender;
   bool _syncEnabled = false;
   ReaderPagingMode _readerPagingMode = ReaderPagingMode.vertical;
@@ -34,6 +36,8 @@ class SettingsProvider extends ChangeNotifier {
   double get pageMargin => _pageMargin;
   ReaderFontFamily get readerFontFamily => _readerFontFamily;
   String get themeMode => _themeMode;
+  String get localeCode => _localeCode;
+  Locale? get locale => _localeCode == 'system' ? null : Locale(_localeCode);
   AppThemeId get appThemeId => _appThemeId;
   bool get syncEnabled => _syncEnabled;
   ReaderPagingMode get readerPagingMode => _readerPagingMode;
@@ -59,6 +63,8 @@ class SettingsProvider extends ChangeNotifier {
     );
 
     _themeMode = prefs.getString('themeMode') ?? 'light';
+    _localeCode = _normalizeLocaleCode(prefs.getString('locale_code'));
+    AppLocaleState.sync(_localeCode);
     _appThemeId = AppThemeId.fromStorage(prefs.getString('app_theme_id'));
     _syncEnabled = prefs.getBool('syncEnabled') ?? false;
     _readerPagingMode = ReaderPagingMode.fromStorage(
@@ -242,6 +248,16 @@ class SettingsProvider extends ChangeNotifier {
     await prefs.setString('themeMode', mode);
   }
 
+  Future<void> setLocaleCode(String code) async {
+    final normalized = _normalizeLocaleCode(code);
+    if (_localeCode == normalized) return;
+    _localeCode = normalized;
+    AppLocaleState.sync(normalized);
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('locale_code', normalized);
+  }
+
   Future<void> setAppThemeId(AppThemeId themeId) async {
     if (_appThemeId == themeId) return;
     _appThemeId = themeId;
@@ -307,6 +323,14 @@ class SettingsProvider extends ChangeNotifier {
   String _bookTypographyPrefix(String bookId) {
     final encoded = base64Url.encode(utf8.encode(bookId)).replaceAll('=', '');
     return 'reader.book.$encoded.';
+  }
+
+  String _normalizeLocaleCode(String? value) {
+    return switch (value) {
+      'zh' => 'zh',
+      'en' => 'en',
+      _ => 'system',
+    };
   }
 
   Color get backgroundColor {

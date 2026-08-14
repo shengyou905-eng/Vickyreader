@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../config/constants.dart';
+import '../l10n/app_locale_state.dart';
 import 'app_http_client.dart';
 import '../models/ai_conversation.dart';
 import '../models/ai_explain_mode.dart';
@@ -138,7 +139,10 @@ class AiService {
     request.headers['Content-Type'] = 'application/json';
     request.headers['Accept'] = 'text/event-stream';
     request.headers['Authorization'] = 'Bearer $token';
-    request.body = jsonEncode(body);
+    request.body = jsonEncode({
+      ...body,
+      'response_language': AppLocaleState.languageCode,
+    });
 
     final client = AppHttp.createClient();
     try {

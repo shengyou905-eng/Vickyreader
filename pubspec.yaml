@@ -14,6 +14,8 @@ hooks:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   cupertino_icons: ^1.0.8
 
   # EPUB parsing
@@ -52,7 +54,7 @@ dependencies:
 
   # Utilities
   uuid: ^4.5.1
-  intl: ^0.19.0
+  intl: ^0.20.2
   cached_network_image: ^3.4.1
   flutter_cache_manager: ^3.4.1
   share_plus: ^10.1.4
@@ -74,6 +76,7 @@ flutter_launcher_icons:
   adaptive_icon_foreground: assets/icon.png
 
 flutter:
+  generate: true
   uses-material-design: true
   assets:
     - assets/

@@ -23,6 +23,30 @@ void main() {
     settings.dispose();
   });
 
+  test('interface language persists and rejects unsupported values', () async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsProvider();
+    await settings.loadSettings();
+
+    expect(settings.localeCode, 'system');
+    expect(settings.locale, isNull);
+
+    await settings.setLocaleCode('en');
+    expect(settings.localeCode, 'en');
+    expect(settings.locale?.languageCode, 'en');
+
+    final restored = SettingsProvider();
+    await restored.loadSettings();
+    expect(restored.localeCode, 'en');
+    expect(restored.locale?.languageCode, 'en');
+
+    await restored.setLocaleCode('unsupported');
+    expect(restored.localeCode, 'system');
+    expect(restored.locale, isNull);
+    restored.dispose();
+    settings.dispose();
+  });
+
   test('reader typography is stored independently for each book', () async {
     SharedPreferences.setMockInitialValues({});
     final settings = SettingsProvider();

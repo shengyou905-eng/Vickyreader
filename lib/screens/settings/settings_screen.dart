@@ -4,6 +4,7 @@ import '../../config/theme.dart';
 import '../../config/constants.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../l10n/l10n.dart';
 import '../../services/sync_service.dart';
 import '../../services/privacy_service.dart';
 import '../../services/first_use_guide_service.dart';
@@ -23,12 +24,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final palette = context.appPalette;
     return Scaffold(
-      appBar: AppBar(title: const Text('设置')),
+      appBar: AppBar(title: Text(context.l10n.settings)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           // Account
-          _SectionHeader(title: '账户'),
+          _SectionHeader(title: context.l10n.account),
           const SizedBox(height: 8),
           Consumer<AuthProvider>(
             builder: (context, auth, _) {
@@ -50,12 +51,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const _PrivacyAndSafetySection(),
           const SizedBox(height: 24),
 
-          const _SectionHeader(title: '界面氛围'),
+          _SectionHeader(title: context.l10n.appearance),
           const SizedBox(height: 8),
           const _AppearanceSection(),
           const SizedBox(height: 24),
 
-          const _SectionHeader(title: '功能引导'),
+          _SectionHeader(title: context.l10n.language),
+          const SizedBox(height: 8),
+          const _LanguageSection(),
+          const SizedBox(height: 24),
+
+          _SectionHeader(title: context.l10n.featureGuide),
           const SizedBox(height: 8),
           Container(
             decoration: BoxDecoration(
@@ -65,8 +71,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             child: ListTile(
               leading: const Icon(Icons.help_outline_rounded),
-              title: const Text('重新查看功能引导'),
-              subtitle: const Text('下次进入对应场景时，再看一次简短提示'),
+              title: Text(context.l10n.viewGuideAgain),
+              subtitle: Text(context.l10n.viewGuideAgainSubtitle),
               trailing: const Icon(Icons.refresh_rounded),
               onTap: _resetFirstUseGuides,
             ),
@@ -74,7 +80,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 24),
 
           // About
-          const _SectionHeader(title: '关于'),
+          _SectionHeader(title: context.l10n.about),
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.all(16),
@@ -87,7 +93,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  AppConstants.appName,
+                  context.l10n.appName,
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -96,12 +102,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '版本 1.0.0',
+                  context.l10n.versionLabel('1.0.0'),
                   style: TextStyle(color: palette.textSecondary),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  AppConstants.appTagline,
+                  context.l10n.aboutTagline,
                   style: TextStyle(fontSize: 12, color: palette.textSecondary),
                 ),
               ],
@@ -123,19 +129,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                '未登录',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+              Text(
+                context.l10n.notSignedIn,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
               const SizedBox(height: 2),
               Text(
-                '登录后同步阅读进度和小U条目',
+                context.l10n.signInSyncSubtitle,
                 style: TextStyle(fontSize: 12, color: palette.textSecondary),
               ),
             ],
           ),
         ),
-        ElevatedButton(onPressed: _openAuth, child: const Text('登录 / 注册')),
+        ElevatedButton(
+          onPressed: _openAuth,
+          child: Text(context.l10n.loginRegister),
+        ),
       ],
     );
   }
@@ -162,7 +174,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '已连接云端账号',
+                    context.l10n.cloudAccountConnected,
                     style: TextStyle(
                       fontSize: 12,
                       color: palette.textSecondary,
@@ -192,7 +204,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '我的阅读档案',
+                        context.l10n.myReadingProfile,
                         style: TextStyle(
                           color: palette.textPrimary,
                           fontSize: 14,
@@ -201,7 +213,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        '头像、昵称、在读书籍与公开想法',
+                        context.l10n.myReadingProfileSubtitle,
                         style: TextStyle(
                           color: palette.textSecondary,
                           fontSize: 12,
@@ -220,22 +232,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             OutlinedButton(
               onPressed: _switchAccount,
-              child: const Text('切换账户'),
+              child: Text(context.l10n.switchAccount),
             ),
             const SizedBox(width: 8),
             TextButton(
               onPressed: () => auth.signOut(),
-              child: const Text(
-                '退出登录',
-                style: TextStyle(color: Color(0xFFAD6765)),
+              child: Text(
+                context.l10n.logout,
+                style: const TextStyle(color: Color(0xFFAD6765)),
               ),
             ),
             const Spacer(),
             TextButton(
               onPressed: () => _deleteAccount(auth),
-              child: const Text(
-                '注销账号',
-                style: TextStyle(color: Color(0xFFAD6765)),
+              child: Text(
+                context.l10n.deleteAccount,
+                style: const TextStyle(color: Color(0xFFAD6765)),
               ),
             ),
           ],
@@ -264,34 +276,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final password = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('注销知读账号'),
+        title: Text(context.l10n.deleteAccountTitle),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              '账号、云端阅读记录、随心记、公开帖子、评论与个人资料将永久删除。设备里的本地书籍文件不会被删除。',
-              style: TextStyle(height: 1.55),
+            Text(
+              context.l10n.deleteAccountBody,
+              style: const TextStyle(height: 1.55),
             ),
             const SizedBox(height: 16),
             TextField(
               controller: controller,
               obscureText: true,
-              decoration: const InputDecoration(labelText: '输入当前密码确认'),
+              decoration: InputDecoration(
+                labelText: context.l10n.currentPassword,
+              ),
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('取消'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFFAD6765),
             ),
             onPressed: () => Navigator.pop(dialogContext, controller.text),
-            child: const Text('永久注销'),
+            child: Text(context.l10n.deletePermanently),
           ),
         ],
       ),
@@ -304,13 +318,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('账号及云端关联数据已删除')));
+      ).showSnackBar(SnackBar(content: Text(context.l10n.accountDeleted)));
       Navigator.of(context).pop();
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('注销失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.deleteAccountFailed('$error'))),
+        );
       }
     }
   }
@@ -338,7 +352,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('功能引导已重置，将在下次进入对应场景时出现')));
+    ).showSnackBar(SnackBar(content: Text(context.l10n.guideResetMessage)));
   }
 }
 
@@ -382,6 +396,61 @@ class _AppearanceSection extends StatelessWidget {
   }
 }
 
+class _LanguageSection extends StatelessWidget {
+  const _LanguageSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final visuals = context.appVisuals;
+    final l10n = context.l10n;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: visuals.surface,
+        borderRadius: BorderRadius.circular(visuals.controlRadius),
+        border: Border.all(color: visuals.divider),
+      ),
+      child: Consumer<SettingsProvider>(
+        builder: (context, settings, _) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              l10n.languageSubtitle,
+              style: TextStyle(
+                color: visuals.inkMuted,
+                fontSize: 12,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<String>(
+                segments: [
+                  ButtonSegment(
+                    value: 'system',
+                    label: Text(l10n.followSystem),
+                    icon: const Icon(Icons.phone_iphone_rounded, size: 16),
+                  ),
+                  ButtonSegment(value: 'zh', label: Text(l10n.chinese)),
+                  ButtonSegment(value: 'en', label: Text(l10n.english)),
+                ],
+                selected: {settings.localeCode},
+                showSelectedIcon: false,
+                onSelectionChanged: (selection) {
+                  if (selection.isNotEmpty) {
+                    settings.setLocaleCode(selection.first);
+                  }
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _PrivacyAndSafetySection extends StatelessWidget {
   const _PrivacyAndSafetySection();
 
@@ -392,7 +461,7 @@ class _PrivacyAndSafetySection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionHeader(title: '隐私与安全'),
+        _SectionHeader(title: context.l10n.privacySecurity),
         const SizedBox(height: 8),
         Container(
           decoration: BoxDecoration(
@@ -405,16 +474,16 @@ class _PrivacyAndSafetySection extends StatelessWidget {
               if (isLoggedIn) ...[
                 ListTile(
                   leading: const Icon(Icons.psychology_outlined),
-                  title: const Text('小U与第三方 AI'),
-                  subtitle: const Text('查看或撤回 DeepSeek 数据处理授权'),
+                  title: Text(context.l10n.xiaouThirdPartyAi),
+                  subtitle: Text(context.l10n.xiaouThirdPartyAiSubtitle),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () => _showAiPrivacy(context),
                 ),
                 Divider(height: 1, color: palette.divider),
                 ListTile(
                   leading: const Icon(Icons.visibility_outlined),
-                  title: const Text('明台公开范围'),
-                  subtitle: const Text('控制阅读状态、进度、关注和同书发现'),
+                  title: Text(context.l10n.mingtaiVisibility),
+                  subtitle: Text(context.l10n.mingtaiVisibilitySubtitle),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
@@ -426,8 +495,8 @@ class _PrivacyAndSafetySection extends StatelessWidget {
               ],
               ListTile(
                 leading: const Icon(Icons.gavel_outlined),
-                title: const Text('社区规范与举报'),
-                subtitle: const Text('查看公开内容规范和联系邮箱'),
+                title: Text(context.l10n.communityRules),
+                subtitle: Text(context.l10n.communityRulesSubtitle),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => _showCommunityPolicy(context),
               ),
@@ -435,40 +504,42 @@ class _PrivacyAndSafetySection extends StatelessWidget {
               _legalTile(
                 context,
                 icon: Icons.shield_outlined,
-                title: '隐私政策',
-                subtitle: '知读如何处理和保护你的数据',
-                url: AppConstants.privacyPolicyUrl,
+                title: context.l10n.privacyPolicy,
+                subtitle: context.l10n.privacyPolicySubtitle,
+                url: Localizations.localeOf(context).languageCode == 'en'
+                    ? AppConstants.privacyPolicyEnglishUrl
+                    : AppConstants.privacyPolicyUrl,
               ),
               Divider(height: 1, color: palette.divider),
               _legalTile(
                 context,
                 icon: Icons.list_alt_outlined,
-                title: '个人信息收集清单',
-                subtitle: '逐项查看信息、用途、上传与保存期限',
+                title: context.l10n.dataCollectionList,
+                subtitle: context.l10n.dataCollectionListSubtitle,
                 url: AppConstants.dataCollectionUrl,
               ),
               Divider(height: 1, color: palette.divider),
               _legalTile(
                 context,
                 icon: Icons.hub_outlined,
-                title: '第三方服务清单',
-                subtitle: '云服务、DeepSeek 与 Apple 系统能力',
+                title: context.l10n.thirdPartyList,
+                subtitle: context.l10n.thirdPartyListSubtitle,
                 url: AppConstants.thirdPartiesUrl,
               ),
               Divider(height: 1, color: palette.divider),
               _legalTile(
                 context,
                 icon: Icons.auto_awesome_outlined,
-                title: 'AI 功能与数据处理',
-                subtitle: '小U会发送什么，以及如何撤回授权',
+                title: context.l10n.aiDataProcessing,
+                subtitle: context.l10n.aiDataProcessingSubtitle,
                 url: AppConstants.aiDataProcessingUrl,
               ),
               Divider(height: 1, color: palette.divider),
               _legalTile(
                 context,
                 icon: Icons.person_remove_outlined,
-                title: '账号与数据删除',
-                subtitle: '注销路径、删除范围和处理时间',
+                title: context.l10n.accountDataDeletion,
+                subtitle: context.l10n.accountDataDeletionSubtitle,
                 url: AppConstants.accountDeletionUrl,
               ),
             ],

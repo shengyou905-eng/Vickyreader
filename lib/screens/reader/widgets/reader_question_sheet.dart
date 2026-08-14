@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../config/theme.dart';
+import '../../../l10n/l10n.dart';
 import '../../../models/ai_conversation.dart';
 import '../../../services/ai_service.dart';
 import '../../../utils/markdown_sanitizer.dart';
@@ -14,12 +15,6 @@ extension ReaderQuestionScopeLabel on ReaderQuestionScope {
     ReaderQuestionScope.selection => 'selection',
     ReaderQuestionScope.page => 'page',
     ReaderQuestionScope.chapter => 'chapter',
-  };
-
-  String get label => switch (this) {
-    ReaderQuestionScope.selection => '所选文字',
-    ReaderQuestionScope.page => '当前页',
-    ReaderQuestionScope.chapter => '本章',
   };
 }
 
@@ -171,7 +166,7 @@ class _ReaderQuestionSheetState extends State<ReaderQuestionSheet> {
               if (!mounted) return;
               setState(() {
                 _loading = false;
-                _error = '小U暂时没有看清，可以换一种问法再试一次。';
+                _error = context.l10n.readerQuestionEmpty;
                 _removeEmptyAssistantTail();
               });
               return;
@@ -201,7 +196,7 @@ class _ReaderQuestionSheetState extends State<ReaderQuestionSheet> {
       }
     } catch (_) {
       if (!mounted) return;
-      setState(() => _error = '回答已经生成，但这次记录暂时没有同步成功。');
+      setState(() => _error = context.l10n.readerQuestionSaveFailed);
     }
   }
 
@@ -267,7 +262,7 @@ class _ReaderQuestionSheetState extends State<ReaderQuestionSheet> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '问小U',
+                            context.l10n.readerAskXiaou,
                             style: TextStyle(
                               color: palette.textPrimary,
                               fontSize: 20,
@@ -290,9 +285,12 @@ class _ReaderQuestionSheetState extends State<ReaderQuestionSheet> {
                       ),
                     ),
                     if (_loading)
-                      TextButton(onPressed: _cancel, child: const Text('停止')),
+                      TextButton(
+                        onPressed: _cancel,
+                        child: Text(context.l10n.stop),
+                      ),
                     IconButton(
-                      tooltip: '关闭',
+                      tooltip: context.l10n.close,
                       onPressed: () => Navigator.pop(context),
                       icon: const Icon(Icons.close_rounded),
                     ),
@@ -335,7 +333,7 @@ class _ReaderQuestionSheetState extends State<ReaderQuestionSheet> {
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 34),
                           child: Text(
-                            '可以问一个具体的问题。\n小U会把回答放回你眼前的文字里。',
+                            context.l10n.readerQuestionPrompt,
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: palette.textSecondary,
@@ -383,7 +381,7 @@ class _ReaderQuestionSheetState extends State<ReaderQuestionSheet> {
                           minLines: 1,
                           maxLines: 4,
                           decoration: InputDecoration(
-                            hintText: '就眼前的文字问小U…',
+                            hintText: context.l10n.readerQuestionHint,
                             filled: true,
                             fillColor: palette.card.withAlpha(235),
                             contentPadding: const EdgeInsets.symmetric(
@@ -407,7 +405,7 @@ class _ReaderQuestionSheetState extends State<ReaderQuestionSheet> {
                       ),
                       const SizedBox(width: 8),
                       IconButton.filled(
-                        tooltip: '发送',
+                        tooltip: context.l10n.send,
                         onPressed: _loading || _savingTurn ? null : _send,
                         icon: const Icon(Icons.arrow_upward_rounded),
                         style: IconButton.styleFrom(
@@ -441,7 +439,14 @@ class _ReaderQuestionSheetState extends State<ReaderQuestionSheet> {
                 child: ChoiceChip(
                   label: SizedBox(
                     width: double.infinity,
-                    child: Text(scope.label, textAlign: TextAlign.center),
+                    child: Text(switch (scope) {
+                      ReaderQuestionScope.selection =>
+                        context.l10n.readerQuestionSelection,
+                      ReaderQuestionScope.page =>
+                        context.l10n.readerQuestionPage,
+                      ReaderQuestionScope.chapter =>
+                        context.l10n.readerQuestionChapter,
+                    }, textAlign: TextAlign.center),
                   ),
                   selected: selected,
                   showCheckmark: false,
@@ -510,7 +515,7 @@ class _QuestionBubble extends StatelessWidget {
                   ),
                   const SizedBox(width: 9),
                   Text(
-                    '小U正在读这一段…',
+                    context.l10n.readerQuestionThinking,
                     style: TextStyle(
                       color: palette.textSecondary,
                       fontSize: 12,

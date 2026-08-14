@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../../config/theme.dart';
+import '../../l10n/l10n.dart';
 import '../../models/ai_conversation.dart';
 import '../../models/user_entry.dart';
 import '../../models/xiaou_conversation.dart';
@@ -76,7 +77,7 @@ class _XiaouLoadNotice extends StatelessWidget {
               ),
             ),
           ),
-          TextButton(onPressed: onRetry, child: const Text('重试')),
+          TextButton(onPressed: onRetry, child: Text(context.l10n.retry)),
         ],
       ),
     );
@@ -318,9 +319,9 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
       '',
     );
     if (message.contains('Timeout') || message.contains('timeout')) {
-      return '网络响应有些慢，已保留上次看到的内容。';
+      return context.l10n.xiaouLoadRetained;
     }
-    return '暂时无法刷新，已保留上次看到的内容。';
+    return context.l10n.xiaouLoadRetained;
   }
 
   bool _recentlyLoadedWithContent() {
@@ -375,11 +376,13 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
 
     final controller = ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('已删除${_sourceLabel(source)}'),
+        content: Text(
+          context.l10n.deletedEntry(_localizedSourceLabel(context, source)),
+        ),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 5),
         action: SnackBarAction(
-          label: '撤销',
+          label: context.l10n.undo,
           onPressed: () {
             undone = true;
             if (!mounted) return;
@@ -404,7 +407,10 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         _deletingIds.remove(id);
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('删除失败：$e'), behavior: SnackBarBehavior.floating),
+        SnackBar(
+          content: Text(context.l10n.deleteFailed(e.toString())),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     }
   }
@@ -430,7 +436,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('重要标记保存失败：$e'),
+          content: Text(context.l10n.importanceSaveFailed(e.toString())),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -486,7 +492,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       resizeToAvoidBottomInset: false,
-      appBar: AppBar(title: const Text('小U'), centerTitle: true),
+      appBar: AppBar(title: Text(context.l10n.xiaouTitle), centerTitle: true),
       body: Stack(
         children: [
           if (_loading)
@@ -653,14 +659,14 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     final bookOptions = _bookOptions();
     final selectedBook = bookOptions.firstWhere(
       (option) => option.key == _bookFilter,
-      orElse: () => const _BookOption(key: 'all', title: '全部书籍'),
+      orElse: () => _BookOption(key: 'all', title: context.l10n.allBooks),
     );
-    const filters = <(String, String)>[
-      ('all', '全部'),
-      ('thought', '想法'),
-      ('highlight', '划线'),
-      ('ai_explanation', '小U解读'),
-      ('ai_question', '问小U'),
+    final filters = <(String, String)>[
+      ('all', context.l10n.all),
+      ('thought', context.l10n.thoughts),
+      ('highlight', context.l10n.highlights),
+      ('ai_explanation', context.l10n.xiaouExplanations),
+      ('ai_question', context.l10n.xiaouQuestions),
     ];
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -673,7 +679,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '阅读痕迹',
+            context.l10n.readingTraces,
             style: TextStyle(
               color: palette.textPrimary,
               fontSize: 17,
@@ -686,12 +692,12 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
             onChanged: (value) => setState(() => _searchQuery = value),
             textInputAction: TextInputAction.search,
             decoration: InputDecoration(
-              hintText: '找一句话、一本书或一个想法',
+              hintText: context.l10n.searchTraces,
               prefixIcon: const Icon(Icons.search, size: 20),
               suffixIcon: _searchQuery.isEmpty
                   ? null
                   : IconButton(
-                      tooltip: '清空搜索',
+                      tooltip: context.l10n.clearSearch,
                       onPressed: () {
                         _searchController.clear();
                         setState(() => _searchQuery = '');
@@ -712,7 +718,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
           ),
           const SizedBox(height: 10),
           PopupMenuButton<String>(
-            tooltip: '按书籍筛选',
+            tooltip: context.l10n.allBooks,
             initialValue: _bookFilter,
             position: PopupMenuPosition.under,
             constraints: BoxConstraints(maxHeight: bookMenuHeight),
@@ -824,7 +830,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
                   ? palette.primaryDark
                   : palette.textSecondary,
             ),
-            label: const Text('仅看重要'),
+            label: Text(context.l10n.importantOnly),
             selected: _importantOnly,
             showCheckmark: false,
             onSelected: (value) => setState(() => _importantOnly = value),
@@ -843,7 +849,9 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
 
   List<_BookOption> _bookOptions() {
     final sourceItems = _allItems.isNotEmpty ? _allItems : _items;
-    final result = <_BookOption>[const _BookOption(key: 'all', title: '全部书籍')];
+    final result = <_BookOption>[
+      _BookOption(key: 'all', title: context.l10n.allBooks),
+    ];
     final seen = <String>{'all'};
     for (final item in sourceItems) {
       final key = xiaouBookGroupKey(item);
@@ -864,13 +872,13 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         DateTime.fromMillisecondsSinceEpoch(0);
   }
 
-  String _sourceLabel(String source) {
+  String _localizedSourceLabel(BuildContext context, String source) {
     return switch (source) {
-      'ai_explanation' => '小U解读',
-      'ai_question' => '问小U',
-      'thought' || 'manual' => '想法',
-      'highlight' => '原始划线',
-      _ => '阅读痕迹',
+      'ai_explanation' => context.l10n.xiaouExplanations,
+      'ai_question' => context.l10n.xiaouQuestions,
+      'thought' || 'manual' => context.l10n.thoughts,
+      'highlight' => context.l10n.highlights,
+      _ => context.l10n.readingTraces,
     };
   }
 
@@ -884,10 +892,10 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 30),
           child: Text(
             hasAnyItems
-                ? '这里暂时没有找到对应的阅读痕迹。'
+                ? context.l10n.noMatchingTraces
                 : loadFailed && _hasResolvedLoad
-                ? '还没有拿到新的阅读痕迹，可以稍后重试。'
-                : '划线、想法和小U解读会被安静地记在这里。',
+                ? context.l10n.noNewTraces
+                : context.l10n.tracesEmptyBody,
             textAlign: TextAlign.center,
             style: TextStyle(
               color: palette.textSecondary,
@@ -931,7 +939,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
               Icon(Icons.auto_awesome, color: palette.icon, size: 18),
               const SizedBox(width: 8),
               Text(
-                '小U发现了一件事',
+                context.l10n.xiaouDiscovery,
                 style: TextStyle(
                   color: palette.textSecondary,
                   fontSize: 13,
@@ -966,7 +974,11 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
               onPressed: () {
                 setState(() => _discoveryExpanded = !_discoveryExpanded);
               },
-              child: Text(_discoveryExpanded ? '收起' : '展开'),
+              child: Text(
+                _discoveryExpanded
+                    ? context.l10n.collapse
+                    : context.l10n.expand,
+              ),
             ),
           ],
         ],
@@ -1012,14 +1024,22 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
   bool _isXiaouAsks = false;
   bool _currentAssistantPersisted = false;
 
-  static const List<(IconData, String, String)> _quickActions = [
-    (Icons.auto_awesome_outlined, '解读刚才读到的内容', '请结合我最近读到的内容，帮我看清其中最需要理解的一处。'),
+  List<(IconData, String, String)> _quickActions(BuildContext context) => [
+    (
+      Icons.auto_awesome_outlined,
+      context.l10n.quickExplainLabel,
+      context.l10n.quickExplainPrompt,
+    ),
     (
       Icons.format_quote_rounded,
-      '回顾我的划线与批注',
-      '请回看我最近的划线与批注，告诉我其中有没有值得继续追问的联系。',
+      context.l10n.quickReviewLabel,
+      context.l10n.quickReviewPrompt,
     ),
-    (Icons.menu_book_outlined, '和小U聊聊这本书', '请从我最近正在读的书开始，陪我聊聊我停留最多的那个问题。'),
+    (
+      Icons.menu_book_outlined,
+      context.l10n.quickBookChatLabel,
+      context.l10n.quickBookChatPrompt,
+    ),
   ];
 
   @override
@@ -1545,7 +1565,9 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _isXiaouAsks ? '小U问我' : '和小U说话',
+                            _isXiaouAsks
+                                ? context.l10n.xiaouAsksMe
+                                : context.l10n.chatWithXiaou,
                             style: TextStyle(
                               color: palette.textPrimary,
                               fontSize: 20,
@@ -1556,8 +1578,8 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                           Text(
                             _conversationTitle.isEmpty
                                 ? _isXiaouAsks
-                                      ? '从你的阅读里开始一场开放对谈。'
-                                      : '直接问。小U会尽量把问题放回你的阅读里。'
+                                      ? context.l10n.xiaouAsksSubtitle
+                                      : context.l10n.xiaouChatSubtitle
                                 : _conversationTitle,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -1571,12 +1593,12 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                     ),
                     if (!_isXiaouAsks) ...[
                       IconButton(
-                        tooltip: '历史记录',
+                        tooltip: context.l10n.chatHistory,
                         onPressed: _loading ? null : _showHistory,
                         icon: const Icon(Icons.history_rounded),
                       ),
                       PopupMenuButton<String>(
-                        tooltip: '对话操作',
+                        tooltip: context.l10n.conversationActions,
                         enabled: !_loading && !_openingConversation,
                         onSelected: (value) {
                           if (value == 'new') {
@@ -1586,30 +1608,33 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                           }
                         },
                         itemBuilder: (_) => [
-                          const PopupMenuItem(
+                          PopupMenuItem(
                             value: 'new',
                             child: ListTile(
                               contentPadding: EdgeInsets.zero,
                               leading: Icon(Icons.edit_square),
-                              title: Text('新对话'),
+                              title: Text(context.l10n.newConversation),
                             ),
                           ),
                           if (_messages.any(
                             (message) => message.content.trim().isNotEmpty,
                           ))
-                            const PopupMenuItem(
+                            PopupMenuItem(
                               value: 'save',
                               child: ListTile(
                                 contentPadding: EdgeInsets.zero,
                                 leading: Icon(Icons.bookmark_add_outlined),
-                                title: Text('整段存入随心记'),
+                                title: Text(context.l10n.saveWholeConversation),
                               ),
                             ),
                         ],
                       ),
                     ],
                     if (_loading)
-                      TextButton(onPressed: _cancel, child: const Text('停止')),
+                      TextButton(
+                        onPressed: _cancel,
+                        child: Text(context.l10n.stop),
+                      ),
                     IconButton(
                       onPressed: () => Navigator.pop(context),
                       icon: const Icon(Icons.close),
@@ -1627,7 +1652,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                             ? null
                             : _requestXiaouQuestion,
                         icon: const Icon(Icons.refresh_rounded, size: 18),
-                        label: const Text('换个问题'),
+                        label: Text(context.l10n.changeQuestion),
                       ),
                       const SizedBox(width: 4),
                       TextButton.icon(
@@ -1635,7 +1660,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                             ? null
                             : _endXiaouAsks,
                         icon: const Icon(Icons.stop_circle_outlined, size: 18),
-                        label: const Text('结束对谈'),
+                        label: Text(context.l10n.endConversation),
                       ),
                     ],
                   ),
@@ -1701,7 +1726,9 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                           maxLines: 4,
                           textInputAction: TextInputAction.newline,
                           decoration: InputDecoration(
-                            hintText: _isXiaouAsks ? '回答、反问，或继续说…' : '直接问小U…',
+                            hintText: _isXiaouAsks
+                                ? context.l10n.xiaouAnswerHint
+                                : context.l10n.askXiaouDirectly,
                             filled: true,
                             fillColor: palette.card.withAlpha(235),
                             contentPadding: const EdgeInsets.symmetric(
@@ -1750,7 +1777,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
       padding: const EdgeInsets.fromLTRB(22, 16, 22, 24),
       children: [
         Text(
-          '从正在读的地方开始',
+          context.l10n.xiaouStartFromReading,
           style: TextStyle(
             color: palette.textPrimary,
             fontSize: 17,
@@ -1760,7 +1787,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
         ),
         const SizedBox(height: 7),
         Text(
-          '你可以直接输入，也可以先从下面的一件事开始。',
+          context.l10n.xiaouStartBody,
           style: TextStyle(
             color: palette.textSecondary,
             fontSize: 13,
@@ -1789,7 +1816,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '小U问我',
+                          context.l10n.xiaouAsksMe,
                           style: TextStyle(
                             color: palette.textPrimary,
                             fontSize: 14,
@@ -1798,7 +1825,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          '让小U从你的阅读里提出一个问题',
+                          context.l10n.xiaouAskMeSubtitle,
                           style: TextStyle(
                             color: palette.textSecondary,
                             fontSize: 12,
@@ -1818,7 +1845,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
           ),
         ),
         const SizedBox(height: 9),
-        for (final action in _quickActions)
+        for (final action in _quickActions(context))
           Padding(
             padding: const EdgeInsets.only(bottom: 9),
             child: Material(

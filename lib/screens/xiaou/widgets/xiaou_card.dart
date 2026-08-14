@@ -6,6 +6,7 @@ import '../../../services/ai_service.dart';
 import '../../../services/book_service.dart';
 import '../../../utils/ai_consent_gate.dart';
 import '../../../utils/markdown_sanitizer.dart';
+import '../../../l10n/l10n.dart';
 
 class XiaouCard extends StatefulWidget {
   final String source;
@@ -117,7 +118,7 @@ class _XiaouCardState extends State<XiaouCard> {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    _sourceLabel(widget.source),
+                    _sourceLabel(context, widget.source),
                     style: TextStyle(
                       color: visuals.inkMuted,
                       fontSize: 11,
@@ -214,7 +215,7 @@ class _XiaouCardState extends State<XiaouCard> {
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     Text(
-                      '展开完整解读',
+                      context.l10n.expandFullExplanation,
                       style: TextStyle(
                         color: palette.primaryDeep,
                         fontSize: 12,
@@ -235,8 +236,11 @@ class _XiaouCardState extends State<XiaouCard> {
                     alignment: Alignment.centerLeft,
                     child: Text(
                       _latestFollowUpQuestion.isEmpty
-                          ? '已继续追问 $_followUpCount 次'
-                          : '$_followUpCount 次追问 · $_latestFollowUpQuestion',
+                          ? context.l10n.followUpCount(_followUpCount)
+                          : context.l10n.followUpCountWithQuestion(
+                              _followUpCount,
+                              _latestFollowUpQuestion,
+                            ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -257,7 +261,9 @@ class _XiaouCardState extends State<XiaouCard> {
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   onPressed: () => setState(() => _expanded = !_expanded),
-                  child: Text(_expanded ? '收起' : '展开'),
+                  child: Text(
+                    _expanded ? context.l10n.collapse : context.l10n.expand,
+                  ),
                 ),
               ],
               if (tags.isNotEmpty) ...[
@@ -312,8 +318,8 @@ class _XiaouCardState extends State<XiaouCard> {
     final chapter = chapterTitle.isNotEmpty
         ? chapterTitle
         : chapterIndex.isNotEmpty
-        ? '第 $chapterIndex 章'
-        : '章节未记录';
+        ? context.l10n.chapterNumber(chapterIndex)
+        : context.l10n.chapterUnknown;
     final palette = context.appPalette;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -327,7 +333,7 @@ class _XiaouCardState extends State<XiaouCard> {
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: Text(
-                '${book.isEmpty ? '未记录书名' : book} · $chapter',
+                '${book.isEmpty ? context.l10n.bookUnknown : book} · $chapter',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -364,7 +370,9 @@ class _XiaouCardState extends State<XiaouCard> {
         chapterTitle: widget.chapterTitle ?? '',
         createdAt: widget.createdAt ?? '',
         tags: tags,
-        title: isQuestion ? '问小U' : '小U解读',
+        title: isQuestion
+            ? context.l10n.readerAskXiaou
+            : context.l10n.explainModeAutoFull,
       ),
     ).then((result) {
       if (!mounted || result == null) return;
@@ -375,13 +383,13 @@ class _XiaouCardState extends State<XiaouCard> {
     });
   }
 
-  String _sourceLabel(String source) {
+  String _sourceLabel(BuildContext context, String source) {
     return switch (source) {
-      'thought' || 'manual' => '想法',
-      'highlight' => '划线',
-      'ai_explanation' => '小U解读',
-      'ai_question' => '问小U',
-      _ => '阅读痕迹',
+      'thought' || 'manual' => context.l10n.thoughts,
+      'highlight' => context.l10n.highlights,
+      'ai_explanation' => context.l10n.xiaouExplanations,
+      'ai_question' => context.l10n.xiaouQuestions,
+      _ => context.l10n.traceType,
     };
   }
 
@@ -500,7 +508,7 @@ class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet> {
       if (!mounted) return;
       setState(() {
         _loadingFollowUps = false;
-        _error = '追问记录暂时没有同步，请稍后再试。';
+        _error = context.l10n.followUpsUnavailable;
       });
     }
   }
@@ -643,7 +651,7 @@ class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet> {
                       ),
                     ),
                     IconButton(
-                      tooltip: '关闭',
+                      tooltip: context.l10n.close,
                       onPressed: _close,
                       icon: const Icon(Icons.close_rounded),
                     ),
@@ -658,7 +666,7 @@ class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet> {
                   children: [
                     if (widget.originalText.trim().isNotEmpty) ...[
                       Text(
-                        '选中的原文',
+                        context.l10n.selectedPassage,
                         style: TextStyle(
                           color: palette.textSecondary,
                           fontSize: 12,
@@ -691,7 +699,7 @@ class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet> {
                       const SizedBox(height: 24),
                     ],
                     Text(
-                      '小U的解读',
+                      context.l10n.xiaouInterpretation,
                       style: TextStyle(
                         color: palette.textSecondary,
                         fontSize: 12,
@@ -751,7 +759,7 @@ class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet> {
                     ] else if (_followUps.isNotEmpty || _sending) ...[
                       const SizedBox(height: 28),
                       Text(
-                        '继续追问',
+                        context.l10n.continueFollowUp,
                         style: TextStyle(
                           color: palette.textSecondary,
                           fontSize: 12,
@@ -768,7 +776,7 @@ class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet> {
                             entryId: widget.entryId,
                             question: _streamingQuestion,
                             answer: _streamingAnswer.isEmpty
-                                ? '小U正在想这一句…'
+                                ? context.l10n.xiaouThinkingSentence
                                 : stripMarkdownMarkers(_streamingAnswer),
                             createdAt: DateTime.now(),
                           ),
@@ -801,7 +809,7 @@ class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet> {
                             textInputAction: TextInputAction.send,
                             onSubmitted: (_) => _sendFollowUp(),
                             decoration: InputDecoration(
-                              hintText: '继续问这一段…',
+                              hintText: context.l10n.followUpHint,
                               filled: true,
                               fillColor: palette.card,
                               isDense: true,
@@ -813,7 +821,7 @@ class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet> {
                           ),
                         ),
                         IconButton(
-                          tooltip: '发送',
+                          tooltip: context.l10n.send,
                           onPressed: _sending ? null : _sendFollowUp,
                           icon: Icon(
                             Icons.arrow_upward_rounded,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../config/theme.dart';
+import '../../../l10n/l10n.dart';
 
 class EmptyBookshelf extends StatelessWidget {
   final VoidCallback onImport;
@@ -18,24 +19,27 @@ class EmptyBookshelf extends StatelessWidget {
             // Simple vector illustration using Flutter shapes
             _buildIllustration(palette),
             const SizedBox(height: 32),
-            const Text(
-              '书架空空如也',
-              style: TextStyle(
+            Text(
+              context.l10n.emptyBookshelf,
+              style: const TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
                 color: AppTheme.textPrimary,
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              '导入你的第一本电子书吧～',
-              style: TextStyle(fontSize: 14, color: AppTheme.textSecondary),
+            Text(
+              context.l10n.emptyBookshelfSubtitle,
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppTheme.textSecondary,
+              ),
             ),
             const SizedBox(height: 32),
             ElevatedButton.icon(
               onPressed: onImport,
               icon: const Icon(Icons.add, size: 20),
-              label: const Text('导入电子书'),
+              label: Text(context.l10n.importEbook),
             ),
           ],
         ),

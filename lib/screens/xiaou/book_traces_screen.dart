@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../config/theme.dart';
 import '../../services/book_service.dart';
+import '../../l10n/l10n.dart';
 import 'xiaou_entry_grouping.dart';
 import 'widgets/xiaou_card.dart';
 import 'widgets/xiaou_swipe_actions.dart';
@@ -88,7 +89,7 @@ class _XiaouBookTracesScreenState extends State<XiaouBookTracesScreen> {
         item['is_important'] = previous;
         _busyIds.remove(id);
       });
-      _showMessage('重要标记保存失败：$e');
+      _showMessage(context.l10n.importanceSaveFailed(e.toString()));
     }
   }
 
@@ -103,11 +104,15 @@ class _XiaouBookTracesScreenState extends State<XiaouBookTracesScreen> {
     });
     final controller = ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('已删除${_sourceLabel(item['source']?.toString() ?? '')}'),
+        content: Text(
+          context.l10n.deletedEntry(
+            _sourceLabel(context, item['source']?.toString() ?? ''),
+          ),
+        ),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 5),
         action: SnackBarAction(
-          label: '撤销',
+          label: context.l10n.undo,
           onPressed: () {
             undone = true;
             if (!mounted) return;
@@ -130,7 +135,7 @@ class _XiaouBookTracesScreenState extends State<XiaouBookTracesScreen> {
         _items.insert(index.clamp(0, _items.length), item);
         _busyIds.remove(id);
       });
-      _showMessage('删除失败：$e');
+      _showMessage(context.l10n.deleteFailed(e.toString()));
     }
   }
 
@@ -147,7 +152,9 @@ class _XiaouBookTracesScreenState extends State<XiaouBookTracesScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.bookTitle.isEmpty ? '这本书的阅读痕迹' : widget.bookTitle,
+          widget.bookTitle.isEmpty
+              ? context.l10n.bookTracesTitle
+              : widget.bookTitle,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -164,7 +171,7 @@ class _XiaouBookTracesScreenState extends State<XiaouBookTracesScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${_items.length} 条属于你的阅读痕迹',
+                      context.l10n.personalTraceCount(_items.length),
                       style: TextStyle(
                         color: palette.textSecondary,
                         fontSize: 13,
@@ -181,7 +188,7 @@ class _XiaouBookTracesScreenState extends State<XiaouBookTracesScreen> {
                 hasScrollBody: false,
                 child: Center(
                   child: Text(
-                    '这里暂时没有对应的阅读痕迹。',
+                    context.l10n.noBookTraces,
                     style: TextStyle(color: palette.textSecondary),
                   ),
                 ),
@@ -234,12 +241,12 @@ class _XiaouBookTracesScreenState extends State<XiaouBookTracesScreen> {
 
   Widget _buildTypeFilters() {
     final palette = context.appPalette;
-    const filters = <(String, String)>[
-      ('all', '全部'),
-      ('thought', '想法'),
-      ('highlight', '划线'),
-      ('ai_explanation', '小U解读'),
-      ('ai_question', '问小U'),
+    final filters = <(String, String)>[
+      ('all', context.l10n.all),
+      ('thought', context.l10n.thoughts),
+      ('highlight', context.l10n.highlights),
+      ('ai_explanation', context.l10n.xiaouExplanations),
+      ('ai_question', context.l10n.xiaouQuestions),
     ];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -272,13 +279,13 @@ class _XiaouBookTracesScreenState extends State<XiaouBookTracesScreen> {
     return value == true || value == 1 || value?.toString() == '1';
   }
 
-  String _sourceLabel(String source) {
+  String _sourceLabel(BuildContext context, String source) {
     return switch (source) {
-      'ai_explanation' => '小U解读',
-      'ai_question' => '问小U',
-      'thought' || 'manual' => '想法',
-      'highlight' => '原始划线',
-      _ => '阅读痕迹',
+      'ai_explanation' => context.l10n.xiaouExplanations,
+      'ai_question' => context.l10n.xiaouQuestions,
+      'thought' || 'manual' => context.l10n.thoughts,
+      'highlight' => context.l10n.originalHighlight,
+      _ => context.l10n.traceType,
     };
   }
 }

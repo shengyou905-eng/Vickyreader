@@ -292,6 +292,14 @@ async function chat(req, res, next) {
 }
 
 async function streamDeepSeek(req, res, messages, options = {}) {
+  const responseLanguage = req.body?.response_language === 'en' ? 'en' : 'zh';
+  const languagePrompt = responseLanguage === 'en'
+    ? 'Respond in natural English. Keep quoted source text in its original language, and explain it in English. Do not use Markdown markers unless the user explicitly asks for Markdown.'
+    : '使用自然中文回答。保留必要的原文引用，不使用 Markdown 标记，除非用户明确要求 Markdown。';
+  const localizedMessages = [
+    { role: 'system', content: languagePrompt },
+    ...messages,
+  ];
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
@@ -325,7 +333,7 @@ async function streamDeepSeek(req, res, messages, options = {}) {
       body: JSON.stringify({
         model: DEEPSEEK_MODEL,
         thinking: { type: 'disabled' },
-        messages,
+        messages: localizedMessages,
         temperature: options.temperature ?? 0.7,
         max_tokens: options.maxTokens ?? 1200,
         stream: true,

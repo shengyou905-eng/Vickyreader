@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'l10n/l10n.dart';
 import 'config/theme.dart';
-import 'config/constants.dart';
 import 'providers/auth_provider.dart';
 import 'providers/bookshelf_provider.dart';
 import 'providers/reader_provider.dart';
@@ -31,8 +31,11 @@ class AiReaderApp extends StatelessWidget {
       ],
       child: Consumer<SettingsProvider>(
         builder: (context, settings, _) => MaterialApp(
-          title: AppConstants.appName,
+          onGenerateTitle: (context) => context.l10n.appName,
           debugShowCheckedModeBanner: false,
+          locale: settings.locale,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           theme: AppTheme.forTheme(settings.appThemeId),
           themeAnimationDuration: AppVisualFoundation.standard.motionDuration,
           themeAnimationCurve: Curves.easeOutCubic,
@@ -143,26 +146,26 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             _currentIndex = i;
           });
         },
-        destinations: const [
+        destinations: [
           NavigationDestination(
-            icon: Icon(Icons.menu_book_outlined),
-            selectedIcon: Icon(Icons.menu_book),
-            label: '书架',
+            icon: const Icon(Icons.menu_book_outlined),
+            selectedIcon: const Icon(Icons.menu_book),
+            label: context.l10n.tabBookshelf,
           ),
           NavigationDestination(
-            icon: Icon(Icons.lightbulb_outline),
-            selectedIcon: Icon(Icons.lightbulb),
-            label: '小U',
+            icon: const Icon(Icons.lightbulb_outline),
+            selectedIcon: const Icon(Icons.lightbulb),
+            label: context.l10n.tabXiaou,
           ),
           NavigationDestination(
-            icon: Icon(Icons.edit_note_outlined),
-            selectedIcon: Icon(Icons.edit_note),
-            label: '随心记',
+            icon: const Icon(Icons.edit_note_outlined),
+            selectedIcon: const Icon(Icons.edit_note),
+            label: context.l10n.tabFreeNotes,
           ),
           NavigationDestination(
-            icon: Icon(Icons.auto_stories_outlined),
-            selectedIcon: Icon(Icons.auto_stories),
-            label: '明台',
+            icon: const Icon(Icons.auto_stories_outlined),
+            selectedIcon: const Icon(Icons.auto_stories),
+            label: context.l10n.tabMingtai,
           ),
         ],
       ),

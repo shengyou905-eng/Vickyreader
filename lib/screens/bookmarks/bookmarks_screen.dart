@@ -4,6 +4,7 @@ import '../../config/theme.dart';
 import '../../models/bookmark.dart';
 import '../../providers/reader_provider.dart';
 import '../../services/book_service.dart';
+import '../../l10n/l10n.dart';
 import '../reader/reader_screen.dart';
 
 class BookmarksScreen extends StatefulWidget {
@@ -41,9 +42,9 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
     readerProvider.setScrollOffset(bm.scrollOffset);
 
     if (mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const ReaderScreen()),
-      );
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const ReaderScreen()));
     }
   }
 
@@ -60,106 +61,115 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('书签')),
+      appBar: AppBar(title: Text(context.l10n.bookmarks)),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _bookmarks.isEmpty
-              ? const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.bookmark_border,
-                          size: 48, color: AppTheme.dividerColor),
-                      SizedBox(height: 12),
-                      Text('还没有书签',
-                          style: TextStyle(color: AppTheme.textSecondary)),
-                    ],
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.bookmark_border,
+                    size: 48,
+                    color: AppTheme.dividerColor,
                   ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _bookmarks.length,
-                  itemBuilder: (_, i) {
-                    final bm = _bookmarks[i];
-                    return Dismissible(
-                      key: Key(bm.id),
-                      direction: DismissDirection.endToStart,
-                      confirmDismiss: (_) async {
-                        return await showDialog<bool>(
+                  const SizedBox(height: 12),
+                  Text(
+                    context.l10n.noBookmarks,
+                    style: const TextStyle(color: AppTheme.textSecondary),
+                  ),
+                ],
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: _bookmarks.length,
+              itemBuilder: (_, i) {
+                final bm = _bookmarks[i];
+                return Dismissible(
+                  key: Key(bm.id),
+                  direction: DismissDirection.endToStart,
+                  confirmDismiss: (_) async {
+                    return await showDialog<bool>(
                           context: context,
                           builder: (ctx) => AlertDialog(
-                            title: const Text('删除书签'),
-                            content: const Text('确定要删除这个书签吗？'),
+                            title: Text(context.l10n.deleteBookmarkTitle),
+                            content: Text(context.l10n.deleteBookmarkBody),
                             actions: [
                               TextButton(
                                 onPressed: () => Navigator.pop(ctx, false),
-                                child: const Text('取消'),
+                                child: Text(context.l10n.cancel),
                               ),
                               ElevatedButton(
                                 onPressed: () => Navigator.pop(ctx, true),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.red.shade400,
                                 ),
-                                child: const Text('删除'),
+                                child: Text(context.l10n.delete),
                               ),
                             ],
                           ),
-                        ) ?? false;
-                      },
-                      background: Container(
-                        alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.only(right: 20),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade300,
-                          borderRadius: BorderRadius.circular(10),
+                        ) ??
+                        false;
+                  },
+                  background: Container(
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(right: 20),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade300,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.delete, color: Colors.white),
+                  ),
+                  onDismissed: (_) => _deleteBookmark(bm),
+                  child: GestureDetector(
+                    onTap: () => _openBookmark(bm),
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        border: const Border(
+                          left: BorderSide(color: AppTheme.primary, width: 3),
                         ),
-                        child: const Icon(Icons.delete, color: Colors.white),
                       ),
-                      onDismissed: (_) => _deleteBookmark(bm),
-                      child: GestureDetector(
-                        onTap: () => _openBookmark(bm),
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                            border: const Border(
-                              left:
-                                  BorderSide(color: AppTheme.primary, width: 3),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            bm.chapterTitle,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                bm.chapterTitle,
-                                style: const TextStyle(
-                                    fontSize: 14, fontWeight: FontWeight.w500),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                bm.snippet,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    fontSize: 13,
-                                    color: AppTheme.textSecondary),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _formatDate(bm.createdAt),
-                                style: const TextStyle(
-                                    fontSize: 11,
-                                    color: AppTheme.textSecondary),
-                              ),
-                            ],
+                          const SizedBox(height: 4),
+                          Text(
+                            bm.snippet,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppTheme.textSecondary,
+                            ),
                           ),
-                        ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _formatDate(bm.createdAt),
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppTheme.textSecondary,
+                            ),
+                          ),
+                        ],
                       ),
-                    );
-                  },
-                ),
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }

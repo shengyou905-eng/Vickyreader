@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../config/theme.dart';
+import '../l10n/l10n.dart';
 
 class ReaderLongPressGuide extends StatefulWidget {
   final VoidCallback onTry;
@@ -97,7 +98,7 @@ class _ReaderLongPressGuideState extends State<ReaderLongPressGuide>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '长按任意文字',
+                      context.l10n.readerGuideTitle,
                       style: TextStyle(
                         color: palette.textPrimary,
                         fontSize: 18,
@@ -106,7 +107,7 @@ class _ReaderLongPressGuideState extends State<ReaderLongPressGuide>
                     ),
                     const SizedBox(height: 7),
                     Text(
-                      '可以提问、解读、划线，或记下想法。',
+                      context.l10n.readerGuideBody,
                       style: TextStyle(
                         color: palette.textSecondary,
                         fontSize: 13,
@@ -119,12 +120,12 @@ class _ReaderLongPressGuideState extends State<ReaderLongPressGuide>
                       children: [
                         TextButton(
                           onPressed: widget.onDismiss,
-                          child: const Text('我知道了'),
+                          child: Text(context.l10n.gotIt),
                         ),
                         const SizedBox(width: 4),
                         FilledButton.tonal(
                           onPressed: widget.onTry,
-                          child: const Text('试一下'),
+                          child: Text(context.l10n.tryIt),
                         ),
                       ],
                     ),
@@ -161,7 +162,7 @@ class ReaderSelectionGuideTip extends StatelessWidget {
               ),
             ),
             child: Text(
-              '在这里向小U提问，或查看解读。',
+              context.l10n.readerGuideSelectionTip,
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: palette.textPrimary,
@@ -213,7 +214,7 @@ class XiaouPresenceGuide extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '这是小U。',
+                      context.l10n.xiaouGuideTitle,
                       style: TextStyle(
                         color: palette.textPrimary,
                         fontSize: 17,
@@ -222,7 +223,7 @@ class XiaouPresenceGuide extends StatelessWidget {
                     ),
                     const SizedBox(height: 7),
                     Text(
-                      '有疑问、想继续追问，或回望阅读痕迹时，点亮它。',
+                      context.l10n.xiaouGuideBody,
                       style: TextStyle(
                         color: palette.textSecondary,
                         fontSize: 13,
@@ -234,7 +235,7 @@ class XiaouPresenceGuide extends StatelessWidget {
                       alignment: Alignment.centerRight,
                       child: TextButton(
                         onPressed: onOpen,
-                        child: const Text('点一下看看'),
+                        child: Text(context.l10n.xiaouGuideAction),
                       ),
                     ),
                   ],
@@ -278,7 +279,7 @@ class MingtaiIntroductionGuide extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  '欢迎来到明台',
+                  context.l10n.mingtaiGuideTitle,
                   style: TextStyle(
                     color: palette.textPrimary,
                     fontSize: 17,
@@ -287,7 +288,7 @@ class MingtaiIntroductionGuide extends StatelessWidget {
                 ),
               ),
               IconButton(
-                tooltip: '关闭引导',
+                tooltip: context.l10n.close,
                 onPressed: onDismiss,
                 visualDensity: VisualDensity.compact,
                 icon: const Icon(Icons.close_rounded, size: 19),
@@ -298,7 +299,7 @@ class MingtaiIntroductionGuide extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: Text(
-              '在这里，你可以阅读大家公开分享的阅读片段、想法和书评，也可以分享自己的阅读痕迹，与其他读者讨论。',
+              context.l10n.mingtaiGuideBody,
               style: TextStyle(
                 color: palette.textSecondary,
                 fontSize: 13,
@@ -310,7 +311,7 @@ class MingtaiIntroductionGuide extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: Text(
-              '你的内容默认保持私人，只有主动确认后才会公开。',
+              context.l10n.mingtaiGuidePrivacy,
               style: TextStyle(
                 color: palette.textPrimary,
                 fontSize: 12,
@@ -323,10 +324,13 @@ class MingtaiIntroductionGuide extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              TextButton(onPressed: onBrowse, child: const Text('逛逛明台')),
+              TextButton(
+                onPressed: onBrowse,
+                child: Text(context.l10n.browseMingtai),
+              ),
               TextButton(
                 onPressed: onLearnSharing,
-                child: const Text('看看如何分享'),
+                child: Text(context.l10n.learnSharing),
               ),
             ],
           ),
@@ -366,7 +370,7 @@ Future<void> showMingtaiSharingGuide(BuildContext context) {
               ),
               const SizedBox(height: 18),
               Text(
-                '分享由你决定',
+                sheetContext.l10n.sharingIsYourChoice,
                 style: TextStyle(
                   color: palette.textPrimary,
                   fontSize: 19,
@@ -375,7 +379,7 @@ Future<void> showMingtaiSharingGuide(BuildContext context) {
               ),
               const SizedBox(height: 9),
               Text(
-                '在阅读页选中文字，写下想法后选择“分享到明台”；也可以从明台右下角留下一段阅读。每次发布前都会让你确认，私人记录不会自动公开。',
+                sheetContext.l10n.sharingGuideBody,
                 style: TextStyle(
                   color: palette.textSecondary,
                   fontSize: 13,
@@ -387,7 +391,7 @@ Future<void> showMingtaiSharingGuide(BuildContext context) {
                 alignment: Alignment.centerRight,
                 child: FilledButton.tonal(
                   onPressed: () => Navigator.pop(sheetContext),
-                  child: const Text('知道了'),
+                  child: Text(sheetContext.l10n.gotIt),
                 ),
               ),
             ],

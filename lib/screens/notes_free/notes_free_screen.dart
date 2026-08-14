@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../../config/theme.dart';
+import '../../l10n/l10n.dart';
 import '../../models/user_entry.dart';
 import '../../services/book_service.dart';
 import '../../services/share_service.dart';
@@ -104,7 +106,7 @@ class _NotesFreeScreenState extends State<NotesFreeScreen> {
       if (!mounted || !_loadGuard.isCurrent(requestVersion)) return;
       debugPrint('[FreeNotesLoad] failed version=$requestVersion: $error');
       setState(() {
-        _loadError = '同步暂时失败，已保留本机记录。';
+        _loadError = context.l10n.syncFailedLocalRetained;
         _loading = false;
       });
     } finally {
@@ -137,16 +139,16 @@ class _NotesFreeScreenState extends State<NotesFreeScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('删除记录'),
-        content: const Text('这条随心记会从你的私密记录中删除，删除后不可恢复。'),
+        title: Text(context.l10n.deleteRecord),
+        content: Text(context.l10n.deleteRecordConfirm),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('删除'),
+            child: Text(context.l10n.delete),
           ),
         ],
       ),
@@ -166,21 +168,21 @@ class _NotesFreeScreenState extends State<NotesFreeScreen> {
   Widget build(BuildContext context) {
     final notes = _visibleNotes;
     final todayEcho = _todayEcho(_notes);
-    final groups = _groupNotes(notes);
+    final groups = _groupNotes(context, notes);
 
     return Scaffold(
       appBar: AppBar(
         toolbarHeight: 82,
         centerTitle: false,
         titleSpacing: 20,
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('随心记'),
-            SizedBox(height: 5),
+            Text(context.l10n.freeNotesTitle),
+            const SizedBox(height: 5),
             Text(
-              '留一处安静的地方，写下此刻经过心里的事',
-              style: TextStyle(
+              context.l10n.freeNotesSubtitle,
+              style: const TextStyle(
                 fontSize: 12,
                 height: 1.3,
                 fontWeight: FontWeight.w400,
@@ -192,9 +194,9 @@ class _NotesFreeScreenState extends State<NotesFreeScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openEditor(),
-        tooltip: '新建记录',
+        tooltip: context.l10n.newFreeNote,
         icon: const Icon(Icons.edit_outlined, size: 20),
-        label: const Text('写一笔'),
+        label: Text(context.l10n.writeNote),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: RefreshIndicator(
@@ -324,7 +326,7 @@ class _FreeNotesLoadNotice extends StatelessWidget {
               style: TextStyle(color: palette.textSecondary, fontSize: 13),
             ),
           ),
-          TextButton(onPressed: onRetry, child: const Text('重试')),
+          TextButton(onPressed: onRetry, child: Text(context.l10n.retry)),
         ],
       ),
     );
@@ -348,7 +350,7 @@ class _FreeNotesLoadFailure extends StatelessWidget {
             Icon(Icons.cloud_off_outlined, size: 34, color: palette.icon),
             const SizedBox(height: 14),
             Text(
-              '暂时没能同步随心记',
+              context.l10n.freeNotesSyncUnavailable,
               style: TextStyle(
                 color: palette.textPrimary,
                 fontSize: 16,
@@ -357,12 +359,12 @@ class _FreeNotesLoadFailure extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              '本机记录没有被清空，网络恢复后可以重新加载。',
+              context.l10n.freeNotesSyncRetained,
               textAlign: TextAlign.center,
               style: TextStyle(color: palette.textSecondary, height: 1.5),
             ),
             const SizedBox(height: 10),
-            TextButton(onPressed: onRetry, child: const Text('重试')),
+            TextButton(onPressed: onRetry, child: Text(context.l10n.retry)),
           ],
         ),
       ),
@@ -391,12 +393,12 @@ class _FreeNotesSearch extends StatelessWidget {
       onChanged: onChanged,
       textInputAction: TextInputAction.search,
       decoration: InputDecoration(
-        hintText: '找一找曾经写下的句子',
+        hintText: context.l10n.searchFreeNotes,
         prefixIcon: const Icon(Icons.search, size: 20),
         suffixIcon: query.isEmpty
             ? null
             : IconButton(
-                tooltip: '清空搜索',
+                tooltip: context.l10n.clearSearch,
                 icon: const Icon(Icons.close, size: 18),
                 onPressed: onClear,
               ),
@@ -445,7 +447,7 @@ class _TodayEchoCard extends StatelessWidget {
               ),
               const SizedBox(width: 7),
               Text(
-                '今日回响',
+                context.l10n.todayEcho,
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -456,7 +458,7 @@ class _TodayEchoCard extends StatelessWidget {
           ),
           const SizedBox(height: 18),
           Text(
-            _formatEchoDate(echo.day),
+            _formatEchoDate(context, echo.day),
             style: TextStyle(color: palette.textSecondary, fontSize: 11),
           ),
           const SizedBox(height: 8),
@@ -477,7 +479,7 @@ class _TodayEchoCard extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 3),
               child: Text(
-                '回到那一天  →',
+                '${context.l10n.backToThatDay}  →',
                 style: TextStyle(
                   color: palette.primaryDark,
                   fontSize: 12,
@@ -527,7 +529,7 @@ class _EchoDayScreenState extends State<_EchoDayScreen> {
   Widget build(BuildContext context) {
     final palette = context.appPalette;
     return Scaffold(
-      appBar: AppBar(title: const Text('那一天')),
+      appBar: AppBar(title: Text(context.l10n.thatDay)),
       body: FutureBuilder<_EchoDayData>(
         future: _data,
         builder: (context, snapshot) {
@@ -535,7 +537,7 @@ class _EchoDayScreenState extends State<_EchoDayScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return _EchoDayEmpty(message: '那一天的记录暂时没有打开。');
+            return _EchoDayEmpty(message: context.l10n.thatDayUnavailable);
           }
           final data = snapshot.data!;
           final highlights = data.entries
@@ -556,19 +558,19 @@ class _EchoDayScreenState extends State<_EchoDayScreen> {
               thoughts.isEmpty &&
               readingTraces.isEmpty;
           if (isEmpty) {
-            return const _EchoDayEmpty(message: '那一天没有留下更多记录。');
+            return _EchoDayEmpty(message: context.l10n.thatDayEmpty);
           }
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 36),
             children: [
               Text(
-                _formatEchoDate(widget.day),
+                _formatEchoDate(context, widget.day),
                 style: TextStyle(color: palette.textSecondary, fontSize: 13),
               ),
               const SizedBox(height: 7),
               Text(
-                '回到这一天',
+                context.l10n.backToThatDay,
                 style: TextStyle(
                   color: palette.textPrimary,
                   fontSize: 24,
@@ -578,7 +580,7 @@ class _EchoDayScreenState extends State<_EchoDayScreen> {
               const SizedBox(height: 24),
               if (data.notes.isNotEmpty)
                 _EchoSection(
-                  title: '随心记',
+                  title: context.l10n.freeNotesTitle,
                   children: [
                     for (final note in data.notes)
                       _EchoTextCard(
@@ -589,7 +591,7 @@ class _EchoDayScreenState extends State<_EchoDayScreen> {
                 ),
               if (highlights.isNotEmpty)
                 _EchoSection(
-                  title: '划线',
+                  title: context.l10n.highlights,
                   children: [
                     for (final entry in highlights)
                       _EchoEntryCard(entry: entry),
@@ -597,14 +599,14 @@ class _EchoDayScreenState extends State<_EchoDayScreen> {
                 ),
               if (thoughts.isNotEmpty)
                 _EchoSection(
-                  title: '想法',
+                  title: context.l10n.thoughts,
                   children: [
                     for (final entry in thoughts) _EchoEntryCard(entry: entry),
                   ],
                 ),
               if (readingTraces.isNotEmpty)
                 _EchoSection(
-                  title: '阅读记录',
+                  title: context.l10n.readingRecords,
                   children: [
                     for (final entry in readingTraces)
                       _EchoEntryCard(entry: entry),
@@ -841,8 +843,8 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
     final messenger = ScaffoldMessenger.of(context);
     if (content.isEmpty) {
       messenger.showSnackBar(
-        const SnackBar(
-          content: Text('先写下一点内容，再交给小U观察'),
+        SnackBar(
+          content: Text(context.l10n.writeBeforeXiaou),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -866,7 +868,11 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
               ),
             ),
             const SizedBox(width: 12),
-            Text(authorized ? '正在交给小U观察…' : '正在撤回小U授权…'),
+            Text(
+              authorized
+                  ? context.l10n.authorizingXiaou
+                  : context.l10n.revokingXiaou,
+            ),
           ],
         ),
       ),
@@ -890,7 +896,11 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
       messenger.hideCurrentSnackBar();
       messenger.showSnackBar(
         SnackBar(
-          content: Text(authorized ? '已交给小U观察' : '已撤回小U授权'),
+          content: Text(
+            authorized
+                ? context.l10n.authorizedXiaouMessage
+                : context.l10n.revokedXiaouMessage,
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -899,7 +909,7 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
       messenger.hideCurrentSnackBar();
       messenger.showSnackBar(
         SnackBar(
-          content: Text('操作失败：$error'),
+          content: Text(context.l10n.operationFailed(error.toString())),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -911,7 +921,7 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
   String _shareText() {
     final title = _shareTitle();
     return '${title == null ? '' : '$title\n\n'}'
-        '${_controller.text.trim()}\n\n${_shareDate()}\n\n知读';
+        '${_controller.text.trim()}\n\n${_shareDate()}\n\n${context.l10n.appName}';
   }
 
   String? _shareTitle() {
@@ -928,8 +938,9 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
   String _shareDate() {
     final value = widget.note?['updated_at']?.toString() ?? '';
     final time = DateTime.tryParse(value)?.toLocal() ?? DateTime.now();
-    String two(int number) => number.toString().padLeft(2, '0');
-    return '${time.year}年${two(time.month)}月${two(time.day)}日';
+    return DateFormat.yMMMMd(
+      Localizations.localeOf(context).toLanguageTag(),
+    ).format(time);
   }
 
   Future<void> _shareImage() async {
@@ -959,7 +970,7 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('分享失败：$error'),
+          content: Text(context.l10n.shareFailed(error.toString())),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -995,7 +1006,7 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
                   child: Row(
                     children: [
                       IconButton(
-                        tooltip: '关闭',
+                        tooltip: context.l10n.close,
                         icon: const Icon(Icons.close),
                         onPressed: () async {
                           await _autosave();
@@ -1008,7 +1019,9 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              widget.note == null ? '写下此刻' : '回到这一页',
+                              widget.note == null
+                                  ? context.l10n.writeThisMoment
+                                  : context.l10n.returnToThisPage,
                               style: const TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.w700,
@@ -1016,9 +1029,9 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
                               ),
                             ),
                             const SizedBox(height: 3),
-                            const Text(
-                              '只属于你的私人书页',
-                              style: TextStyle(
+                            Text(
+                              context.l10n.privatePageSubtitle,
+                              style: const TextStyle(
                                 fontSize: 12,
                                 color: AppTheme.textSecondary,
                               ),
@@ -1027,28 +1040,34 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
                         ),
                       ),
                       PopupMenuButton<String>(
-                        tooltip: '更多',
+                        tooltip: context.l10n.more,
                         enabled: !_changingAuthorization,
                         onSelected: _onMenuSelected,
                         itemBuilder: (_) => [
                           PopupMenuItem(
                             value: 'xiaou',
-                            child: Text(_xiaouAuthorized ? '撤回小U授权' : '交给小U思考'),
+                            child: Text(
+                              _xiaouAuthorized
+                                  ? context.l10n.revokeXiaou
+                                  : context.l10n.authorizeXiaou,
+                            ),
                           ),
                           const PopupMenuDivider(),
-                          const PopupMenuItem(
+                          PopupMenuItem(
                             value: 'share_text',
-                            child: Text('分享文本'),
+                            child: Text(context.l10n.shareText),
                           ),
-                          const PopupMenuItem(
+                          PopupMenuItem(
                             value: 'share_image',
-                            child: Text('分享图片'),
+                            child: Text(context.l10n.shareImage),
                           ),
                         ],
                       ),
                       TextButton(
                         onPressed: _saving ? null : _save,
-                        child: Text(_saving ? '保存中...' : '保存'),
+                        child: Text(
+                          _saving ? context.l10n.saving : context.l10n.save,
+                        ),
                       ),
                     ],
                   ),
@@ -1069,7 +1088,7 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
                       fontWeight: FontWeight.w700,
                     ),
                     decoration: InputDecoration(
-                      hintText: '标题（可选）',
+                      hintText: context.l10n.titleOptional,
                       hintStyle: TextStyle(color: palette.textSecondary),
                       filled: false,
                       border: InputBorder.none,
@@ -1097,7 +1116,7 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
                         color: AppTheme.textPrimary,
                       ),
                       decoration: InputDecoration(
-                        hintText: '不必整理，也不必解释。\n写下此刻经过心里的东西...',
+                        hintText: context.l10n.noteBodyHint,
                         hintStyle: TextStyle(
                           height: 1.75,
                           color: palette.textSecondary,
@@ -1136,13 +1155,13 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
                         child: Text(
                           _changingAuthorization
                               ? _xiaouAuthorized
-                                    ? '正在撤回小U授权…'
-                                    : '正在交给小U观察…'
+                                    ? context.l10n.revokingXiaou
+                                    : context.l10n.authorizingXiaou
                               : _autosaving
-                              ? '正在安静保存...'
+                              ? context.l10n.autosaving
                               : _xiaouAuthorized
-                              ? '✨ 已授权给小U · 可随时撤回'
-                              : '仅自己可见',
+                              ? context.l10n.authorizedToXiaou
+                              : context.l10n.privateOnlyNote,
                           style: TextStyle(
                             fontSize: 12,
                             color: _xiaouAuthorized
@@ -1179,17 +1198,19 @@ class _FreeNoteCard extends StatelessWidget {
     final palette = context.appPalette;
     final content = note['content']?.toString().trim() ?? '';
     final savedTitle = note['title']?.toString().trim() ?? '';
-    final title = savedTitle.isEmpty ? _noteTitle(content) : savedTitle;
+    final title = savedTitle.isEmpty
+        ? _noteTitle(context, content)
+        : savedTitle;
     final preview = _notePreview(content, title);
     final createdAtRaw = note['created_at']?.toString() ?? '';
     final updatedAtRaw = note['updated_at']?.toString() ?? '';
-    final createdAt = _formatTime(createdAtRaw);
-    final updatedAt = _formatTime(updatedAtRaw);
+    final createdAt = _formatTime(context, createdAtRaw);
+    final updatedAt = _formatTime(context, updatedAtRaw);
     final edited = _isMeaningfullyEdited(createdAtRaw, updatedAtRaw);
     final timeLabel = edited
-        ? '写于 $createdAt · 最近编辑 $updatedAt'
+        ? context.l10n.createdOnEditedOn(createdAt, updatedAt)
         : createdAt.isNotEmpty
-        ? '写于 $createdAt'
+        ? context.l10n.createdOn(createdAt)
         : updatedAt;
 
     return Padding(
@@ -1258,7 +1279,7 @@ class _FreeNoteCard extends StatelessWidget {
                   ),
                 ),
                 PopupMenuButton<String>(
-                  tooltip: '更多',
+                  tooltip: context.l10n.more,
                   color: palette.card,
                   icon: const Icon(
                     Icons.more_horiz,
@@ -1268,14 +1289,14 @@ class _FreeNoteCard extends StatelessWidget {
                   onSelected: (value) {
                     if (value == 'delete') onDelete();
                   },
-                  itemBuilder: (_) => const [
+                  itemBuilder: (_) => [
                     PopupMenuItem(
                       value: 'delete',
                       child: Row(
                         children: [
-                          Icon(Icons.delete_outline, size: 18),
-                          SizedBox(width: 8),
-                          Text('删除'),
+                          const Icon(Icons.delete_outline, size: 18),
+                          const SizedBox(width: 8),
+                          Text(context.l10n.delete),
                         ],
                       ),
                     ),
@@ -1303,7 +1324,7 @@ class _FreeNotesEmpty extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(28, 24, 28, 96),
           child: Text(
-            '写下此刻想到的。',
+            context.l10n.writeWhatYouThink,
             style: TextStyle(
               color: palette.textSecondary,
               fontSize: 15,
@@ -1322,7 +1343,7 @@ class _FreeNotesEmpty extends StatelessWidget {
             Icon(Icons.search_off, size: 54, color: palette.illustration),
             const SizedBox(height: 18),
             Text(
-              '没有找到那句话',
+              context.l10n.noSearchResultTitle,
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
@@ -1331,7 +1352,7 @@ class _FreeNotesEmpty extends StatelessWidget {
             ),
             const SizedBox(height: 9),
             Text(
-              '换个词，再慢慢找找',
+              context.l10n.noSearchResultBody,
               textAlign: TextAlign.center,
               style: const TextStyle(
                 height: 1.6,
@@ -1366,10 +1387,13 @@ class _EchoDayData {
   const _EchoDayData({required this.notes, required this.entries});
 }
 
-List<_NoteGroup> _groupNotes(List<Map<String, dynamic>> notes) {
+List<_NoteGroup> _groupNotes(
+  BuildContext context,
+  List<Map<String, dynamic>> notes,
+) {
   final groups = <String, List<Map<String, dynamic>>>{};
   for (final note in notes) {
-    final label = _timeGroup(note['updated_at']?.toString() ?? '');
+    final label = _timeGroup(context, note['updated_at']?.toString() ?? '');
     groups.putIfAbsent(label, () => []).add(note);
   }
   return groups.entries
@@ -1377,25 +1401,30 @@ List<_NoteGroup> _groupNotes(List<Map<String, dynamic>> notes) {
       .toList();
 }
 
-String _timeGroup(String value) {
+String _timeGroup(BuildContext context, String value) {
   final time = DateTime.tryParse(value)?.toLocal();
-  if (time == null) return '更早以前';
+  if (time == null) return context.l10n.earlier;
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
   final day = DateTime(time.year, time.month, time.day);
   final difference = today.difference(day).inDays;
-  if (difference <= 0) return '今天';
-  if (difference == 1) return '昨天';
-  if (difference < 7) return '本周';
-  if (time.year == now.year && time.month == now.month) return '本月';
-  return '更早以前';
+  if (difference <= 0) return context.l10n.today;
+  if (difference == 1) return context.l10n.yesterday;
+  if (difference < 7) return context.l10n.thisWeek;
+  if (time.year == now.year && time.month == now.month) {
+    return context.l10n.thisMonth;
+  }
+  return context.l10n.earlier;
 }
 
-String _noteTitle(String content) {
+String _noteTitle(BuildContext context, String content) {
   final firstLine = content
       .split(RegExp(r'[\r\n。！？!?]'))
       .map((line) => line.trim())
-      .firstWhere((line) => line.isNotEmpty, orElse: () => '未命名的片刻');
+      .firstWhere(
+        (line) => line.isNotEmpty,
+        orElse: () => context.l10n.untitledMoment,
+      );
   return firstLine;
 }
 
@@ -1405,11 +1434,12 @@ String _notePreview(String content, String title) {
   return normalized;
 }
 
-String _formatTime(String value) {
+String _formatTime(BuildContext context, String value) {
   final time = DateTime.tryParse(value)?.toLocal();
   if (time == null) return '';
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(time.month)}月${two(time.day)}日  ${two(time.hour)}:${two(time.minute)}';
+  return DateFormat.MMMd(
+    Localizations.localeOf(context).toLanguageTag(),
+  ).add_Hm().format(time);
 }
 
 bool _isMeaningfullyEdited(String createdAt, String updatedAt) {
@@ -1489,9 +1519,11 @@ String _echoExcerpt(String content) {
   return '${sentence.substring(0, 72)}…';
 }
 
-String _formatEchoDate(DateTime value) {
+String _formatEchoDate(BuildContext context, DateTime value) {
   final time = value.toLocal();
-  return '${time.year}年${time.month}月${time.day}日';
+  return DateFormat.yMMMMd(
+    Localizations.localeOf(context).toLanguageTag(),
+  ).format(time);
 }
 
 String _formatClock(DateTime? value) {

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../config/reader_paging_mode.dart';
 import '../../../config/reader_typography.dart';
 import '../../../config/theme.dart';
+import '../../../l10n/l10n.dart';
 import '../../../providers/settings_provider.dart';
 
 class ReaderSettings extends StatelessWidget {
@@ -54,7 +55,7 @@ class ReaderSettings extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        '阅读排版',
+                        context.l10n.readingTypography,
                         style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.w700,
@@ -77,16 +78,16 @@ class ReaderSettings extends StatelessWidget {
                         minimumSize: const Size(0, 36),
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                       ),
-                      child: const Text('恢复默认'),
+                      child: Text(context.l10n.resetDefaults),
                     ),
                   ],
                 ),
                 const SizedBox(height: 22),
-                const _SectionTitle('阅读效果'),
+                _SectionTitle(context.l10n.readingPreview),
                 const SizedBox(height: 10),
                 _ReadingPreview(settings: settings),
                 const SizedBox(height: 24),
-                const _SectionTitle('字体'),
+                _SectionTitle(context.l10n.font),
                 const SizedBox(height: 10),
                 Row(
                   children: ReaderFontFamily.values
@@ -109,10 +110,10 @@ class ReaderSettings extends StatelessWidget {
                       .toList(growable: false),
                 ),
                 const SizedBox(height: 24),
-                const _SectionTitle('排版'),
+                _SectionTitle(context.l10n.typography),
                 const SizedBox(height: 10),
                 _SliderSetting(
-                  label: '字号',
+                  label: context.l10n.fontSize,
                   valueLabel: '${settings.fontSize.round()}',
                   value: settings.fontSize,
                   min: 12,
@@ -123,7 +124,7 @@ class ReaderSettings extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 _SliderSetting(
-                  label: '行距',
+                  label: context.l10n.lineHeight,
                   valueLabel: settings.lineHeight.toStringAsFixed(1),
                   value: settings.lineHeight,
                   min: 1.2,
@@ -134,7 +135,7 @@ class ReaderSettings extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 _SliderSetting(
-                  label: '页边距',
+                  label: context.l10n.pageMargin,
                   valueLabel: '${settings.pageMargin.round()}',
                   value: settings.pageMargin,
                   min: 12,
@@ -144,20 +145,20 @@ class ReaderSettings extends StatelessWidget {
                       _update(() => settings.setPageMargin(value)),
                 ),
                 const SizedBox(height: 24),
-                const _SectionTitle('翻页方式'),
+                _SectionTitle(context.l10n.pagingMode),
                 const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
                   child: SegmentedButton<ReaderPagingMode>(
-                    segments: const [
+                    segments: [
                       ButtonSegment<ReaderPagingMode>(
                         value: ReaderPagingMode.vertical,
-                        label: Text('上下滚动'),
+                        label: Text(context.l10n.verticalScroll),
                         icon: Icon(Icons.swap_vert_rounded, size: 16),
                       ),
                       ButtonSegment<ReaderPagingMode>(
                         value: ReaderPagingMode.horizontal,
-                        label: Text('左右翻页'),
+                        label: Text(context.l10n.horizontalPaging),
                         icon: Icon(Icons.swap_horiz_rounded, size: 16),
                       ),
                     ],
@@ -202,34 +203,34 @@ class ReaderSettings extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 24),
-                const _SectionTitle('纸张背景'),
+                _SectionTitle(context.l10n.paperBackground),
                 const SizedBox(height: 10),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     _ThemeOption(
-                      label: '白色',
+                      label: context.l10n.paperWhite,
                       color: const Color(0xFFFDFDFC),
                       selected: settings.themeMode == 'light',
                       onTap: () =>
                           _update(() => settings.setThemeMode('light')),
                     ),
                     _ThemeOption(
-                      label: '米纸',
+                      label: context.l10n.paperSepia,
                       color: const Color(0xFFF5ECD7),
                       selected: settings.themeMode == 'sepia',
                       onTap: () =>
                           _update(() => settings.setThemeMode('sepia')),
                     ),
                     _ThemeOption(
-                      label: '护眼',
+                      label: context.l10n.paperGreen,
                       color: const Color(0xFFEAF4E3),
                       selected: settings.themeMode == 'green',
                       onTap: () =>
                           _update(() => settings.setThemeMode('green')),
                     ),
                     _ThemeOption(
-                      label: '夜间',
+                      label: context.l10n.paperDark,
                       color: const Color(0xFF262626),
                       selected: settings.themeMode == 'dark',
                       onTap: () => _update(() => settings.setThemeMode('dark')),
@@ -352,7 +353,11 @@ class _FontCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    font.label,
+                    switch (font) {
+                      ReaderFontFamily.system => context.l10n.fontSystem,
+                      ReaderFontFamily.serif => context.l10n.fontSerif,
+                      ReaderFontFamily.wenkai => context.l10n.fontWenkai,
+                    },
                     style: TextStyle(
                       color: selected ? palette.primary : palette.textSecondary,
                       fontSize: 12,

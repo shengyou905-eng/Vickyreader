@@ -8,6 +8,7 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../../config/reader_paging_mode.dart';
 import '../../config/reader_typography.dart';
 import '../../config/theme.dart';
+import '../../l10n/l10n.dart';
 import '../../models/highlight.dart';
 import '../../providers/reader_provider.dart';
 import '../../providers/settings_provider.dart';
@@ -108,7 +109,9 @@ class _ReaderScreenState extends State<ReaderScreen>
               return;
             }
             setState(() {
-              _webViewLoadError = '正文载入失败：${error.description}';
+              _webViewLoadError = context.l10n.readerContentLoadFailed(
+                error.description,
+              );
             });
           },
           onNavigationRequest: (request) {
@@ -883,7 +886,7 @@ class _ReaderScreenState extends State<ReaderScreen>
               return _buildLoadError(reader.loadError!);
             }
             if (typographyPending) {
-              return _buildLoading('正在恢复阅读排版…');
+              return _buildLoading(context.l10n.restoringTypography);
             }
 
             final isPdf = reader.book?.format == 'pdf';
@@ -957,7 +960,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                                 _loadChapter(forceFullDocument: true);
                               },
                               icon: const Icon(Icons.refresh_rounded),
-                              label: const Text('重新载入正文'),
+                              label: Text(context.l10n.reloadContent),
                             ),
                           ],
                         ),
@@ -1016,8 +1019,8 @@ class _ReaderScreenState extends State<ReaderScreen>
                           _hasWebSelection = false;
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('已由小U整理'),
+                              SnackBar(
+                                content: Text(context.l10n.organizedByXiaou),
                                 duration: Duration(seconds: 1),
                               ),
                             );
@@ -1200,9 +1203,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     final chapter = reader.currentChapter;
     if (book == null || chapter == null || book.format == 'pdf') {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('当前格式暂时无法提取这一页的文字')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.pageTextUnavailable)),
+        );
       }
       return;
     }
@@ -1353,7 +1356,7 @@ class _ReaderScreenState extends State<ReaderScreen>
 
     final filePath = reader.book?.filePath ?? '';
     final fallback = p.basenameWithoutExtension(filePath).trim();
-    return fallback.isNotEmpty ? fallback : '未命名书籍';
+    return fallback.isNotEmpty ? fallback : context.l10n.untitledBook;
   }
 
   Widget _buildTopBar(ReaderProvider reader) {
@@ -1414,8 +1417,14 @@ class _ReaderScreenState extends State<ReaderScreen>
                 }
               },
               itemBuilder: (_) => [
-                const PopupMenuItem(value: 'toc', child: Text('目录')),
-                const PopupMenuItem(value: 'bookmarks', child: Text('书签')),
+                PopupMenuItem(
+                  value: 'toc',
+                  child: Text(context.l10n.tableOfContents),
+                ),
+                PopupMenuItem(
+                  value: 'bookmarks',
+                  child: Text(context.l10n.bookmarks),
+                ),
               ],
             ),
           ],
@@ -1475,9 +1484,9 @@ class _ReaderScreenState extends State<ReaderScreen>
             const Spacer(),
             const Icon(Icons.error_outline, size: 44, color: AppTheme.primary),
             const SizedBox(height: 16),
-            const Text(
-              '书籍打开失败',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            Text(
+              context.l10n.readerOpenFailed,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             Text(
@@ -1523,9 +1532,9 @@ class _ReaderScreenState extends State<ReaderScreen>
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              '目录',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            Text(
+              context.l10n.tableOfContents,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 12),
             Expanded(
@@ -1567,7 +1576,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     final chapterTitle = reader.currentChapter?.title.trim() ?? '';
     final chapterLabel = chapterTitle.isNotEmpty
         ? chapterTitle
-        : '第 ${reader.currentChapterIndex + 1} 章';
+        : context.l10n.chapterNumber(reader.currentChapterIndex + 1);
     final readingPosition =
         '${reader.currentChapterIndex}:${reader.scrollOffset.toStringAsFixed(3)}';
     final readingProgress = reader.progress.clamp(0.0, 1.0).toDouble();
@@ -1593,9 +1602,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (!result.isPublic) {
       _clearReaderSelection(reader);
       messenger.showSnackBar(
-        const SnackBar(
-          content: Text('想法已留给自己'),
-          duration: Duration(seconds: 1),
+        SnackBar(
+          content: Text(context.l10n.thoughtSavedPrivate),
+          duration: const Duration(seconds: 1),
         ),
       );
       return;
@@ -1603,7 +1612,9 @@ class _ReaderScreenState extends State<ReaderScreen>
 
     if (!await ensureCommunityGuidelines(context) || !mounted) {
       _clearReaderSelection(reader);
-      messenger.showSnackBar(const SnackBar(content: Text('想法已保存为私密，尚未公开到明台')));
+      messenger.showSnackBar(
+        SnackBar(content: Text(context.l10n.thoughtSavedPrivateNotShared)),
+      );
       return;
     }
 
@@ -1629,10 +1640,10 @@ class _ReaderScreenState extends State<ReaderScreen>
       _clearReaderSelection(reader);
       messenger.showSnackBar(
         SnackBar(
-          content: const Text('已发布到明台'),
+          content: Text(context.l10n.publishedToMingtai),
           duration: const Duration(seconds: 3),
           action: SnackBarAction(
-            label: '查看',
+            label: context.l10n.view,
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => CommunityBookScreen(
@@ -1648,7 +1659,13 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (!mounted) return;
       _clearReaderSelection(reader);
       messenger.showSnackBar(
-        SnackBar(content: Text('想法已保存为私密，公开失败：${_readerError(error)}')),
+        SnackBar(
+          content: Text(
+            context.l10n.thoughtPrivatePublishFailed(
+              _readerError(error, context.l10n.pleaseTryAgain),
+            ),
+          ),
+        ),
       );
     }
   }
@@ -1716,11 +1733,11 @@ class _ReaderThoughtSheetState extends State<ReaderThoughtSheet> {
   void _submit() {
     final content = _controller.text.trim();
     if (content.isEmpty) {
-      setState(() => _error = '先写下你的想法');
+      setState(() => _error = context.l10n.writeThoughtFirst);
       return;
     }
     if (_isPublic && content.length < 5) {
-      setState(() => _error = '公开想法至少需要 5 个字');
+      setState(() => _error = context.l10n.publicThoughtMinLength);
       return;
     }
     Navigator.pop(
@@ -1759,9 +1776,12 @@ class _ReaderThoughtSheetState extends State<ReaderThoughtSheet> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Text(
-                  '写下想法',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                Text(
+                  context.l10n.writeThought,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 5),
                 Text(
@@ -1792,23 +1812,29 @@ class _ReaderThoughtSheetState extends State<ReaderThoughtSheet> {
                   autofocus: true,
                   minLines: 3,
                   maxLines: 7,
-                  decoration: const InputDecoration(
-                    hintText: '这段文字让你想到什么？',
+                  decoration: InputDecoration(
+                    hintText: context.l10n.thoughtPrompt,
                     alignLabelWithHint: true,
                   ),
                 ),
                 const SizedBox(height: 14),
                 SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(value: false, label: Text('仅自己可见')),
-                    ButtonSegment(value: true, label: Text('分享到明台')),
+                  segments: [
+                    ButtonSegment(
+                      value: false,
+                      label: Text(context.l10n.privateOnly),
+                    ),
+                    ButtonSegment(
+                      value: true,
+                      label: Text(context.l10n.shareToMingtai),
+                    ),
                   ],
                   selected: {_isPublic},
                   showSelectedIcon: false,
                   onSelectionChanged: (value) {
                     final next = value.first;
                     if (next && !widget.canPublish) {
-                      setState(() => _error = '登录后才能公开到明台');
+                      setState(() => _error = context.l10n.loginToPublish);
                       return;
                     }
                     setState(() {
@@ -1819,7 +1845,9 @@ class _ReaderThoughtSheetState extends State<ReaderThoughtSheet> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _isPublic ? '这段话会出现在书页边缘。未发布的记录仍只属于你。' : '保存在私人阅读记录中，不会自动公开。',
+                  _isPublic
+                      ? context.l10n.publicThoughtExplanation
+                      : context.l10n.privateThoughtExplanation,
                   style: TextStyle(color: palette.textSecondary, fontSize: 12),
                 ),
                 if (_error != null) ...[
@@ -1835,12 +1863,16 @@ class _ReaderThoughtSheetState extends State<ReaderThoughtSheet> {
                   children: [
                     TextButton(
                       onPressed: () => Navigator.pop(context),
-                      child: const Text('取消'),
+                      child: Text(context.l10n.cancel),
                     ),
                     const SizedBox(width: 8),
                     FilledButton(
                       onPressed: _submit,
-                      child: Text(_isPublic ? '发布到明台' : '暂时留给自己'),
+                      child: Text(
+                        _isPublic
+                            ? context.l10n.publishToMingtai
+                            : context.l10n.keepPrivate,
+                      ),
                     ),
                   ],
                 ),
@@ -1878,7 +1910,7 @@ class _ChapterPerformanceTrace {
   });
 }
 
-String _readerError(Object error) {
+String _readerError(Object error, String fallback) {
   final message = error.toString().replaceFirst('Exception: ', '').trim();
-  return message.isEmpty ? '请稍后重试' : message;
+  return message.isEmpty ? fallback : message;
 }

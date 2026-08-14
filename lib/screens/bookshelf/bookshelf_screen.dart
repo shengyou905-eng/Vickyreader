@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../config/theme.dart';
 import '../../config/constants.dart';
 import '../../models/book.dart';
+import '../../l10n/l10n.dart';
 import '../../providers/bookshelf_provider.dart';
 import '../../providers/reader_provider.dart';
 import '../../services/auth_service.dart';
@@ -72,7 +73,7 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
 
   void _openBook(Book book) {
     if (BookService.isMingtaiShelfBook(book) || book.format == 'public') {
-      _showError('旧明台借阅入口已停用。请在私人书架重新导入你合法获得的电子书。');
+      _showError(context.l10n.legacyPublicBookDisabled);
       return;
     }
     final readerProvider = context.read<ReaderProvider>();
@@ -99,12 +100,12 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('删除书籍'),
-        content: Text('确定要删除《${book.title}》吗？\n相关的笔记和标注也会被删除。'),
+        title: Text(context.l10n.deleteBook),
+        content: Text(context.l10n.deleteBookConfirm(book.title)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
+            child: Text(context.l10n.cancel),
           ),
           ElevatedButton(
             onPressed: () {
@@ -114,7 +115,7 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red.shade400,
             ),
-            child: const Text('删除'),
+            child: Text(context.l10n.delete),
           ),
         ],
       ),
@@ -130,14 +131,14 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
           children: [
             ListTile(
               leading: const Icon(Icons.edit_note_rounded),
-              title: const Text('分享阅读想法'),
-              subtitle: const Text('只关联书籍信息，不上传电子书文件'),
+              title: Text(context.l10n.shareReadingThought),
+              subtitle: Text(context.l10n.shareReadingThoughtSubtitle),
               enabled: !BookService.isMingtaiShelfBook(book),
               onTap: () => Navigator.pop(ctx, 'share'),
             ),
             ListTile(
               leading: const Icon(Icons.delete_outline),
-              title: const Text('删除书籍'),
+              title: Text(context.l10n.deleteBook),
               onTap: () => Navigator.pop(ctx, 'delete'),
             ),
           ],
@@ -149,9 +150,9 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
     if (action == 'share') {
       final created = await showCommunityPostComposer(context, localBook: book);
       if (created == true && mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('已发布到明台')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.publishedToMingtai)),
+        );
       }
     } else if (action == 'delete') {
       _confirmDelete(book);
@@ -168,13 +169,13 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
           children: [
             Icon(Icons.auto_stories, color: palette.icon, size: 24),
             const SizedBox(width: 8),
-            const Text(AppConstants.appName),
+            Text(context.l10n.appName),
           ],
         ),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings_outlined),
-            tooltip: '设置',
+            tooltip: context.l10n.settingsTooltip,
             onPressed: () {
               Navigator.of(context).pushNamed('/settings');
             },
@@ -258,11 +259,11 @@ class _BookshelfLoadNotice extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              '刷新失败，书架内容已保留。',
+              context.l10n.refreshFailedRetained,
               style: TextStyle(color: palette.textSecondary, fontSize: 13),
             ),
           ),
-          TextButton(onPressed: onRetry, child: const Text('重试')),
+          TextButton(onPressed: onRetry, child: Text(context.l10n.retry)),
         ],
       ),
     );
@@ -287,7 +288,7 @@ class _BookshelfLoadFailure extends StatelessWidget {
             Icon(Icons.error_outline_rounded, size: 34, color: palette.icon),
             const SizedBox(height: 14),
             Text(
-              '书架暂时没有打开',
+              context.l10n.bookshelfUnavailable,
               style: TextStyle(
                 color: palette.textPrimary,
                 fontSize: 16,
@@ -303,7 +304,7 @@ class _BookshelfLoadFailure extends StatelessWidget {
               style: TextStyle(color: palette.textSecondary, height: 1.5),
             ),
             const SizedBox(height: 10),
-            TextButton(onPressed: onRetry, child: const Text('重试')),
+            TextButton(onPressed: onRetry, child: Text(context.l10n.retry)),
           ],
         ),
       ),
@@ -344,9 +345,9 @@ class _AddBookTile extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
-            '导入书籍',
-            style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+          Text(
+            context.l10n.importBook,
+            style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary),
           ),
         ],
       ),

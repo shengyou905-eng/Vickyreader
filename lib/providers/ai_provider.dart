@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../models/ai_conversation.dart';
 import '../models/ai_explain_mode.dart';
 import '../models/user_entry.dart';
+import '../l10n/app_locale_state.dart';
 import '../services/auth_service.dart';
 import '../services/ai_service.dart';
 import '../services/book_service.dart';
@@ -46,7 +47,9 @@ class AiProvider extends ChangeNotifier {
     AiExplainMode mode = AiExplainMode.auto,
   }) async {
     _activeExplanationEntryId = null;
-    final generation = _startGeneration(mode.loadingText);
+    final generation = _startGeneration(
+      AppLocaleState.isEnglish ? _englishLoadingText(mode) : mode.loadingText,
+    );
     notifyListeners();
 
     try {
@@ -172,7 +175,9 @@ class AiProvider extends ChangeNotifier {
 
   Future<void> sendFollowUp(String question) async {
     final entryId = _activeExplanationEntryId;
-    final generation = _startGeneration('正在组织语言…');
+    final generation = _startGeneration(
+      AppLocaleState.isEnglish ? 'Xiaou is organizing an answer…' : '正在组织语言…',
+    );
     notifyListeners();
 
     try {
@@ -250,6 +255,16 @@ class AiProvider extends ChangeNotifier {
         _activeCompleter = null;
       }
     }
+  }
+
+  String _englishLoadingText(AiExplainMode mode) {
+    return switch (mode) {
+      AiExplainMode.auto => 'Xiaou is finding the difficult part…',
+      AiExplainMode.plain => 'Xiaou is finding a clearer way to say it…',
+      AiExplainMode.structure => 'Xiaou is unpacking the structure…',
+      AiExplainMode.concept => 'Xiaou is clarifying the concepts…',
+      AiExplainMode.argument => 'Xiaou is tracing the argument…',
+    };
   }
 
   Future<void> _persistExplanation({

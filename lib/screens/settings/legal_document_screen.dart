@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../../l10n/l10n.dart';
+
 class LegalDocumentScreen extends StatefulWidget {
   final String title;
   final String url;
@@ -37,7 +39,7 @@ class _LegalDocumentScreenState extends State<LegalDocumentScreen> {
           onWebResourceError: (error) {
             if (error.isForMainFrame != true) return;
             if (mounted) {
-              setState(() => _error = '页面暂时无法打开，请检查网络后重试。');
+              setState(() => _error = context.l10n.pageUnavailable);
             }
           },
           onNavigationRequest: (request) {
@@ -85,7 +87,7 @@ class _LegalDocumentScreenState extends State<LegalDocumentScreen> {
                         _controller.loadRequest(Uri.parse(widget.url));
                       },
                       icon: const Icon(Icons.refresh_rounded),
-                      label: const Text('重试'),
+                      label: Text(context.l10n.retry),
                     ),
                   ],
                 ),

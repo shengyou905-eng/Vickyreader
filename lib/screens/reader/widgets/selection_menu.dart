@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../../../config/theme.dart';
+import '../../../l10n/l10n.dart';
 
 class SelectionMenu extends StatelessWidget {
   final VoidCallback onExplain;
@@ -63,8 +64,8 @@ class SelectionMenu extends StatelessWidget {
                   Expanded(
                     child: _CapsuleAction(
                       icon: Icons.auto_awesome_rounded,
-                      label: '解读',
-                      semanticLabel: '小U解读',
+                      label: context.l10n.readerExplainCompact,
+                      semanticLabel: context.l10n.readerExplain,
                       color: primary,
                       emphasized: true,
                       onTap: onExplain,
@@ -74,8 +75,8 @@ class SelectionMenu extends StatelessWidget {
                   Expanded(
                     child: _CapsuleAction(
                       icon: Icons.question_answer_outlined,
-                      label: '提问',
-                      semanticLabel: '问小U',
+                      label: context.l10n.readerAskCompact,
+                      semanticLabel: context.l10n.readerAskXiaou,
                       color: palette.icon,
                       onTap: onAsk,
                     ),
@@ -84,21 +85,21 @@ class SelectionMenu extends StatelessWidget {
                   Expanded(
                     child: _CapsuleAction(
                       icon: Icons.chat_bubble_outline_rounded,
-                      label: '想法',
-                      semanticLabel: '写想法',
+                      label: context.l10n.readerThoughtCompact,
+                      semanticLabel: context.l10n.readerThought,
                       color: palette.icon,
                       onTap: onNote,
                     ),
                   ),
                   _GlassDivider(color: palette.divider),
                   _CapsuleIconAction(
-                    tooltip: '保存划线',
+                    tooltip: context.l10n.readerHighlight,
                     icon: Icons.bookmark_border_rounded,
                     color: palette.icon,
                     onTap: () => onHighlight(_colorToHex(palette.primaryLight)),
                   ),
                   _CapsuleIconAction(
-                    tooltip: '取消',
+                    tooltip: context.l10n.cancel,
                     icon: Icons.close_rounded,
                     color: palette.textSecondary,
                     onTap: onDismiss,

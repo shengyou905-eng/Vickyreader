@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../config/theme.dart';
 import '../../services/book_service.dart';
 import '../../widgets/app_paper_surface.dart';
+import '../../l10n/l10n.dart';
 
 class XiaouTopicScreen extends StatelessWidget {
   final String tag;
@@ -13,13 +14,13 @@ class XiaouTopicScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final visuals = context.appVisuals;
     final topicItems = _topicItems();
-    final groups = _groupByBook(topicItems);
+    final groups = _groupByBook(topicItems, context.l10n.unnamedBook);
     final recentAt = topicItems.isEmpty
         ? null
         : BookService.mingtaiItemCreatedAt(topicItems.first);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('主题')),
+      appBar: AppBar(title: Text(context.l10n.topic)),
       body: AppPaperSurface(
         child: ListView(
           padding: EdgeInsets.fromLTRB(
@@ -62,11 +63,14 @@ class XiaouTopicScreen extends StatelessWidget {
     return result;
   }
 
-  List<_BookGroup> _groupByBook(List<Map<String, dynamic>> topicItems) {
+  List<_BookGroup> _groupByBook(
+    List<Map<String, dynamic>> topicItems,
+    String unnamedBook,
+  ) {
     final byBook = <String, List<Map<String, dynamic>>>{};
     for (final item in topicItems) {
       final title = ((item['book_title'] as String?) ?? '').trim();
-      final key = title.isEmpty ? '未命名书籍' : title;
+      final key = title.isEmpty ? unnamedBook : title;
       byBook.putIfAbsent(key, () => []).add(item);
     }
 
@@ -127,7 +131,7 @@ class _TopicHeader extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '回望',
+            context.l10n.lookBack,
             style: TextStyle(
               color: palette.primaryDeep,
               fontSize: 12,
@@ -146,7 +150,10 @@ class _TopicHeader extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            '$count 条摘录 · 最近记录 ${_formatDate(recentAt)}',
+            context.l10n.excerptCountRecent(
+              count,
+              _formatDate(context, recentAt),
+            ),
             style: TextStyle(color: visuals.inkMuted, fontSize: 13),
           ),
         ],
@@ -197,7 +204,7 @@ class _BookEntryGroup extends StatelessWidget {
                 ),
               ),
               Text(
-                '${group.items.length} 条',
+                context.l10n.entryCount(group.items.length),
                 style: TextStyle(color: visuals.inkMuted, fontSize: 12),
               ),
             ],
@@ -238,7 +245,7 @@ class _TopicEntryTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            _formatDate(createdAt),
+            _formatDate(context, createdAt),
             style: TextStyle(color: visuals.inkMuted, fontSize: 11),
           ),
           const SizedBox(height: 7),
@@ -288,13 +295,13 @@ class _TopicSummary extends StatelessWidget {
         border: Border(left: BorderSide(color: palette.primary, width: 2)),
       ),
       child: Text(
-        _summaryText(),
+        _summaryText(context),
         style: TextStyle(color: visuals.inkMuted, fontSize: 13, height: 1.55),
       ),
     );
   }
 
-  String _summaryText() {
+  String _summaryText(BuildContext context) {
     final related = <String, int>{};
     final books = <String, int>{};
     for (final item in items) {
@@ -310,15 +317,15 @@ class _TopicSummary extends StatelessWidget {
 
     final topRelated = _topKeys(related, 3);
     if (topRelated.isNotEmpty) {
-      return '小U轻轻看了一眼：你常在这个主题下关注：${topRelated.join('、')}。';
+      return context.l10n.topicRelatedSummary(topRelated.join(' · '));
     }
 
     final topBooks = _topKeys(books, 2);
     if (topBooks.isNotEmpty) {
-      return '小U轻轻看了一眼：你常在这个主题下回到：${topBooks.map((b) => '《$b》').join('、')}。';
+      return context.l10n.topicBooksSummary(topBooks.join(' · '));
     }
 
-    return '小U轻轻看了一眼：这个主题还很安静，更多摘录会慢慢显出线索。';
+    return context.l10n.topicQuietSummary;
   }
 }
 
@@ -331,7 +338,10 @@ class _TopicEmpty extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 80),
       child: Center(
-        child: Text('这个主题下还没有条目', style: TextStyle(color: visuals.inkMuted)),
+        child: Text(
+          context.l10n.noTopicEntries,
+          style: TextStyle(color: visuals.inkMuted),
+        ),
       ),
     );
   }
@@ -359,8 +369,8 @@ List<String> _topKeys(Map<String, int> counts, int limit) {
   return entries.take(limit).map((entry) => entry.key).toList();
 }
 
-String _formatDate(DateTime? date) {
-  if (date == null) return '暂无';
+String _formatDate(BuildContext context, DateTime? date) {
+  if (date == null) return context.l10n.dateUnavailable;
   final local = date.toLocal();
   return '${local.year}.${local.month.toString().padLeft(2, '0')}.${local.day.toString().padLeft(2, '0')}';
 }

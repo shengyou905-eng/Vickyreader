@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../../config/theme.dart';
+import '../../../l10n/l10n.dart';
 
 class ImportDialog extends StatelessWidget {
   const ImportDialog({super.key});
@@ -25,31 +26,31 @@ class ImportDialog extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 20),
-          const Text(
-            '导入电子书',
-            style: TextStyle(
+          Text(
+            context.l10n.importEbook,
+            style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w600,
               color: AppTheme.textPrimary,
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
-            '支持 EPUB · TXT · PDF',
-            style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+          Text(
+            context.l10n.supportedBookFormats,
+            style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary),
           ),
           const SizedBox(height: 24),
           _ImportOption(
             icon: Icons.folder_open_rounded,
-            title: '从本地文件导入',
-            subtitle: '选择 EPUB、TXT 或 PDF 文件',
+            title: context.l10n.importLocalFile,
+            subtitle: context.l10n.importLocalFileSubtitle,
             onTap: () => _pickLocalFile(context),
           ),
           const SizedBox(height: 12),
           _ImportOption(
             icon: Icons.link_rounded,
-            title: '从链接下载',
-            subtitle: '输入 EPUB 下载地址',
+            title: context.l10n.downloadFromLink,
+            subtitle: context.l10n.downloadFromLinkSubtitle,
             onTap: () => _importFromUrl(context),
           ),
           const SizedBox(height: 8),
@@ -75,17 +76,15 @@ class ImportDialog extends StatelessWidget {
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('从链接下载'),
+        title: Text(context.l10n.downloadFromLink),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(
-            hintText: '请输入 EPUB / TXT / PDF 文件的下载链接',
-          ),
+          decoration: InputDecoration(hintText: context.l10n.downloadLinkHint),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
+            child: Text(context.l10n.cancel),
           ),
           ElevatedButton(
             onPressed: () {
@@ -94,7 +93,7 @@ class ImportDialog extends StatelessWidget {
                 Navigator.pop(ctx, url);
               }
             },
-            child: const Text('下载'),
+            child: Text(context.l10n.download),
           ),
         ],
       ),
