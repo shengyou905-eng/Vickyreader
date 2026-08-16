@@ -16,7 +16,11 @@ async function findUserByEmail(email) {
   const result = await query(
     `SELECT id, email, password_hash, role, account_status, ban_reason,
        token_version, ai_consent_version, ai_consent_at,
-       created_at, updated_at
+       created_at, updated_at,
+       (password_hash IS NOT NULL) AS has_password,
+       EXISTS (
+         SELECT 1 FROM apple_identities ai WHERE ai.user_id = users.id
+       ) AS apple_linked
      FROM users
      WHERE email = $1`,
     [email],
@@ -29,6 +33,21 @@ async function findAuthUserById(id) {
   const result = await query(
     `SELECT id, email, role, account_status, ban_reason, token_version,
        ai_consent_version, ai_consent_at, created_at, updated_at
+     FROM users
+     WHERE id = $1`,
+    [id],
+  );
+  return result.rows[0] || null;
+}
+
+async function findUserByIdWithCredentials(id) {
+  const result = await query(
+    `SELECT id, email, password_hash, role, account_status, ban_reason,
+       token_version, created_at, updated_at,
+       (password_hash IS NOT NULL) AS has_password,
+       EXISTS (
+         SELECT 1 FROM apple_identities ai WHERE ai.user_id = users.id
+       ) AS apple_linked
      FROM users
      WHERE id = $1`,
     [id],
@@ -82,6 +101,7 @@ module.exports = {
   createUser,
   findUserByEmail,
   findAuthUserById,
+  findUserByIdWithCredentials,
   revokeAllTokens,
   setAiConsent,
   deleteUser,

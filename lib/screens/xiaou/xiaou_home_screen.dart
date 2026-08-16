@@ -766,49 +766,57 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
           const SizedBox(height: 10),
           SizedBox(
             height: 42,
-            child: Row(
-              children: [
-                for (var index = 0; index < filters.length; index++) ...[
-                  if (index > 0) const SizedBox(width: 6),
-                  Expanded(
-                    child: Semantics(
-                      button: true,
-                      selected: _sourceFilter == filters[index].$1,
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(11),
-                          onTap: () =>
-                              setState(() => _sourceFilter = filters[index].$1),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 160),
-                            curve: Curves.easeOut,
-                            alignment: Alignment.center,
-                            padding: const EdgeInsets.symmetric(horizontal: 2),
-                            decoration: BoxDecoration(
-                              color: _sourceFilter == filters[index].$1
-                                  ? palette.primaryLight.withAlpha(92)
-                                  : palette.card.withAlpha(180),
-                              borderRadius: BorderRadius.circular(11),
-                              border: Border.all(
-                                color: _sourceFilter == filters[index].$1
-                                    ? palette.primary.withAlpha(90)
-                                    : palette.divider.withAlpha(100),
-                              ),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (var index = 0; index < filters.length; index++) ...[
+                    if (index > 0) const SizedBox(width: 6),
+                    SizedBox(
+                      width: 78,
+                      child: Semantics(
+                        button: true,
+                        selected: _sourceFilter == filters[index].$1,
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(11),
+                            onTap: () => setState(
+                              () => _sourceFilter = filters[index].$1,
                             ),
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(
-                                filters[index].$2,
-                                maxLines: 1,
-                                style: TextStyle(
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 160),
+                              curve: Curves.easeOut,
+                              alignment: Alignment.center,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _sourceFilter == filters[index].$1
+                                    ? palette.primaryLight.withAlpha(92)
+                                    : palette.card.withAlpha(180),
+                                borderRadius: BorderRadius.circular(11),
+                                border: Border.all(
                                   color: _sourceFilter == filters[index].$1
-                                      ? palette.primaryDark
-                                      : palette.textPrimary,
-                                  fontSize: 12.5,
-                                  fontWeight: _sourceFilter == filters[index].$1
-                                      ? FontWeight.w600
-                                      : FontWeight.w500,
+                                      ? palette.primary.withAlpha(90)
+                                      : palette.divider.withAlpha(100),
+                                ),
+                              ),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  filters[index].$2,
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    color: _sourceFilter == filters[index].$1
+                                        ? palette.primaryDark
+                                        : palette.textPrimary,
+                                    fontSize: 12.5,
+                                    fontWeight:
+                                        _sourceFilter == filters[index].$1
+                                        ? FontWeight.w600
+                                        : FontWeight.w500,
+                                  ),
                                 ),
                               ),
                             ),
@@ -816,9 +824,9 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
                         ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
           const SizedBox(height: 6),
@@ -1536,7 +1544,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
     final palette = context.appPalette;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     return FractionallySizedBox(
-      heightFactor: 0.9,
+      heightFactor: 0.84,
       child: AnimatedPadding(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOut,
@@ -1557,38 +1565,19 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 18, 12, 12),
+                padding: const EdgeInsets.fromLTRB(20, 12, 8, 0),
                 child: Row(
                   children: [
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _isXiaouAsks
-                                ? context.l10n.xiaouAsksMe
-                                : context.l10n.chatWithXiaou,
-                            style: TextStyle(
-                              color: palette.textPrimary,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 5),
-                          Text(
-                            _conversationTitle.isEmpty
-                                ? _isXiaouAsks
-                                      ? context.l10n.xiaouAsksSubtitle
-                                      : context.l10n.xiaouChatSubtitle
-                                : _conversationTitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: palette.textSecondary,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
+                      child: Text(
+                        _isXiaouAsks
+                            ? context.l10n.xiaouAsksMe
+                            : context.l10n.chatWithXiaou,
+                        style: TextStyle(
+                          color: palette.textPrimary,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                     if (!_isXiaouAsks) ...[
@@ -1596,6 +1585,10 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                         tooltip: context.l10n.chatHistory,
                         onPressed: _loading ? null : _showHistory,
                         icon: const Icon(Icons.history_rounded),
+                        constraints: const BoxConstraints.tightFor(
+                          width: 44,
+                          height: 44,
+                        ),
                       ),
                       PopupMenuButton<String>(
                         tooltip: context.l10n.conversationActions,
@@ -1636,10 +1629,35 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
                         child: Text(context.l10n.stop),
                       ),
                     IconButton(
+                      tooltip: context.l10n.close,
                       onPressed: () => Navigator.pop(context),
                       icon: const Icon(Icons.close),
+                      constraints: const BoxConstraints.tightFor(
+                        width: 44,
+                        height: 44,
+                      ),
                     ),
                   ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 2, 20, 12),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    _conversationTitle.isEmpty
+                        ? _isXiaouAsks
+                              ? context.l10n.xiaouAsksSubtitle
+                              : context.l10n.xiaouChatSubtitle
+                        : _conversationTitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.fade,
+                    style: TextStyle(
+                      color: palette.textSecondary,
+                      fontSize: 12,
+                      height: 1.45,
+                    ),
+                  ),
                 ),
               ),
               if (_isXiaouAsks)

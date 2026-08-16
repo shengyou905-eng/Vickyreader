@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../services/apple_auth_service.dart';
 import '../services/book_service.dart';
 import '../services/sync_service.dart';
 
@@ -14,6 +15,8 @@ class AuthProvider extends ChangeNotifier {
   String? get error => _error;
   String? get userId => AuthService.userId;
   String? get email => AuthService.email;
+  bool get hasPassword => AuthService.hasPassword;
+  bool get appleLinked => AuthService.appleLinked;
 
   AuthProvider() {
     _init();
@@ -76,6 +79,39 @@ class AuthProvider extends ChangeNotifier {
     await AuthService.signOut();
     _error = null;
     notifyListeners();
+  }
+
+  Future<bool> signInWithApple() async {
+    return _runAppleAuth(bind: false);
+  }
+
+  Future<bool> bindApple() async {
+    return _runAppleAuth(bind: true);
+  }
+
+  Future<bool> _runAppleAuth({required bool bind}) async {
+    _error = null;
+    _isLoading = true;
+    notifyListeners();
+    try {
+      final result = await AppleAuthService.authorize(bind: bind);
+      _isLoading = false;
+      if (result.status == AppleAuthStatus.success) {
+        if (!bind) unawaited(_afterAuthSuccess());
+        notifyListeners();
+        return true;
+      }
+      if (result.status == AppleAuthStatus.unavailable) {
+        _error = '当前设备不支持 Apple 登录';
+      }
+      notifyListeners();
+      return false;
+    } catch (error) {
+      _error = error.toString().replaceFirst('Exception: ', '');
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
   }
 
   void clearError() {

@@ -45,6 +45,7 @@ backend/uploads/
 # Signing certificates and private keys must never enter source control/assets.
 *.pfx
 *.p12
+*.p8
 *.pem
 *.key
 *.jks

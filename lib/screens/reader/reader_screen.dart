@@ -67,6 +67,9 @@ class _ReaderScreenState extends State<ReaderScreen>
   bool _showSelectionGuideTip = false;
   bool _readerGuideChecked = false;
   Timer? _selectionGuideTimer;
+  Timer? _chapterLoadingIndicatorTimer;
+  int _chapterLoadingGeneration = 0;
+  bool _showChapterLoading = false;
 
   @override
   void initState() {
@@ -108,6 +111,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                 error.errorCode == -3) {
               return;
             }
+            _endChapterLoadingIndicator(_chapterLoadingGeneration);
             setState(() {
               _webViewLoadError = context.l10n.readerContentLoadFailed(
                 error.description,
@@ -132,6 +136,7 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   void _onPageReady() {
     if (!mounted) return;
+    _endChapterLoadingIndicator(_chapterLoadingGeneration);
     if (_webViewLoadError != null) {
       setState(() => _webViewLoadError = null);
     }
@@ -510,12 +515,16 @@ class _ReaderScreenState extends State<ReaderScreen>
     final reader = context.read<ReaderProvider>();
     final targetIndex = reader.currentChapterIndex;
     final generation = ++_chapterLoadGeneration;
+    _beginChapterLoadingIndicator(generation);
     final performanceRequestId = _performanceRequestForLoad(targetIndex);
     final chapter = await reader.ensureChapterLoaded(targetIndex);
     if (!mounted || generation != _chapterLoadGeneration) return;
-    if (chapter == null) return;
-    if (reader.currentChapterIndex != targetIndex) return;
-    if (reader.book == null) return;
+    if (chapter == null ||
+        reader.currentChapterIndex != targetIndex ||
+        reader.book == null) {
+      _endChapterLoadingIndicator(generation);
+      return;
+    }
     _recordPerformanceStage(performanceRequestId, 'CHAPTER_DATA_READY');
     _loadedChapterKey = _chapterLoadKey(reader);
     _appliedReadingPositionRevision = reader.readingPositionRevision;
@@ -558,6 +567,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (!mounted || generation != _chapterLoadGeneration) return;
       final updated = updateResult == true || updateResult.toString() == 'true';
       if (updated) {
+        _endChapterLoadingIndicator(generation);
         return;
       }
     }
@@ -580,6 +590,29 @@ class _ReaderScreenState extends State<ReaderScreen>
     _readerDocumentReady = false;
     _pendingFullDocumentRequestId = performanceRequestId;
     await _webViewController.loadHtmlString(html, baseUrl: baseDir);
+  }
+
+  void _beginChapterLoadingIndicator(int generation) {
+    _chapterLoadingIndicatorTimer?.cancel();
+    _chapterLoadingGeneration = generation;
+    _chapterLoadingIndicatorTimer = Timer(
+      const Duration(milliseconds: 120),
+      () {
+        if (!mounted ||
+            generation != _chapterLoadGeneration ||
+            generation != _chapterLoadingGeneration) {
+          return;
+        }
+        setState(() => _showChapterLoading = true);
+      },
+    );
+  }
+
+  void _endChapterLoadingIndicator([int? generation]) {
+    if (generation != null && generation != _chapterLoadingGeneration) return;
+    _chapterLoadingIndicatorTimer?.cancel();
+    if (!mounted || !_showChapterLoading) return;
+    setState(() => _showChapterLoading = false);
   }
 
   ReaderChapterMarkup _chapterMarkupFor({
@@ -715,6 +748,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       nextChapters: nextChapters,
       readerFontAsset: readerFontAsset,
       preparedChapter: preparedChapter,
+      accentColor: context.appPalette.primary,
     );
   }
 
@@ -963,6 +997,25 @@ class _ReaderScreenState extends State<ReaderScreen>
                               label: Text(context.l10n.reloadContent),
                             ),
                           ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                if (!isPdf && _showChapterLoading && _webViewLoadError == null)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: ColoredBox(
+                        color: settings.backgroundColor.withValues(alpha: 0.94),
+                        child: Center(
+                          child: SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: context.appPalette.primary,
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -1524,47 +1577,137 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   void _showTableOfContents(ReaderProvider reader) {
+    final palette = context.appPalette;
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
       builder: (_) => Container(
-        padding: const EdgeInsets.all(16),
+        height: MediaQuery.sizeOf(context).height * 0.72,
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
+        decoration: BoxDecoration(
+          color: palette.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: palette.divider,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
             Text(
               context.l10n.tableOfContents,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: palette.textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 12),
             Expanded(
               child: ListView.builder(
                 itemCount: reader.chapters.length,
-                itemBuilder: (_, i) => ListTile(
-                  dense: true,
-                  title: Text(
-                    reader.chapters[i].title,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: i == reader.currentChapterIndex
-                          ? FontWeight.w600
-                          : FontWeight.normal,
-                      color: i == reader.currentChapterIndex
-                          ? AppTheme.primary
-                          : AppTheme.textPrimary,
+                itemBuilder: (_, i) {
+                  final rawTitle = reader.chapters[i].title;
+                  final title = rawTitle.trim().isEmpty
+                      ? context.l10n.chapterNumber('${i + 1}')
+                      : _normalizeTocTitle(rawTitle);
+                  final current = i == reader.currentChapterIndex;
+                  final depth = _tocDepth(title);
+                  return Padding(
+                    padding: EdgeInsets.only(left: depth * 14.0, bottom: 2),
+                    child: Material(
+                      color: current
+                          ? palette.primarySoft.withValues(alpha: 0.52)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(10),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: () {
+                          _navigateToChapter(i, reason: 'table_of_contents');
+                          Navigator.pop(context);
+                        },
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: 44),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 3,
+                                height: 24,
+                                decoration: BoxDecoration(
+                                  color: current
+                                      ? palette.primary
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(3),
+                                ),
+                              ),
+                              const SizedBox(width: 11),
+                              Expanded(
+                                child: Text(
+                                  title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  softWrap: true,
+                                  style: TextStyle(
+                                    fontSize: depth == 0 ? 14 : 13,
+                                    height: 1.35,
+                                    fontWeight: current
+                                        ? FontWeight.w600
+                                        : depth == 0
+                                        ? FontWeight.w500
+                                        : FontWeight.w400,
+                                    color: current
+                                        ? palette.primaryDeep
+                                        : palette.textPrimary,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                  onTap: () {
-                    _navigateToChapter(i, reason: 'table_of_contents');
-                    Navigator.pop(context);
-                  },
-                ),
+                  );
+                },
               ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  int _tocDepth(String title) {
+    final value = title.trimLeft();
+    if (RegExp(r'^(\d+\.\d+\.\d+|[a-zA-Z][.)])').hasMatch(value)) {
+      return 2;
+    }
+    if (RegExp(r'^(\d+\.\d+|[（(]?[一二三四五六七八九十]+[）)])').hasMatch(value)) {
+      return 1;
+    }
+    return 0;
+  }
+
+  String _normalizeTocTitle(String title) {
+    var normalized = title.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final separatedHan = RegExp(r'([\u3400-\u9FFF])\s+([\u3400-\u9FFF])');
+    while (separatedHan.hasMatch(normalized)) {
+      normalized = normalized.replaceAllMapped(
+        separatedHan,
+        (match) => '${match.group(1)}${match.group(2)}',
+      );
+    }
+    return normalized;
   }
 
   Future<void> _showNoteDialog(ReaderProvider reader) async {
@@ -1674,6 +1817,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _selectionGuideTimer?.cancel();
+    _chapterLoadingIndicatorTimer?.cancel();
     final settings = _settingsProvider;
     if (settings != null) {
       unawaited(settings.flushTypographyPersistence().catchError((_) {}));

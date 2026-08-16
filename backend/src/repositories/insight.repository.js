@@ -1,6 +1,5 @@
 const { query } = require('../config/db');
 const entryRepository = require('./entry.repository');
-const freeNoteRepository = require('./freeNote.repository');
 
 const actionTags = new Set([
   '划线',
@@ -34,11 +33,9 @@ async function getOrCreateUserInsight(userId) {
 }
 
 async function refreshUserInsight(userId) {
-  const [entries, authorizedFreeNotes] = await Promise.all([
-    entryRepository.listEntries(userId, { limit: 500 }),
-    freeNoteRepository.listAuthorizedForXiaou(userId, { limit: 100 }),
-  ]);
-  const cache = buildInsightCache(entries, authorizedFreeNotes);
+  // Free notes remain private and never enter Xiaou's insight context.
+  const entries = await entryRepository.listEntries(userId, { limit: 500 });
+  const cache = buildInsightCache(entries);
   const result = await query(
     `INSERT INTO user_insights (
        user_id,
@@ -75,7 +72,7 @@ async function refreshUserInsight(userId) {
       JSON.stringify(cache.recentEntries),
       cache.deepReflection,
       entries.length,
-      authorizedFreeNotes.length,
+      0,
     ],
   );
   return result.rows[0];
@@ -87,6 +84,7 @@ function isStale(insight, maxAgeMs = 15 * 60 * 1000) {
 }
 
 function isLegacyInsight(insight) {
+  if (Number(insight?.authorized_note_count) > 0) return true;
   const questions = Array.isArray(insight?.high_value_questions)
     ? insight.high_value_questions
     : [];
@@ -126,13 +124,13 @@ function isLegacyInsight(insight) {
   ));
 }
 
-function buildInsightCache(entries = [], authorizedFreeNotes = []) {
+function buildInsightCache(entries = []) {
   const recentFocus = {
     7: buildWindowInsight(entries, 7),
     30: buildWindowInsight(entries, 30),
   };
   const longTermTopics = topKeys(countTags(entries), 6);
-  const activeDiscovery = buildActiveDiscovery(entries, authorizedFreeNotes);
+  const activeDiscovery = buildActiveDiscovery(entries);
   const highValueQuestions = [];
   return {
     recentFocus,
@@ -163,7 +161,7 @@ function buildWindowInsight(entries, days) {
   };
 }
 
-function buildActiveDiscovery(entries = [], authorizedFreeNotes = []) {
+function buildActiveDiscovery(entries = []) {
   const normalized = entries
     .map((entry) => ({
       ...entry,
@@ -192,16 +190,6 @@ function buildActiveDiscovery(entries = [], authorizedFreeNotes = []) {
 
   const shift = findInterestShift(normalized, recent, freshWindowMs, now);
   if (shift) return shift;
-
-  if (authorizedFreeNotes.length > 0) {
-    const freshAuthorized = authorizedFreeNotes.some((note) => {
-      const grantedAt = new Date(note.granted_at || note.updated_at || note.created_at || 0).getTime();
-      return Number.isFinite(grantedAt) && now - grantedAt <= freshWindowMs;
-    });
-    if (freshAuthorized && recent.length >= 2) {
-      return '✦ 小U发现了一件事\n\n你最近把私人片段交给小U，同时阅读里也留下了新的停留。\n\n我还不能确定它们之间有没有真正的关系，所以先不替你下结论。之后如果它们继续靠近，我会再告诉你。';
-    }
-  }
 
   return '';
 }

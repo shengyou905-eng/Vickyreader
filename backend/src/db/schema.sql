@@ -3,10 +3,15 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
+  password_hash TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Apple-only accounts do not have a local password. Existing password hashes
+-- remain unchanged and email/password login continues to use bcrypt.
+ALTER TABLE users
+  ALTER COLUMN password_hash DROP NOT NULL;
 
 ALTER TABLE users
   ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user' CHECK (
@@ -29,6 +34,42 @@ ALTER TABLE users
 
 ALTER TABLE users
   ADD COLUMN IF NOT EXISTS ai_consent_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  token_hash TEXT PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user
+  ON password_reset_tokens(user_id, expires_at DESC);
+
+CREATE TABLE IF NOT EXISTS auth_rate_limits (
+  action TEXT NOT NULL,
+  key_hash TEXT NOT NULL,
+  window_started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  request_count INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (action, key_hash)
+);
+
+CREATE TABLE IF NOT EXISTS apple_auth_challenges (
+  state_hash TEXT PRIMARY KEY,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS apple_identities (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  apple_sub TEXT NOT NULL UNIQUE,
+  apple_email TEXT NOT NULL DEFAULT '',
+  refresh_token_encrypted TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_apple_identities_sub
+  ON apple_identities(apple_sub);
 
 CREATE TABLE IF NOT EXISTS user_profiles (
   user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

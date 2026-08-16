@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:html/dom.dart' as html_dom;
 import 'package:html/parser.dart' as html_parser;
 import '../../../config/reader_paging_mode.dart';
 import '../../../models/highlight.dart';
@@ -39,9 +40,11 @@ class ReaderDocumentHtml {
     List<Map<String, String>> nextChapters = const [],
     ReaderFontAsset? readerFontAsset,
     ReaderChapterMarkup? preparedChapter,
+    Color? accentColor,
   }) {
     final bgHex = _colorToHex(settings.backgroundColor);
     final textHex = _colorToHex(settings.textColor);
+    final accentHex = _colorToHex(accentColor ?? const Color(0xFF75658F));
     final chapterMarkup =
         preparedChapter ??
         prepareChapter(
@@ -84,6 +87,7 @@ $fontFaceStyle
     --reader-font-family: ${settings.readerFontFamily.cssStack};
     --bg-color: $bgHex;
     --text-color: $textHex;
+    --reader-accent: $accentHex;
     --page-pad-x: ${settings.pageMargin}px;
     --page-pad-y: 16px;
     --reader-top-inset: ${topInset.toStringAsFixed(0)}px;
@@ -131,6 +135,8 @@ $fontFaceStyle
     line-height: 1.35;
     margin: 0 0 20px;
     break-after: avoid;
+    overflow-wrap: break-word;
+    word-break: normal;
   }
   .chapter-body {
     width: 100%;
@@ -154,7 +160,21 @@ $fontFaceStyle
     font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace !important;
   }
   .chapter-body img { max-width: 100%; height: auto; display: block; margin: 12px auto; border-radius: 4px; }
-  .chapter-body h1, .chapter-body h2, .chapter-body h3 { margin: 16px 0 8px; }
+  .chapter-body h1, .chapter-body h2, .chapter-body h3 {
+    margin: 16px 0 8px;
+    overflow-wrap: break-word;
+    word-break: normal;
+  }
+  .chapter-body a {
+    color: var(--reader-accent) !important;
+    text-decoration: none !important;
+  }
+  .chapter-body nav a,
+  .chapter-body li > a {
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+  }
   .chapter-body p, .chapter-body div, .chapter-body section, .chapter-body article, .chapter-body li {
     text-align: start !important;
     width: auto !important;
@@ -168,7 +188,7 @@ $fontFaceStyle
     border-collapse: collapse;
   }
   .chapter-body blockquote {
-    border-left: 3px solid #B39DDB;
+    border-left: 3px solid var(--reader-accent);
     padding-left: 12px;
     margin: 12px 0;
     color: #888;
@@ -213,7 +233,10 @@ ${_readerRuntimeScriptTail()}
     required List<Highlight> highlights,
     List<Map<String, String>> nextChapters = const [],
   }) {
-    final bodyHtml = _injectHighlights(_chapterBodyHtml(content), highlights);
+    final bodyHtml = _injectHighlights(
+      _chapterBodyHtml(content, chapterTitle: title),
+      highlights,
+    );
     final nextBuf = StringBuffer();
     for (int i = 0; i < nextChapters.length; i++) {
       final nc = nextChapters[i];
@@ -222,7 +245,7 @@ ${_readerRuntimeScriptTail()}
       );
       nextBuf.write('${_escapeHtml(nc['title'] ?? '')}</div>');
       nextBuf.write(
-        '<div class="chapter-body">${_chapterBodyHtml(nc['content'] ?? '')}</div>',
+        '<div class="chapter-body">${_chapterBodyHtml(nc['content'] ?? '', chapterTitle: nc['title'] ?? '')}</div>',
       );
     }
     return ReaderChapterMarkup(
@@ -686,30 +709,63 @@ ${_readerRuntimeScriptTail()}
 </body>
 </html>''';
 
-  static String _chapterBodyHtml(String content) {
+  static String _chapterBodyHtml(String content, {String chapterTitle = ''}) {
     final t = content.trim();
+    var body = content;
     if (t.startsWith(RegExp(r'<!DOCTYPE', caseSensitive: false)) ||
         RegExp(r'<html[\s>]', caseSensitive: false).hasMatch(t)) {
       final doc = html_parser.parse(content);
       final chapterBody =
           doc.querySelector('#readSurface > .chapter-body') ??
           doc.querySelector('.chapter-body');
-      var body = (chapterBody?.innerHtml ?? doc.body?.innerHtml ?? '').trim();
+      body = (chapterBody?.innerHtml ?? doc.body?.innerHtml ?? '').trim();
       // Fall back to raw content if body is empty after parsing
       if (body.isEmpty) body = content;
-      body = body.replaceAll(
-        RegExp(r'<style[^>]*>.*?</style>', dotAll: true, caseSensitive: false),
-        '',
-      );
-      // Strip leading <h1 class="chapter-title">...</h1> from TXT imports
-      final trimmed = body.trimLeft();
-      if (trimmed.startsWith('<h1 class="chapter-title">')) {
-        final endIdx = body.indexOf('</h1>');
-        if (endIdx > 0) body = body.substring(endIdx + 5);
-      }
+    }
+    body = body.replaceAll(
+      RegExp(r'<style[^>]*>.*?</style>', dotAll: true, caseSensitive: false),
+      '',
+    );
+    return _stripDuplicateLeadingHeading(body, chapterTitle);
+  }
+
+  static String _stripDuplicateLeadingHeading(String body, String title) {
+    final normalizedTitle = _normalizedHeadingText(title);
+    if (normalizedTitle.isEmpty || body.trim().isEmpty) return body;
+
+    final fragment = html_parser.parseFragment(body);
+    html_dom.Element? firstElement;
+    for (final node in fragment.nodes) {
+      if (node is html_dom.Text && node.text.trim().isEmpty) continue;
+      if (node is html_dom.Element) firstElement = node;
+      break;
+    }
+    if (firstElement == null ||
+        !const {'h1', 'h2', 'h3'}.contains(firstElement.localName)) {
       return body;
     }
-    return content;
+    if (_normalizedHeadingText(firstElement.text) != normalizedTitle) {
+      return body;
+    }
+    firstElement.remove();
+    return fragment.nodes
+        .map((node) {
+          if (node is html_dom.Element) return node.outerHtml;
+          if (node is html_dom.Text) {
+            return const HtmlEscape(HtmlEscapeMode.element).convert(node.text);
+          }
+          return '';
+        })
+        .join()
+        .trimLeft();
+  }
+
+  static String _normalizedHeadingText(String value) {
+    return value
+        .replaceAll(RegExp(r'[\s\u00A0]+'), '')
+        .replaceAll(RegExp(r'[《》〈〉「」『』【】\[\]]'), '')
+        .trim()
+        .toLowerCase();
   }
 
   static String _escapeCssUrl(String value) {

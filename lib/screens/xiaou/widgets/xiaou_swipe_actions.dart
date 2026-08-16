@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../config/theme.dart';
+import '../../../l10n/l10n.dart';
 
 class XiaouSwipeActions extends StatefulWidget {
   final Widget child;
@@ -45,7 +46,7 @@ class _XiaouSwipeActionsState extends State<XiaouSwipeActions> {
           children: [
             Positioned.fill(
               child: Align(
-                alignment: Alignment.centerLeft,
+                alignment: Alignment.centerRight,
                 child: SizedBox(
                   width: _openWidth,
                   child: Row(
@@ -54,7 +55,9 @@ class _XiaouSwipeActionsState extends State<XiaouSwipeActions> {
                         icon: widget.isImportant
                             ? Icons.star_rounded
                             : Icons.star_outline_rounded,
-                        label: widget.isImportant ? '取消重要' : '标记重要',
+                        label: widget.isImportant
+                            ? context.l10n.unmarkImportant
+                            : context.l10n.markImportant,
                         color: palette.primaryDark,
                         onTap: widget.onToggleImportant == null
                             ? null
@@ -65,8 +68,8 @@ class _XiaouSwipeActionsState extends State<XiaouSwipeActions> {
                       ),
                       _ActionButton(
                         icon: Icons.delete_outline_rounded,
-                        label: '删除',
-                        color: const Color(0xFFA75D65),
+                        label: context.l10n.delete,
+                        color: Theme.of(context).colorScheme.error,
                         onTap: widget.onDelete == null
                             ? null
                             : () {
@@ -86,15 +89,18 @@ class _XiaouSwipeActionsState extends State<XiaouSwipeActions> {
               },
               onHorizontalDragUpdate: (details) {
                 setState(() {
-                  _offset = (_offset + details.delta.dx).clamp(0, _openWidth);
+                  _offset = (_offset + details.delta.dx).clamp(-_openWidth, 0);
                 });
               },
               onHorizontalDragEnd: (_) {
                 setState(() {
                   _dragging = false;
-                  _offset = _offset >= _openWidth * 0.38 ? _openWidth : 0;
+                  _offset = _offset.abs() >= _openWidth * 0.38
+                      ? -_openWidth
+                      : 0;
                 });
               },
+              onHorizontalDragCancel: _close,
               child: AnimatedContainer(
                 duration: _dragging
                     ? Duration.zero

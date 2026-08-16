@@ -1,11 +1,18 @@
 const express = require('express');
 const authController = require('../controllers/auth.controller');
+const passwordResetController = require('../controllers/passwordReset.controller');
+const appleAuthController = require('../controllers/appleAuth.controller');
 const auth = require('../middleware/auth');
 
 const router = express.Router();
 
 router.post('/register', authController.register);
 router.post('/login', authController.login);
+router.post('/password/forgot', passwordResetController.forgotPassword);
+router.post('/password/reset', passwordResetController.resetPassword);
+router.post('/apple/prepare', appleAuthController.prepare);
+router.post('/apple/login', appleAuthController.login);
+router.post('/apple/bind', auth, appleAuthController.bind);
 router.post('/logout', auth, authController.logout);
 router.get('/ai-consent', auth, authController.getAiConsent);
 router.post('/ai-consent', auth, authController.acceptAiConsent);

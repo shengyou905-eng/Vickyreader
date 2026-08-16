@@ -59,6 +59,10 @@ dependencies:
   flutter_cache_manager: ^3.4.1
   share_plus: ^10.1.4
   image_picker: ^1.1.2
+  # 7.0.1 is the newest release compatible with this project's Dart 3.10 SDK.
+  sign_in_with_apple: 7.0.1
+  # Keep the Dart 3.10-compatible release; 7.1+ requires Dart 3.12.
+  app_links: 7.0.0
   msix: ^3.16.13
   charset: ^2.0.1
 

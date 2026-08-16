@@ -1,6 +1,5 @@
 const { query } = require('../config/db');
 const entryRepository = require('../repositories/entry.repository');
-const freeNoteRepository = require('../repositories/freeNote.repository');
 const httpError = require('../utils/httpError');
 
 const DEEPSEEK_URL = 'https://api.deepseek.com/v1/chat/completions';
@@ -85,12 +84,11 @@ const XIAOU_AGENT_PROMPT = `你是「小U」，知读 App 里的阅读 Agent。
 - 划线
 - 想法
 - 阅读页 AI 解读
-- 用户主动授权给小U的随心记
 - 明台公开阅读痕迹
 
 回答要求：
 1. 必须给出具体观察，不要只说主题、关键词、数量。
-2. 必须说明依据来自哪些阅读痕迹，例如书名、原文片段、用户想法或授权片段。
+2. 必须说明依据来自哪些阅读痕迹，例如书名、原文片段或用户想法。
 3. 必须说明这些痕迹之间可能有什么关系。
 4. 最后给出一个用户可以继续追问的方向。
 5. 可以说不确定，但不能空泛；如果上下文不足，要诚实说明还看不清。
@@ -252,15 +250,13 @@ async function chat(req, res, next) {
       throw httpError(500, '未配置 DEEPSEEK_API_KEY 环境变量');
     }
 
-    const [entries, authorizedFreeNotes, publicTraces] = await Promise.all([
+    const [entries, publicTraces] = await Promise.all([
       entryRepository.listEntries(req.user.id, { limit: 180 }),
-      freeNoteRepository.listAuthorizedForXiaou(req.user.id, { limit: 60 }),
       listPublicReadingTraces({ limit: 40 }),
     ]);
 
     const context = buildXiaouAgentContext({
       entries,
-      authorizedFreeNotes,
       publicTraces,
     });
 
@@ -274,7 +270,7 @@ async function chat(req, res, next) {
       {
         role: 'system',
         content:
-          '以下是小U可以使用的上下文。不要把授权随心记说成读书笔记；不要把明台公开痕迹说成用户自己的记录。\n\n' +
+          '以下是小U可以使用的阅读上下文。不要把明台公开痕迹说成用户自己的记录。\n\n' +
           context,
       },
       ...normalizeChatHistory(history),
@@ -483,14 +479,12 @@ async function xiaouAsks(req, res, next) {
       throw httpError(500, '未配置 DEEPSEEK_API_KEY 环境变量');
     }
 
-    const [entries, authorizedFreeNotes, publicTraces] = await Promise.all([
+    const [entries, publicTraces] = await Promise.all([
       entryRepository.listEntries(req.user.id, { limit: 180 }),
-      freeNoteRepository.listAuthorizedForXiaou(req.user.id, { limit: 60 }),
       listPublicReadingTraces({ limit: 40 }),
     ]);
     const context = buildXiaouAgentContext({
       entries,
-      authorizedFreeNotes,
       publicTraces,
     });
     const recentDialogue = normalizeChatHistory(history).slice(-12);
@@ -499,7 +493,7 @@ async function xiaouAsks(req, res, next) {
       {
         role: 'system',
         content:
-          '以下是可用的阅读上下文。不要把授权随心记说成读书笔记；不要把明台公开痕迹说成用户自己的记录。\n\n' +
+          '以下是可用的阅读上下文。不要把明台公开痕迹说成用户自己的记录。\n\n' +
           context,
       },
       ...(clean(currentBookTitle) || clean(currentBookId)
@@ -557,10 +551,9 @@ function normalizeChatHistory(history) {
     .filter((item) => item.content);
 }
 
-function buildXiaouAgentContext({ entries, authorizedFreeNotes, publicTraces }) {
+function buildXiaouAgentContext({ entries, publicTraces }) {
   const blocks = [
     buildEntryContext(entries),
-    buildAuthorizedFreeNoteContext(authorizedFreeNotes),
     buildPublicTraceContext(publicTraces),
   ].filter(Boolean);
   return blocks.join('\n\n---\n\n') || '目前还没有足够的阅读上下文。';
@@ -586,16 +579,6 @@ function buildEntryContext(entries = []) {
     return parts.join('\n');
   });
   return `【用户阅读痕迹】\n${lines.join('\n\n')}`;
-}
-
-function buildAuthorizedFreeNoteContext(notes = []) {
-  if (!notes.length) return '【用户主动授权的随心记】暂时为空。';
-  const lines = notes.slice(0, 40).map((note, index) => {
-    const title = clean(note.title) || '无标题';
-    const content = clip(clean(note.content), 220);
-    return `${index + 1}. ${title}\n${content}`;
-  });
-  return `【用户主动授权的随心记】\n${lines.join('\n\n')}`;
 }
 
 function buildPublicTraceContext(traces = []) {

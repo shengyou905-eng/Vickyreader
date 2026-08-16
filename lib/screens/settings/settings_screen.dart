@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import '../../config/theme.dart';
-import '../../config/constants.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../l10n/l10n.dart';
@@ -10,7 +10,7 @@ import '../../services/privacy_service.dart';
 import '../../services/first_use_guide_service.dart';
 import '../auth/auth_screen.dart';
 import '../mingtai/community_mingtai_screen.dart';
-import 'legal_document_screen.dart';
+import 'privacy_data_info_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -23,98 +23,125 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
+    final visuals = context.appVisuals;
     return Scaffold(
       appBar: AppBar(title: Text(context.l10n.settings)),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Account
-          _SectionHeader(title: context.l10n.account),
-          const SizedBox(height: 8),
-          Consumer<AuthProvider>(
-            builder: (context, auth, _) {
-              return Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: palette.card,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: palette.divider),
-                ),
-                child: auth.isLoggedIn
-                    ? _buildLoggedIn(auth)
-                    : _buildLoggedOut(),
-              );
-            },
+      body: ListTileTheme(
+        data: ListTileThemeData(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 4,
           ),
-          const SizedBox(height: 24),
-
-          const _PrivacyAndSafetySection(),
-          const SizedBox(height: 24),
-
-          _SectionHeader(title: context.l10n.appearance),
-          const SizedBox(height: 8),
-          const _AppearanceSection(),
-          const SizedBox(height: 24),
-
-          _SectionHeader(title: context.l10n.language),
-          const SizedBox(height: 8),
-          const _LanguageSection(),
-          const SizedBox(height: 24),
-
-          _SectionHeader(title: context.l10n.featureGuide),
-          const SizedBox(height: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: palette.card,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: palette.divider),
-            ),
-            child: ListTile(
-              leading: const Icon(Icons.help_outline_rounded),
-              title: Text(context.l10n.viewGuideAgain),
-              subtitle: Text(context.l10n.viewGuideAgainSubtitle),
-              trailing: const Icon(Icons.refresh_rounded),
-              onTap: _resetFirstUseGuides,
-            ),
+          minLeadingWidth: 28,
+          minVerticalPadding: 10,
+          titleAlignment: ListTileTitleAlignment.center,
+          titleTextStyle: TextStyle(
+            color: visuals.ink,
+            fontSize: 14,
+            height: 1.35,
+            fontWeight: FontWeight.w600,
           ),
-          const SizedBox(height: 24),
-
-          // About
-          _SectionHeader(title: context.l10n.about),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: palette.card,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: palette.divider),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  context.l10n.appName,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: palette.primary,
+          subtitleTextStyle: TextStyle(
+            color: visuals.inkMuted,
+            fontSize: 12,
+            height: 1.45,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            // Account
+            _SectionHeader(title: context.l10n.account),
+            const SizedBox(height: 8),
+            Consumer<AuthProvider>(
+              builder: (context, auth, _) {
+                return Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: palette.card,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: palette.divider),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  context.l10n.versionLabel('1.0.0'),
-                  style: TextStyle(color: palette.textSecondary),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  context.l10n.aboutTagline,
-                  style: TextStyle(fontSize: 12, color: palette.textSecondary),
-                ),
-              ],
+                  child: auth.isLoggedIn
+                      ? _buildLoggedIn(auth)
+                      : _buildLoggedOut(),
+                );
+              },
             ),
-          ),
-          const SizedBox(height: 32),
-        ],
+            const SizedBox(height: 24),
+
+            const _PrivacyAndSafetySection(),
+            const SizedBox(height: 24),
+
+            _SectionHeader(title: context.l10n.appearance),
+            const SizedBox(height: 8),
+            const _AppearanceSection(),
+            const SizedBox(height: 24),
+
+            _SectionHeader(title: context.l10n.language),
+            const SizedBox(height: 8),
+            const _LanguageSection(),
+            const SizedBox(height: 24),
+
+            _SectionHeader(title: context.l10n.featureGuide),
+            const SizedBox(height: 8),
+            Container(
+              decoration: BoxDecoration(
+                color: palette.card,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: palette.divider),
+              ),
+              child: ListTile(
+                leading: const Icon(Icons.help_outline_rounded),
+                title: Text(context.l10n.viewGuideAgain),
+                subtitle: Text(context.l10n.viewGuideAgainSubtitle),
+                trailing: const Icon(Icons.refresh_rounded),
+                onTap: _resetFirstUseGuides,
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // About
+            _SectionHeader(title: context.l10n.about),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: palette.card,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: palette.divider),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    context.l10n.appName,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: palette.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    context.l10n.versionLabel('1.0.0'),
+                    style: TextStyle(color: palette.textSecondary),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    context.l10n.aboutTagline,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: palette.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 32),
+          ],
+        ),
       ),
     );
   }
@@ -228,26 +255,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
         Divider(height: 18, color: palette.divider),
-        Row(
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
+            if (defaultTargetPlatform == TargetPlatform.iOS ||
+                defaultTargetPlatform == TargetPlatform.macOS)
+              OutlinedButton.icon(
+                onPressed: auth.isLoading || auth.appleLinked
+                    ? null
+                    : () => _bindApple(auth),
+                icon: const Icon(Icons.apple_rounded, size: 18),
+                label: Text(
+                  auth.appleLinked
+                      ? context.l10n.appleLinked
+                      : context.l10n.bindApple,
+                ),
+              ),
             OutlinedButton(
               onPressed: _switchAccount,
               child: Text(context.l10n.switchAccount),
             ),
-            const SizedBox(width: 8),
             TextButton(
               onPressed: () => auth.signOut(),
               child: Text(
                 context.l10n.logout,
-                style: const TextStyle(color: Color(0xFFAD6765)),
-              ),
-            ),
-            const Spacer(),
-            TextButton(
-              onPressed: () => _deleteAccount(auth),
-              child: Text(
-                context.l10n.deleteAccount,
-                style: const TextStyle(color: Color(0xFFAD6765)),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
           ],
@@ -271,62 +304,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await _openAuth();
   }
 
-  Future<void> _deleteAccount(AuthProvider auth) async {
-    final controller = TextEditingController();
-    final password = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(context.l10n.deleteAccountTitle),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              context.l10n.deleteAccountBody,
-              style: const TextStyle(height: 1.55),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              obscureText: true,
-              decoration: InputDecoration(
-                labelText: context.l10n.currentPassword,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: Text(context.l10n.cancel),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFAD6765),
-            ),
-            onPressed: () => Navigator.pop(dialogContext, controller.text),
-            child: Text(context.l10n.deletePermanently),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (password == null || password.isEmpty || !mounted) return;
-    try {
-      await PrivacyService.deleteAccount(password);
-      await auth.signOut();
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(context.l10n.accountDeleted)));
-      Navigator.of(context).pop();
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.deleteAccountFailed('$error'))),
-        );
-      }
-    }
+  Future<void> _bindApple(AuthProvider auth) async {
+    final linked = await auth.bindApple();
+    if (!mounted) return;
+    final message = linked ? context.l10n.appleBindingSuccess : auth.error;
+    if (message == null || message.isEmpty) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _openMingtaiProfile() {
@@ -471,101 +456,61 @@ class _PrivacyAndSafetySection extends StatelessWidget {
           ),
           child: Column(
             children: [
-              if (isLoggedIn) ...[
-                ListTile(
-                  leading: const Icon(Icons.psychology_outlined),
-                  title: Text(context.l10n.xiaouThirdPartyAi),
-                  subtitle: Text(context.l10n.xiaouThirdPartyAiSubtitle),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () => _showAiPrivacy(context),
+              ListTile(
+                leading: const Icon(Icons.psychology_outlined),
+                title: Text(context.l10n.aiDataAuthorization),
+                subtitle: Text(context.l10n.aiDataAuthorizationSubtitle),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => _showAiPrivacy(context),
+              ),
+              Divider(height: 1, color: palette.divider),
+              ListTile(
+                leading: const Icon(Icons.visibility_outlined),
+                title: Text(context.l10n.mingtaiPrivacyAndVisibility),
+                subtitle: Text(
+                  context.l10n.mingtaiPrivacyAndVisibilitySubtitle,
                 ),
-                Divider(height: 1, color: palette.divider),
-                ListTile(
-                  leading: const Icon(Icons.visibility_outlined),
-                  title: Text(context.l10n.mingtaiVisibility),
-                  subtitle: Text(context.l10n.mingtaiVisibilitySubtitle),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () => Navigator.of(context).push(
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () {
+                  if (!isLoggedIn) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(context.l10n.signInToManagePrivacy),
+                      ),
+                    );
+                    return;
+                  }
+                  Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => const CommunityPrivacyScreen(),
                     ),
-                  ),
-                ),
-                Divider(height: 1, color: palette.divider),
-              ],
+                  );
+                },
+              ),
+              Divider(height: 1, color: palette.divider),
               ListTile(
-                leading: const Icon(Icons.gavel_outlined),
-                title: Text(context.l10n.communityRules),
-                subtitle: Text(context.l10n.communityRulesSubtitle),
+                leading: const Icon(Icons.health_and_safety_outlined),
+                title: Text(context.l10n.communitySafety),
+                subtitle: Text(context.l10n.communitySafetySubtitle),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => _showCommunityPolicy(context),
               ),
               Divider(height: 1, color: palette.divider),
-              _legalTile(
-                context,
-                icon: Icons.shield_outlined,
-                title: context.l10n.privacyPolicy,
-                subtitle: context.l10n.privacyPolicySubtitle,
-                url: Localizations.localeOf(context).languageCode == 'en'
-                    ? AppConstants.privacyPolicyEnglishUrl
-                    : AppConstants.privacyPolicyUrl,
-              ),
-              Divider(height: 1, color: palette.divider),
-              _legalTile(
-                context,
-                icon: Icons.list_alt_outlined,
-                title: context.l10n.dataCollectionList,
-                subtitle: context.l10n.dataCollectionListSubtitle,
-                url: AppConstants.dataCollectionUrl,
-              ),
-              Divider(height: 1, color: palette.divider),
-              _legalTile(
-                context,
-                icon: Icons.hub_outlined,
-                title: context.l10n.thirdPartyList,
-                subtitle: context.l10n.thirdPartyListSubtitle,
-                url: AppConstants.thirdPartiesUrl,
-              ),
-              Divider(height: 1, color: palette.divider),
-              _legalTile(
-                context,
-                icon: Icons.auto_awesome_outlined,
-                title: context.l10n.aiDataProcessing,
-                subtitle: context.l10n.aiDataProcessingSubtitle,
-                url: AppConstants.aiDataProcessingUrl,
-              ),
-              Divider(height: 1, color: palette.divider),
-              _legalTile(
-                context,
-                icon: Icons.person_remove_outlined,
-                title: context.l10n.accountDataDeletion,
-                subtitle: context.l10n.accountDataDeletionSubtitle,
-                url: AppConstants.accountDeletionUrl,
+              ListTile(
+                leading: const Icon(Icons.policy_outlined),
+                title: Text(context.l10n.privacyDataInfo),
+                subtitle: Text(context.l10n.privacyDataInfoSubtitle),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const PrivacyDataInfoScreen(),
+                  ),
+                ),
               ),
             ],
           ),
         ),
       ],
-    );
-  }
-
-  static Widget _legalTile(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required String url,
-  }) {
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(title),
-      subtitle: Text(subtitle),
-      trailing: const Icon(Icons.chevron_right_rounded),
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => LegalDocumentScreen(title: title, url: url),
-        ),
-      ),
     );
   }
 

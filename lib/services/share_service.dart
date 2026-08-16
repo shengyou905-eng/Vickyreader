@@ -22,6 +22,7 @@ class ShareService {
     Color backgroundColor = const Color(0xFFFAF8FD),
   }) async {
     final overlay = Overlay.of(context, rootOverlay: true);
+    final shareOrigin = _shareOrigin(context);
     final boundaryKey = GlobalKey();
     late final OverlayEntry entry;
     entry = OverlayEntry(
@@ -61,7 +62,7 @@ class ShareService {
       await Share.shareXFiles(
         [XFile(file.path)],
         text: text,
-        sharePositionOrigin: _shareOrigin(context),
+        sharePositionOrigin: shareOrigin,
       );
     } finally {
       entry.remove();

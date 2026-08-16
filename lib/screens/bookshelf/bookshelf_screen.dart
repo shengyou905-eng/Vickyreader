@@ -7,12 +7,11 @@ import '../../config/constants.dart';
 import '../../models/book.dart';
 import '../../l10n/l10n.dart';
 import '../../providers/bookshelf_provider.dart';
-import '../../providers/reader_provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/book_service.dart';
 import '../../services/sync_service.dart';
 import '../mingtai/community_mingtai_screen.dart';
-import '../reader/reader_screen.dart';
+import 'book_detail_screen.dart';
 import 'widgets/book_grid_tile.dart';
 import 'widgets/empty_bookshelf.dart';
 import 'widgets/import_dialog.dart';
@@ -76,12 +75,10 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
       _showError(context.l10n.legacyPublicBookDisabled);
       return;
     }
-    final readerProvider = context.read<ReaderProvider>();
-    unawaited(readerProvider.openBook(book));
     if (mounted) {
-      Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (_) => const ReaderScreen()));
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => BookDetailScreen(initialBook: book)),
+      );
     }
   }
 

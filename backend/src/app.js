@@ -11,6 +11,7 @@ const aiRoutes = require('./routes/ai.routes');
 const freeNotesRoutes = require('./routes/freeNotes.routes');
 const xiaouConversationRoutes = require('./routes/xiaouConversation.routes');
 const legalRoutes = require('./routes/legal.routes');
+const authWebRoutes = require('./routes/authWeb.routes');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -36,6 +37,7 @@ app.get('/api/health', (_req, res) => {
 // can be linked from App Store Connect and reviewed before registration.
 app.get('/privacy', (_req, res) => res.redirect(302, '/legal/privacy'));
 app.use('/legal', legalRoutes);
+app.use('/auth', authWebRoutes);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/entries', entriesRoutes);

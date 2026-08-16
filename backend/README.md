@@ -214,6 +214,91 @@ Content-Type: application/json
 
 返回同注册。
 
+## 密码找回
+
+当前认证是邮箱、bcrypt 密码和知读 JWT，不是邮箱验证码或 magic link。
+
+```http
+POST /api/auth/password/forgot
+Content-Type: application/json
+
+{"email":"reader@example.com"}
+```
+
+无论邮箱是否存在，接口都返回相同的 `202` 提示。每个邮箱每小时最多
+3 次，每个 IP 每小时最多 10 次。邮件中的随机令牌有效期为 30 分钟，
+数据库只保存 SHA-256 哈希，成功使用后立即失效。
+
+```http
+POST /api/auth/password/reset
+Content-Type: application/json
+
+{"token":"one-time-token","password":"new-password"}
+```
+
+重置成功会递增 `users.token_version`，现有 JWT 在下一次鉴权时全部失效。
+生产环境必须配置 HTTPS 的重置页与 SMTP：
+
+```env
+PASSWORD_RESET_PUBLIC_URL=https://api.youxugarden.com/auth/reset-password
+PASSWORD_RESET_RATE_LIMIT_SECRET=独立的长随机字符串
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=
+SMTP_PASS=
+SMTP_FROM=ReadU <no-reply@example.com>
+```
+
+## Sign in with Apple
+
+Apple 登录复用现有 `users`、`token_version` 和 JWT。`apple_identities`
+只保存 Apple `sub`、首次返回的邮箱以及加密后的 refresh token；不会仅凭
+相同邮箱静默合并账号。已有邮箱用户需要登录后在设置页主动绑定 Apple。
+
+服务器环境变量：
+
+```env
+APPLE_TEAM_ID=
+APPLE_KEY_ID=
+APPLE_CLIENT_ID=com.reader.aiReader
+APPLE_ALLOWED_AUDIENCES=com.reader.aiReader
+APPLE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----
+# openssl rand -base64 32
+APPLE_TOKEN_ENCRYPTION_KEY=
+```
+
+`.p8` 私钥只能保存在服务器密码管理或服务器 `.env`，不得加入 Git、Flutter
+assets、APK/IPA 或日志。账号注销时，后端会先调用 Apple revoke 接口撤销
+refresh token，再删除本地账号。
+
+Apple Developer 与 Xcode 手工配置：
+
+1. 在 Apple Developer 的 App ID `com.reader.aiReader` 启用
+   **Sign in with Apple**，设为 Primary App ID。
+2. 创建 Sign in with Apple Key，记录 Team ID、Key ID，并只下载一次 `.p8`。
+3. 若不是 Xcode 自动签名，重新生成包含该 capability 的 provisioning profile。
+4. 用 macOS 打开 `ios/Runner.xcworkspace`，在 Runner Target 的
+   **Signing & Capabilities** 中添加 **Sign in with Apple**。
+5. 确认 `Runner.entitlements` 包含
+   `com.apple.developer.applesignin = Default`，Bundle ID 与
+   `APPLE_CLIENT_ID`、允许 audience 一致。
+6. 若需要给 Hide My Email 地址发信，在 Apple Developer 配置 Private Email
+   Relay，并为发件域名配置 SPF。
+
+部署数据库变更：
+
+```bash
+cd /home/ubuntu/apps/Vickyreader/backend
+npm install
+npm run db:init
+pm2 restart reader-backend --update-env
+```
+
+`db:init` 是幂等的：保留已有用户与密码，仅将 `password_hash` 改为允许
+Apple-only 账号为空，并新增 `password_reset_tokens`、`auth_rate_limits`、
+`apple_auth_challenges` 和 `apple_identities`。
+
 ### 创建 user_entry
 
 ```http

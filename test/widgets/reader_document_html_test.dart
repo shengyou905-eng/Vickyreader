@@ -3,6 +3,7 @@ import 'package:ai_reader/config/reader_typography.dart';
 import 'package:ai_reader/providers/settings_provider.dart';
 import 'package:ai_reader/screens/reader/widgets/reader_document_html.dart';
 import 'package:ai_reader/services/reader_font_service.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -175,6 +176,34 @@ void main() {
       expect(script, contains('"scrollToEnd":true'));
       expect(script, isNot(contains('@font-face')));
       expect(script, isNot(contains('<!DOCTYPE html>')));
+    });
+
+    test('removes a duplicated leading chapter heading from EPUB content', () {
+      final chapter = ReaderDocumentHtml.prepareChapter(
+        title: '第三章 记忆',
+        content: '<h2>第三章 记忆</h2><p>正文从这里开始。</p>',
+        highlights: const [],
+      );
+
+      expect(chapter.bodyHtml, isNot(contains('<h2>第三章 记忆</h2>')));
+      expect(chapter.bodyHtml, contains('<p>正文从这里开始。</p>'));
+      expect('第三章 记忆'.allMatches(chapter.surfaceHtml).length, 1);
+    });
+
+    test('uses the active theme accent for EPUB links without underlines', () {
+      final settings = SettingsProvider();
+      final html = ReaderDocumentHtml.build(
+        title: '目录',
+        content: '<nav><a href="#chapter-2">第二章</a></nav>',
+        settings: settings,
+        highlights: const [],
+        pagingMode: ReaderPagingMode.vertical,
+        accentColor: const Color(0xFF708871),
+      );
+
+      expect(html, contains('--reader-accent: #708871'));
+      expect(html, contains('text-decoration: none !important'));
+      expect(html, contains('min-height: 44px'));
     });
   });
 }

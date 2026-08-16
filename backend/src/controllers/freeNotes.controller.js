@@ -1,5 +1,4 @@
 const freeNoteRepository = require('../repositories/freeNote.repository');
-const { scheduleUserInsightRefresh } = require('../services/insightRefresh.service');
 const httpError = require('../utils/httpError');
 
 async function upsertFreeNote(req, res, next) {
@@ -10,7 +9,6 @@ async function upsertFreeNote(req, res, next) {
     if (!content) throw httpError(400, 'content is required');
 
     const note = await freeNoteRepository.upsertFreeNote(req.user.id, req.body);
-    scheduleUserInsightRefresh(req.user.id);
     return res.status(200).json({ note });
   } catch (error) {
     return next(error);
@@ -33,7 +31,6 @@ async function deleteFreeNote(req, res, next) {
       req.params.id,
     );
     if (!deleted) throw httpError(404, 'Free note not found');
-    scheduleUserInsightRefresh(req.user.id);
     return res.status(204).send();
   } catch (error) {
     return next(error);
@@ -42,13 +39,7 @@ async function deleteFreeNote(req, res, next) {
 
 async function authorizeForXiaou(req, res, next) {
   try {
-    const authorized = await freeNoteRepository.authorizeForXiaou(
-      req.user.id,
-      req.params.id,
-    );
-    if (!authorized) throw httpError(404, 'Free note not found');
-    scheduleUserInsightRefresh(req.user.id);
-    return res.json({ xiaou_authorized: true });
+    throw httpError(410, '随心记是完全私密空间，不再接入小U');
   } catch (error) {
     return next(error);
   }
@@ -60,7 +51,6 @@ async function revokeXiaouAuthorization(req, res, next) {
       req.user.id,
       req.params.id,
     );
-    scheduleUserInsightRefresh(req.user.id);
     return res.status(204).send();
   } catch (error) {
     return next(error);

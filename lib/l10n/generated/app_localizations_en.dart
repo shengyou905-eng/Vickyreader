@@ -135,6 +135,41 @@ class AppLocalizationsEn extends AppLocalizations {
   String get privacySecurity => 'Privacy & Safety';
 
   @override
+  String get aiDataAuthorization => 'AI & Data Authorization';
+
+  @override
+  String get aiDataAuthorizationSubtitle =>
+      'Manage Xiaou, model services, data use, and consent';
+
+  @override
+  String get mingtaiPrivacyAndVisibility => 'Mingtai Privacy & Visibility';
+
+  @override
+  String get mingtaiPrivacyAndVisibilitySubtitle =>
+      'Manage visibility for reading status, progress, follows, and posts';
+
+  @override
+  String get communitySafety => 'Community Safety';
+
+  @override
+  String get communitySafetySubtitle =>
+      'Community rules, reports, blocks, and support contact';
+
+  @override
+  String get privacyDataInfo => 'Privacy & Data Information';
+
+  @override
+  String get privacyDataInfoSubtitle =>
+      'Review privacy policy, data collection, and third-party services';
+
+  @override
+  String get signInToManagePrivacy =>
+      'Sign in to manage privacy settings linked to your account.';
+
+  @override
+  String get deletingAccount => 'Deleting account…';
+
+  @override
   String get xiaouThirdPartyAi => 'Xiaou & Third-Party AI';
 
   @override
@@ -236,6 +271,65 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get passwordMinLength => 'Password must be at least 6 characters';
+
+  @override
+  String get forgotPassword => 'Forgot password?';
+
+  @override
+  String get forgotPasswordTitle => 'Reset Password';
+
+  @override
+  String get forgotPasswordSubtitle =>
+      'Enter your registered email and we will send a reset link valid for 30 minutes.';
+
+  @override
+  String get sendResetEmail => 'Send Reset Email';
+
+  @override
+  String get passwordResetEmailSent =>
+      'If an account exists for that email, we will send a password reset message.';
+
+  @override
+  String get resetPasswordTitle => 'Set a New Password';
+
+  @override
+  String get resetPasswordSubtitle =>
+      'After your password is reset, existing sessions on other devices will be invalidated.';
+
+  @override
+  String get newPassword => 'New password';
+
+  @override
+  String get confirmNewPassword => 'Confirm new password';
+
+  @override
+  String get passwordsDoNotMatch => 'The passwords do not match';
+
+  @override
+  String get resetPassword => 'Reset Password';
+
+  @override
+  String get passwordResetSuccess =>
+      'Your password has been reset. Please sign in again.';
+
+  @override
+  String get backToLogin => 'Back to Sign In';
+
+  @override
+  String get orUseApple => 'or';
+
+  @override
+  String get bindApple => 'Link Apple';
+
+  @override
+  String get appleLinked => 'Apple Linked';
+
+  @override
+  String get appleBindingSuccess => 'Your Apple Account is now linked.';
+
+  @override
+  String get appleAccountDeleteConfirm =>
+      'This account uses Sign in with Apple. Continuing will revoke Apple authorization and permanently delete the account.';
 
   @override
   String get localDataMergeNotice =>
@@ -1020,7 +1114,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get aiConsentBody =>
-      'To generate a Xiaou explanation, the selected text, relevant context, your question, and the minimum reading traces needed for the answer will be sent to the third-party AI service DeepSeek.\n\nXiaou conversations may also use your highlights, thoughts, Xiaou explanations, and Free Notes you explicitly authorize. Your private ebook files are not sent.\n\nDo not submit sensitive information such as identity documents, medical information, or passwords. AI-generated content may be inaccurate; check it against the original text.';
+      'To generate a Xiaou explanation, the selected text, relevant context, your question, and the minimum reading traces needed for the answer will be sent to the third-party AI service DeepSeek.\n\nXiaou conversations may also use your highlights, thoughts, and Xiaou explanations. Free Notes and private ebook files are never sent.\n\nDo not submit sensitive information such as identity documents, medical information, or passwords. AI-generated content may be inaccurate; check it against the original text.';
 
   @override
   String get decline => 'Not Now';
@@ -1553,4 +1647,40 @@ class AppLocalizationsEn extends AppLocalizations {
   String notificationDefault(Object name) {
     return '$name left a response on Mingtai';
   }
+
+  @override
+  String get bookDetails => 'Book Details';
+
+  @override
+  String get startReading => 'Start Reading';
+
+  @override
+  String continueReadingPercent(int percent) {
+    return 'Continue · $percent%';
+  }
+
+  @override
+  String get readingProgressLabel => 'Reading progress';
+
+  @override
+  String get bookDescription => 'About this book';
+
+  @override
+  String get bookDescriptionUnavailable =>
+      'No description is available yet. You can still begin with the text itself.';
+
+  @override
+  String get freeNoteSaved => 'Saved quietly';
+
+  @override
+  String get originalTextLabel => 'Passage';
+
+  @override
+  String get userQuestionLabel => 'My question';
+
+  @override
+  String get xiaouAnswerLabel => 'Xiaou\'s response';
+
+  @override
+  String get myThoughtLabel => 'My thought';
 }

@@ -97,8 +97,18 @@ class PrivacyService {
         .toList(growable: false);
   }
 
-  static Future<void> deleteAccount(String password) async {
-    await _send('DELETE', '/api/auth/account', body: {'password': password});
+  static Future<void> deleteAccount({
+    String? password,
+    bool confirm = false,
+  }) async {
+    await _send(
+      'DELETE',
+      '/api/auth/account',
+      body: {
+        if (password != null && password.isNotEmpty) 'password': password,
+        if (confirm) 'confirm': true,
+      },
+    );
   }
 
   static Future<Map<String, dynamic>> _send(

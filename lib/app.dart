@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'l10n/l10n.dart';
@@ -13,9 +16,58 @@ import 'screens/mingtai/community_mingtai_screen.dart';
 import 'screens/xiaou/xiaou_home_screen.dart';
 import 'screens/notes_free/notes_free_screen.dart';
 import 'screens/settings/settings_screen.dart';
+import 'screens/auth/password_reset_screens.dart';
 
-class AiReaderApp extends StatelessWidget {
+final appNavigatorKey = GlobalKey<NavigatorState>();
+
+class AiReaderApp extends StatefulWidget {
   const AiReaderApp({super.key});
+
+  @override
+  State<AiReaderApp> createState() => _AiReaderAppState();
+}
+
+class _AiReaderAppState extends State<AiReaderApp> {
+  late final AppLinks _appLinks;
+  StreamSubscription<Uri>? _linkSubscription;
+  String? _lastResetToken;
+
+  @override
+  void initState() {
+    super.initState();
+    _appLinks = AppLinks();
+    unawaited(
+      _appLinks
+          .getInitialLink()
+          .then((uri) {
+            if (uri != null) _handleLink(uri);
+          })
+          .catchError((_) {}),
+    );
+    _linkSubscription = _appLinks.uriLinkStream.listen(
+      _handleLink,
+      onError: (_) {},
+    );
+  }
+
+  void _handleLink(Uri uri) {
+    final isResetLink = uri.scheme == 'readu' && uri.host == 'reset-password';
+    if (!isResetLink) return;
+    final token = uri.queryParameters['token']?.trim() ?? '';
+    if (token.isEmpty || token == _lastResetToken) return;
+    _lastResetToken = token;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      appNavigatorKey.currentState?.push(
+        MaterialPageRoute(builder: (_) => ResetPasswordScreen(token: token)),
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _linkSubscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,6 +83,7 @@ class AiReaderApp extends StatelessWidget {
       ],
       child: Consumer<SettingsProvider>(
         builder: (context, settings, _) => MaterialApp(
+          navigatorKey: appNavigatorKey,
           onGenerateTitle: (context) => context.l10n.appName,
           debugShowCheckedModeBanner: false,
           locale: settings.locale,

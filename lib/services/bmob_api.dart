@@ -14,6 +14,8 @@ class BmobApi {
   static const _tokenKey = 'auth_token';
   static const _userIdKey = 'auth_user_id';
   static const _emailKey = 'auth_email';
+  static const _hasPasswordKey = 'auth_has_password';
+  static const _appleLinkedKey = 'auth_apple_linked';
   static const _authTimeout = Duration(seconds: 20);
   static const _mingtaiTimeout = Duration(seconds: 20);
   static const _mingtaiUploadTimeout = Duration(seconds: 75);
@@ -21,6 +23,8 @@ class BmobApi {
   String? _token;
   String? _userId;
   String? _email;
+  bool _hasPassword = true;
+  bool _appleLinked = false;
 
   BmobApi._();
 
@@ -31,12 +35,16 @@ class BmobApi {
     _token = prefs.getString(_tokenKey);
     _userId = prefs.getString(_userIdKey);
     _email = prefs.getString(_emailKey);
+    _hasPassword = prefs.getBool(_hasPasswordKey) ?? true;
+    _appleLinked = prefs.getBool(_appleLinkedKey) ?? false;
   }
 
   bool get isLoggedIn => _token?.trim().isNotEmpty ?? false;
   String? get userId => _userId;
   String? get email => _email;
   String? get token => _token;
+  bool get hasPassword => _hasPassword;
+  bool get appleLinked => _appleLinked;
 
   // ---- Auth ----
 
@@ -54,6 +62,8 @@ class BmobApi {
           token: data['token'] as String,
           userId: user['id'] as String,
           email: user['email'] as String? ?? email,
+          hasPassword: user['has_password'] != false,
+          appleLinked: user['apple_linked'] == true,
         );
         return data;
       }
@@ -78,6 +88,8 @@ class BmobApi {
           token: data['token'] as String,
           userId: user['id'] as String,
           email: user['email'] as String? ?? email,
+          hasPassword: user['has_password'] != false,
+          appleLinked: user['apple_linked'] == true,
         );
         return data;
       }
@@ -86,6 +98,82 @@ class BmobApi {
     } catch (e) {
       return {'error': _friendlyError(e)};
     }
+  }
+
+  Future<Map<String, dynamic>> requestPasswordReset(String email) async {
+    try {
+      final res = await _postJsonWithRetry(
+        Uri.parse('${AppConstants.apiBaseUrl}/api/auth/password/forgot'),
+        {'email': email},
+        retries: 0,
+      );
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      if (res.statusCode == 202) return data;
+      return {'error': _tryDecodeError(res.body, res.statusCode)};
+    } catch (error) {
+      return {'error': _friendlyError(error)};
+    }
+  }
+
+  Future<Map<String, dynamic>> resetPassword(
+    String token,
+    String password,
+  ) async {
+    try {
+      final res = await _postJsonOnce(
+        Uri.parse('${AppConstants.apiBaseUrl}/api/auth/password/reset'),
+        {'token': token, 'password': password},
+      );
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      if (res.statusCode == 200) return data;
+      return {'error': _tryDecodeError(res.body, res.statusCode)};
+    } catch (error) {
+      return {'error': _friendlyError(error)};
+    }
+  }
+
+  Future<Map<String, dynamic>> prepareAppleAuth() async {
+    final res = await _postJsonOnce(
+      Uri.parse('${AppConstants.apiBaseUrl}/api/auth/apple/prepare'),
+      const {},
+    );
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    throw Exception(_tryDecodeError(res.body, res.statusCode));
+  }
+
+  Future<Map<String, dynamic>> completeAppleAuth({
+    required Map<String, dynamic> credential,
+    required bool bind,
+  }) async {
+    final uri = Uri.parse(
+      '${AppConstants.apiBaseUrl}/api/auth/apple/${bind ? 'bind' : 'login'}',
+    );
+    final res = await _postJsonOnce(
+      uri,
+      credential,
+      headers: bind ? _authHeaders() : null,
+    );
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(_tryDecodeError(res.body, res.statusCode));
+    }
+    if (bind) {
+      _appleLinked = true;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_appleLinkedKey, true);
+      return data;
+    }
+    final user = data['user'] as Map<String, dynamic>;
+    await _saveSession(
+      token: data['token'] as String,
+      userId: user['id'] as String,
+      email: user['email'] as String? ?? '',
+      hasPassword: user['has_password'] == true,
+      appleLinked: true,
+    );
+    return data;
   }
 
   Future<void> signOut() async {
@@ -108,10 +196,14 @@ class BmobApi {
     _token = null;
     _userId = null;
     _email = null;
+    _hasPassword = true;
+    _appleLinked = false;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_tokenKey);
     await prefs.remove(_userIdKey);
     await prefs.remove(_emailKey);
+    await prefs.remove(_hasPasswordKey);
+    await prefs.remove(_appleLinkedKey);
   }
 
   // ---- Data CRUD ----
@@ -1232,14 +1324,38 @@ class BmobApi {
     required String token,
     required String userId,
     required String email,
+    bool hasPassword = true,
+    bool appleLinked = false,
   }) async {
     _token = token;
     _userId = userId;
     _email = email;
+    _hasPassword = hasPassword;
+    _appleLinked = appleLinked;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_tokenKey, token);
     await prefs.setString(_userIdKey, userId);
     await prefs.setString(_emailKey, email);
+    await prefs.setBool(_hasPasswordKey, hasPassword);
+    await prefs.setBool(_appleLinkedKey, appleLinked);
+  }
+
+  Future<http.Response> _postJsonOnce(
+    Uri uri,
+    Map<String, dynamic> body, {
+    Map<String, String>? headers,
+  }) {
+    return AppHttp.client
+        .post(
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            ...?headers,
+          },
+          body: jsonEncode(body),
+        )
+        .timeout(_authTimeout);
   }
 
   Map<String, String> _authHeaders({String contentType = 'application/json'}) {

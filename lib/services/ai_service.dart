@@ -56,7 +56,8 @@ class AiService {
     });
   }
 
-  /// 小U Agent 对话：围绕用户阅读痕迹、授权随心记和明台公开痕迹回答
+  /// 小U Agent 对话：围绕用户阅读痕迹和明台公开痕迹回答。
+  /// 随心记始终保持私密，不会被用作 AI 上下文。
   static Stream<String> xiaouAgentStream({
     required String message,
     required List<AiMessage> conversationHistory,

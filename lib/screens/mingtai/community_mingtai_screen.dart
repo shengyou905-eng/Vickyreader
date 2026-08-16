@@ -539,7 +539,10 @@ class _CommunityMingtaiScreenState extends State<CommunityMingtaiScreen> {
       ),
       floatingActionButton: searching
           ? null
-          : _LeaveReadingButton(onPressed: _openComposeActions),
+          : SafeArea(
+              minimum: const EdgeInsets.only(bottom: 8),
+              child: _LeaveReadingButton(onPressed: _openComposeActions),
+            ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       backgroundColor: palette.background,
     );
@@ -672,26 +675,29 @@ class _LeaveReadingButton extends StatelessWidget {
       color: palette.surface.withValues(alpha: 0.94),
       elevation: 2,
       shadowColor: palette.primary.withValues(alpha: 0.18),
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(22),
       child: InkWell(
         onTap: onPressed,
-        borderRadius: BorderRadius.circular(18),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.edit_outlined, size: 17, color: palette.icon),
-              const SizedBox(width: 8),
-              Text(
-                context.l10n.leaveReadingTrace,
-                style: TextStyle(
-                  color: palette.textPrimary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
+        borderRadius: BorderRadius.circular(22),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 44),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.edit_outlined, size: 17, color: palette.icon),
+                const SizedBox(width: 8),
+                Text(
+                  context.l10n.leaveReadingTrace,
+                  style: TextStyle(
+                    color: palette.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -1832,72 +1838,79 @@ class CommunityPostCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: palette.card.withValues(alpha: 0.78),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(context.appVisuals.cardRadius),
+        border: Border.all(
+          color: context.appVisuals.divider.withValues(alpha: 0.7),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           InkWell(
             onTap: onProfile,
-            child: Row(
-              children: [
-                CommunityAvatar(
-                  name: post.nickname,
-                  imageUrl: post.avatarUrl,
-                  radius: 18,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        post.nickname,
-                        style: TextStyle(
-                          color: palette.textPrimary,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      Text(
-                        '${_postTypeLabel(context, post.postType)} · ${_timeLabel(context, post.createdAt)}',
-                        style: TextStyle(
-                          color: palette.textSecondary,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
+            borderRadius: BorderRadius.circular(10),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 44),
+              child: Row(
+                children: [
+                  CommunityAvatar(
+                    name: post.nickname,
+                    imageUrl: post.avatarUrl,
+                    radius: 18,
                   ),
-                ),
-                PopupMenuButton<String>(
-                  tooltip: context.l10n.more,
-                  padding: EdgeInsets.zero,
-                  onSelected: (value) {
-                    if (value == 'report') {
-                      showCommunityReportDialog(
-                        context,
-                        targetType: 'post',
-                        targetId: post.id,
-                      );
-                    } else if (value == 'delete') {
-                      _deleteOwnPost(context);
-                    }
-                  },
-                  itemBuilder: (_) => post.userId == AuthService.userId
-                      ? [
-                          PopupMenuItem(
-                            value: 'delete',
-                            child: Text(context.l10n.deleteThisContent),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          post.nickname,
+                          style: TextStyle(
+                            color: palette.textPrimary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
                           ),
-                        ]
-                      : [
-                          PopupMenuItem(
-                            value: 'report',
-                            child: Text(context.l10n.reportThisContent),
+                        ),
+                        Text(
+                          '${_postTypeLabel(context, post.postType)} · ${_timeLabel(context, post.createdAt)}',
+                          style: TextStyle(
+                            color: palette.textSecondary,
+                            fontSize: 11,
                           ),
-                        ],
-                ),
-              ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  PopupMenuButton<String>(
+                    tooltip: context.l10n.more,
+                    padding: EdgeInsets.zero,
+                    onSelected: (value) {
+                      if (value == 'report') {
+                        showCommunityReportDialog(
+                          context,
+                          targetType: 'post',
+                          targetId: post.id,
+                        );
+                      } else if (value == 'delete') {
+                        _deleteOwnPost(context);
+                      }
+                    },
+                    itemBuilder: (_) => post.userId == AuthService.userId
+                        ? [
+                            PopupMenuItem(
+                              value: 'delete',
+                              child: Text(context.l10n.deleteThisContent),
+                            ),
+                          ]
+                        : [
+                            PopupMenuItem(
+                              value: 'report',
+                              child: Text(context.l10n.reportThisContent),
+                            ),
+                          ],
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 14),
@@ -1936,55 +1949,59 @@ class CommunityPostCard extends StatelessWidget {
           const SizedBox(height: 18),
           InkWell(
             onTap: onBook,
-            child: Row(
-              children: [
-                CommunityBookCover(
-                  book: CommunityBook(
-                    id: post.bookId,
-                    title: post.bookTitle,
-                    author: post.bookAuthor,
-                    coverUrl: post.bookCoverUrl,
-                    description: '',
-                    canRead: false,
-                    wantCount: 0,
-                    readingCount: 0,
-                    finishedCount: 0,
-                    postCount: 0,
-                    viewerStatus: '',
+            borderRadius: BorderRadius.circular(10),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 54),
+              child: Row(
+                children: [
+                  CommunityBookCover(
+                    book: CommunityBook(
+                      id: post.bookId,
+                      title: post.bookTitle,
+                      author: post.bookAuthor,
+                      coverUrl: post.bookCoverUrl,
+                      description: '',
+                      canRead: false,
+                      wantCount: 0,
+                      readingCount: 0,
+                      finishedCount: 0,
+                      postCount: 0,
+                      viewerStatus: '',
+                    ),
+                    width: 34,
+                    height: 46,
                   ),
-                  width: 34,
-                  height: 46,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '《${post.bookTitle}》',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '《${post.bookTitle}》',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
-                      Text(
-                        post.chapterLabel.isEmpty
-                            ? post.bookAuthor
-                            : post.chapterLabel,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: palette.textSecondary,
-                          fontSize: 11,
+                        Text(
+                          post.chapterLabel.isEmpty
+                              ? post.bookAuthor
+                              : post.chapterLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: palette.textSecondary,
+                            fontSize: 11,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                const Icon(Icons.chevron_right_rounded, size: 18),
-              ],
+                  const Icon(Icons.chevron_right_rounded, size: 18),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 8),
@@ -1993,6 +2010,10 @@ class CommunityPostCard extends StatelessWidget {
             runSpacing: 0,
             children: [
               TextButton(
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(44, 44),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
                 onPressed: onComments,
                 child: Text(
                   post.commentCount == 0
@@ -2002,11 +2023,19 @@ class CommunityPostCard extends StatelessWidget {
               ),
               if (onQuoteReply != null)
                 TextButton(
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(44, 44),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
                   onPressed: onQuoteReply,
                   child: Text(context.l10n.quoteReply),
                 ),
               if (onFavorite != null)
                 TextButton(
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(44, 44),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
                   onPressed: onFavorite,
                   child: Text(
                     post.viewerFavorited
@@ -2018,6 +2047,10 @@ class CommunityPostCard extends StatelessWidget {
                 ),
               if (onMoreFromBook != null)
                 TextButton(
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(44, 44),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
                   onPressed: onMoreFromBook,
                   child: Text(context.l10n.viewSameBook),
                 ),
@@ -2448,10 +2481,48 @@ class _CommunityPostComposerState extends State<_CommunityPostComposer> {
                       const SizedBox(height: 12),
                       Text(
                         _error!,
-                        style: const TextStyle(color: Colors.redAccent),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
                     ],
                     const SizedBox(height: 18),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 13,
+                        vertical: 11,
+                      ),
+                      decoration: BoxDecoration(
+                        color: palette.primarySoft.withValues(alpha: 0.38),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: palette.primary.withValues(alpha: 0.14),
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.public_rounded,
+                            size: 17,
+                            color: palette.primaryDeep,
+                          ),
+                          const SizedBox(width: 9),
+                          Expanded(
+                            child: Text(
+                              context.l10n.mingtaiComposePrivacy,
+                              style: TextStyle(
+                                color: palette.textSecondary,
+                                fontSize: 12,
+                                height: 1.45,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(

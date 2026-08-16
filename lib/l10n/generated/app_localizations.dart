@@ -332,6 +332,66 @@ abstract class AppLocalizations {
   /// **'隐私与安全'**
   String get privacySecurity;
 
+  /// No description provided for @aiDataAuthorization.
+  ///
+  /// In zh, this message translates to:
+  /// **'AI 与数据授权'**
+  String get aiDataAuthorization;
+
+  /// No description provided for @aiDataAuthorizationSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'管理小U、模型服务、数据使用与撤回授权'**
+  String get aiDataAuthorizationSubtitle;
+
+  /// No description provided for @mingtaiPrivacyAndVisibility.
+  ///
+  /// In zh, this message translates to:
+  /// **'明台隐私与公开'**
+  String get mingtaiPrivacyAndVisibility;
+
+  /// No description provided for @mingtaiPrivacyAndVisibilitySubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'管理阅读状态、进度、关注和动态的公开范围'**
+  String get mingtaiPrivacyAndVisibilitySubtitle;
+
+  /// No description provided for @communitySafety.
+  ///
+  /// In zh, this message translates to:
+  /// **'社区安全'**
+  String get communitySafety;
+
+  /// No description provided for @communitySafetySubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'社区规范、举报、屏蔽与联系邮箱'**
+  String get communitySafetySubtitle;
+
+  /// No description provided for @privacyDataInfo.
+  ///
+  /// In zh, this message translates to:
+  /// **'隐私与数据说明'**
+  String get privacyDataInfo;
+
+  /// No description provided for @privacyDataInfoSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看隐私政策、收集清单及第三方服务'**
+  String get privacyDataInfoSubtitle;
+
+  /// No description provided for @signInToManagePrivacy.
+  ///
+  /// In zh, this message translates to:
+  /// **'登录后可管理与账号关联的隐私设置'**
+  String get signInToManagePrivacy;
+
+  /// No description provided for @deletingAccount.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在注销…'**
+  String get deletingAccount;
+
   /// No description provided for @xiaouThirdPartyAi.
   ///
   /// In zh, this message translates to:
@@ -517,6 +577,114 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'密码至少 6 位'**
   String get passwordMinLength;
+
+  /// No description provided for @forgotPassword.
+  ///
+  /// In zh, this message translates to:
+  /// **'忘记密码？'**
+  String get forgotPassword;
+
+  /// No description provided for @forgotPasswordTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'找回密码'**
+  String get forgotPasswordTitle;
+
+  /// No description provided for @forgotPasswordSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'输入注册邮箱，我们会发送一封 30 分钟内有效的重置邮件。'**
+  String get forgotPasswordSubtitle;
+
+  /// No description provided for @sendResetEmail.
+  ///
+  /// In zh, this message translates to:
+  /// **'发送重置邮件'**
+  String get sendResetEmail;
+
+  /// No description provided for @passwordResetEmailSent.
+  ///
+  /// In zh, this message translates to:
+  /// **'如果该邮箱已注册，我们会发送一封密码重置邮件。'**
+  String get passwordResetEmailSent;
+
+  /// No description provided for @resetPasswordTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'设置新密码'**
+  String get resetPasswordTitle;
+
+  /// No description provided for @resetPasswordSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'新密码设置成功后，其他设备上的旧登录会立即失效。'**
+  String get resetPasswordSubtitle;
+
+  /// No description provided for @newPassword.
+  ///
+  /// In zh, this message translates to:
+  /// **'新密码'**
+  String get newPassword;
+
+  /// No description provided for @confirmNewPassword.
+  ///
+  /// In zh, this message translates to:
+  /// **'再次输入新密码'**
+  String get confirmNewPassword;
+
+  /// No description provided for @passwordsDoNotMatch.
+  ///
+  /// In zh, this message translates to:
+  /// **'两次输入的密码不一致'**
+  String get passwordsDoNotMatch;
+
+  /// No description provided for @resetPassword.
+  ///
+  /// In zh, this message translates to:
+  /// **'重置密码'**
+  String get resetPassword;
+
+  /// No description provided for @passwordResetSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'密码已重置，请重新登录。'**
+  String get passwordResetSuccess;
+
+  /// No description provided for @backToLogin.
+  ///
+  /// In zh, this message translates to:
+  /// **'返回登录'**
+  String get backToLogin;
+
+  /// No description provided for @orUseApple.
+  ///
+  /// In zh, this message translates to:
+  /// **'或'**
+  String get orUseApple;
+
+  /// No description provided for @bindApple.
+  ///
+  /// In zh, this message translates to:
+  /// **'绑定 Apple'**
+  String get bindApple;
+
+  /// No description provided for @appleLinked.
+  ///
+  /// In zh, this message translates to:
+  /// **'已绑定 Apple'**
+  String get appleLinked;
+
+  /// No description provided for @appleBindingSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'Apple 账号已绑定'**
+  String get appleBindingSuccess;
+
+  /// No description provided for @appleAccountDeleteConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'此账号使用 Apple 登录。确认后将撤销 Apple 授权并永久注销账号。'**
+  String get appleAccountDeleteConfirm;
 
   /// No description provided for @localDataMergeNotice.
   ///
@@ -1967,7 +2135,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiConsentBody.
   ///
   /// In zh, this message translates to:
-  /// **'为生成小U解读，你选择的原文、相关上下文、提问和必要的阅读痕迹将发送至第三方人工智能服务 DeepSeek 处理。\n\n小U全局对话还可能使用你的划线、想法、小U解读，以及你主动授权的随心记。私人书籍文件不会发送。\n\n请不要提交身份证、医疗信息、密码等敏感个人信息。AI 生成内容可能存在错误，请结合原文判断。'**
+  /// **'为生成小U解读，你选择的原文、相关上下文、提问和必要的阅读痕迹将发送至第三方人工智能服务 DeepSeek 处理。\n\n小U全局对话还可能使用你的划线、想法和小U解读。随心记和私人书籍文件不会发送。\n\n请不要提交身份证、医疗信息、密码等敏感个人信息。AI 生成内容可能存在错误，请结合原文判断。'**
   String get aiConsentBody;
 
   /// No description provided for @decline.
@@ -2869,6 +3037,72 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'{name} 在明台留下了回应'**
   String notificationDefault(Object name);
+
+  /// No description provided for @bookDetails.
+  ///
+  /// In zh, this message translates to:
+  /// **'书籍详情'**
+  String get bookDetails;
+
+  /// No description provided for @startReading.
+  ///
+  /// In zh, this message translates to:
+  /// **'开始阅读'**
+  String get startReading;
+
+  /// No description provided for @continueReadingPercent.
+  ///
+  /// In zh, this message translates to:
+  /// **'继续阅读 · {percent}%'**
+  String continueReadingPercent(int percent);
+
+  /// No description provided for @readingProgressLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'阅读进度'**
+  String get readingProgressLabel;
+
+  /// No description provided for @bookDescription.
+  ///
+  /// In zh, this message translates to:
+  /// **'简介'**
+  String get bookDescription;
+
+  /// No description provided for @bookDescriptionUnavailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'这本书暂时没有简介。你仍可以从正文开始阅读。'**
+  String get bookDescriptionUnavailable;
+
+  /// No description provided for @freeNoteSaved.
+  ///
+  /// In zh, this message translates to:
+  /// **'已安静保存'**
+  String get freeNoteSaved;
+
+  /// No description provided for @originalTextLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'原文'**
+  String get originalTextLabel;
+
+  /// No description provided for @userQuestionLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'我的问题'**
+  String get userQuestionLabel;
+
+  /// No description provided for @xiaouAnswerLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'小U回答'**
+  String get xiaouAnswerLabel;
+
+  /// No description provided for @myThoughtLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'我的想法'**
+  String get myThoughtLabel;
 }
 
 class _AppLocalizationsDelegate

@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('right swipe only reveals actions and never executes them', (
+  testWidgets('left swipe only reveals actions and never executes them', (
     tester,
   ) async {
     var importantCount = 0;
@@ -32,7 +32,7 @@ void main() {
       ),
     );
 
-    await tester.drag(find.text('阅读痕迹'), const Offset(170, 0));
+    await tester.drag(find.text('阅读痕迹'), const Offset(-170, 0));
     await tester.pumpAndSettle();
 
     expect(find.text('标记重要'), findsOneWidget);

@@ -8,6 +8,10 @@ void main() {
   testWidgets('public excerpt expands and collapses inside the post card', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(360, 780);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     const excerpt =
         '在这种生产制度中，劳动力乃至人的肉体没有在工业经济中所赋予的那种效用和商业价值。'
         '刑罚因此不仅针对身体，也开始进入时间、秩序与日常生活。';
@@ -33,6 +37,12 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.forTheme(AppThemeId.lavender),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(1.2)),
+          child: child!,
+        ),
         home: Scaffold(
           body: SingleChildScrollView(
             child: CommunityPostCard(
@@ -55,5 +65,6 @@ void main() {
 
     expect(find.text('收起原文'), findsOneWidget);
     expect(tester.widget<Text>(originalFinder).maxLines, isNull);
+    expect(tester.takeException(), isNull);
   });
 }

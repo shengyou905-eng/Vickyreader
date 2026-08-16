@@ -131,6 +131,36 @@ class AppLocalizationsZh extends AppLocalizations {
   String get privacySecurity => '隐私与安全';
 
   @override
+  String get aiDataAuthorization => 'AI 与数据授权';
+
+  @override
+  String get aiDataAuthorizationSubtitle => '管理小U、模型服务、数据使用与撤回授权';
+
+  @override
+  String get mingtaiPrivacyAndVisibility => '明台隐私与公开';
+
+  @override
+  String get mingtaiPrivacyAndVisibilitySubtitle => '管理阅读状态、进度、关注和动态的公开范围';
+
+  @override
+  String get communitySafety => '社区安全';
+
+  @override
+  String get communitySafetySubtitle => '社区规范、举报、屏蔽与联系邮箱';
+
+  @override
+  String get privacyDataInfo => '隐私与数据说明';
+
+  @override
+  String get privacyDataInfoSubtitle => '查看隐私政策、收集清单及第三方服务';
+
+  @override
+  String get signInToManagePrivacy => '登录后可管理与账号关联的隐私设置';
+
+  @override
+  String get deletingAccount => '正在注销…';
+
+  @override
   String get xiaouThirdPartyAi => '小U与第三方 AI';
 
   @override
@@ -222,6 +252,61 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get passwordMinLength => '密码至少 6 位';
+
+  @override
+  String get forgotPassword => '忘记密码？';
+
+  @override
+  String get forgotPasswordTitle => '找回密码';
+
+  @override
+  String get forgotPasswordSubtitle => '输入注册邮箱，我们会发送一封 30 分钟内有效的重置邮件。';
+
+  @override
+  String get sendResetEmail => '发送重置邮件';
+
+  @override
+  String get passwordResetEmailSent => '如果该邮箱已注册，我们会发送一封密码重置邮件。';
+
+  @override
+  String get resetPasswordTitle => '设置新密码';
+
+  @override
+  String get resetPasswordSubtitle => '新密码设置成功后，其他设备上的旧登录会立即失效。';
+
+  @override
+  String get newPassword => '新密码';
+
+  @override
+  String get confirmNewPassword => '再次输入新密码';
+
+  @override
+  String get passwordsDoNotMatch => '两次输入的密码不一致';
+
+  @override
+  String get resetPassword => '重置密码';
+
+  @override
+  String get passwordResetSuccess => '密码已重置，请重新登录。';
+
+  @override
+  String get backToLogin => '返回登录';
+
+  @override
+  String get orUseApple => '或';
+
+  @override
+  String get bindApple => '绑定 Apple';
+
+  @override
+  String get appleLinked => '已绑定 Apple';
+
+  @override
+  String get appleBindingSuccess => 'Apple 账号已绑定';
+
+  @override
+  String get appleAccountDeleteConfirm =>
+      '此账号使用 Apple 登录。确认后将撤销 Apple 授权并永久注销账号。';
 
   @override
   String get localDataMergeNotice => '注册后，你之前在本机的所有数据会自动合并到新账号';
@@ -968,7 +1053,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get aiConsentBody =>
-      '为生成小U解读，你选择的原文、相关上下文、提问和必要的阅读痕迹将发送至第三方人工智能服务 DeepSeek 处理。\n\n小U全局对话还可能使用你的划线、想法、小U解读，以及你主动授权的随心记。私人书籍文件不会发送。\n\n请不要提交身份证、医疗信息、密码等敏感个人信息。AI 生成内容可能存在错误，请结合原文判断。';
+      '为生成小U解读，你选择的原文、相关上下文、提问和必要的阅读痕迹将发送至第三方人工智能服务 DeepSeek 处理。\n\n小U全局对话还可能使用你的划线、想法和小U解读。随心记和私人书籍文件不会发送。\n\n请不要提交身份证、医疗信息、密码等敏感个人信息。AI 生成内容可能存在错误，请结合原文判断。';
 
   @override
   String get decline => '暂不同意';
@@ -1475,4 +1560,39 @@ class AppLocalizationsZh extends AppLocalizations {
   String notificationDefault(Object name) {
     return '$name 在明台留下了回应';
   }
+
+  @override
+  String get bookDetails => '书籍详情';
+
+  @override
+  String get startReading => '开始阅读';
+
+  @override
+  String continueReadingPercent(int percent) {
+    return '继续阅读 · $percent%';
+  }
+
+  @override
+  String get readingProgressLabel => '阅读进度';
+
+  @override
+  String get bookDescription => '简介';
+
+  @override
+  String get bookDescriptionUnavailable => '这本书暂时没有简介。你仍可以从正文开始阅读。';
+
+  @override
+  String get freeNoteSaved => '已安静保存';
+
+  @override
+  String get originalTextLabel => '原文';
+
+  @override
+  String get userQuestionLabel => '我的问题';
+
+  @override
+  String get xiaouAnswerLabel => '小U回答';
+
+  @override
+  String get myThoughtLabel => '我的想法';
 }

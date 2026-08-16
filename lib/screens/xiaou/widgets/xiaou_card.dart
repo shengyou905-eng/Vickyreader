@@ -135,6 +135,15 @@ class _XiaouCardState extends State<XiaouCard> {
                 ],
               ),
               const SizedBox(height: 10),
+              Text(
+                context.l10n.originalTextLabel,
+                style: TextStyle(
+                  color: visuals.inkMuted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 6),
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
@@ -144,8 +153,8 @@ class _XiaouCardState extends State<XiaouCard> {
                 ),
                 child: Text(
                   widget.originalText,
-                  maxLines: isExplanation ? 3 : (_expanded ? null : 4),
-                  overflow: !isExplanation && _expanded
+                  maxLines: _expanded ? null : 3,
+                  overflow: _expanded
                       ? TextOverflow.visible
                       : TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -157,52 +166,71 @@ class _XiaouCardState extends State<XiaouCard> {
               ),
               if (widget.userNote != null && widget.userNote!.isNotEmpty) ...[
                 const SizedBox(height: 10),
-                Row(
+                Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('💬 ', style: TextStyle(fontSize: 13)),
-                    Expanded(
-                      child: Text(
-                        widget.userNote!,
-                        maxLines: _expanded ? null : 3,
-                        overflow: _expanded
-                            ? TextOverflow.visible
-                            : TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
-                          height: 1.5,
-                          color: visuals.inkMuted,
-                        ),
+                    Text(
+                      widget.source == 'ai_question'
+                          ? context.l10n.userQuestionLabel
+                          : context.l10n.myThoughtLabel,
+                      style: TextStyle(
+                        color: visuals.inkMuted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      widget.userNote!,
+                      maxLines: _expanded ? null : 3,
+                      overflow: _expanded
+                          ? TextOverflow.visible
+                          : TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.5,
+                        color: visuals.ink,
+                        fontWeight: FontWeight.w400,
                       ),
                     ),
                   ],
                 ),
               ],
               if (cleanedUnderstanding.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Row(
+                const SizedBox(height: 10),
+                Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2, right: 7),
-                      child: Icon(
-                        Icons.auto_awesome_outlined,
-                        size: 14,
-                        color: visuals.inkMuted,
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        cleanedUnderstanding,
-                        maxLines: isExplanation ? 4 : (_expanded ? null : 4),
-                        overflow: !isExplanation && _expanded
-                            ? TextOverflow.visible
-                            : TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
-                          height: 1.5,
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.auto_awesome_outlined,
+                          size: 13,
                           color: visuals.inkMuted,
                         ),
+                        const SizedBox(width: 6),
+                        Text(
+                          context.l10n.xiaouAnswerLabel,
+                          style: TextStyle(
+                            color: visuals.inkMuted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      cleanedUnderstanding,
+                      maxLines: _expanded ? null : 5,
+                      overflow: _expanded
+                          ? TextOverflow.visible
+                          : TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.55,
+                        color: visuals.inkMuted,
+                        fontWeight: FontWeight.w400,
                       ),
                     ),
                   ],
