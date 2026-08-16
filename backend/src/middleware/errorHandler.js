@@ -6,6 +6,7 @@ function errorHandler(error, _req, res, _next) {
       error: error.message,
       ...(error.missing_fields ? { missing_fields: error.missing_fields } : {}),
       ...(error.details ? { details: error.details } : {}),
+      ...(error.error_code ? { error_code: error.error_code } : {}),
     });
   }
 
