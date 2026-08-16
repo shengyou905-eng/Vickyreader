@@ -20,4 +20,19 @@ module.exports = {
   corsOrigin: process.env.CORS_ORIGIN || '*',
   publicBaseUrl: process.env.PUBLIC_BASE_URL || '',
   supportEmail: process.env.SUPPORT_EMAIL || '2931952407@qq.com',
+  authRateLimitSecret: process.env.AUTH_RATE_LIMIT_SECRET || process.env.JWT_SECRET,
+  appleTeamId: process.env.APPLE_TEAM_ID || '',
+  appleKeyId: process.env.APPLE_KEY_ID || '',
+  appleClientId: process.env.APPLE_CLIENT_ID || '',
+  appleAllowedAudiences: String(
+    process.env.APPLE_ALLOWED_AUDIENCES || process.env.APPLE_CLIENT_ID || '',
+  )
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean),
+  applePrivateKey: String(process.env.APPLE_PRIVATE_KEY || '').replace(
+    /\\n/g,
+    '\n',
+  ),
+  appleTokenEncryptionKey: process.env.APPLE_TOKEN_ENCRYPTION_KEY || '',
 };

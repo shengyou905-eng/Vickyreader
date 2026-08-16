@@ -1,7 +1,11 @@
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const { jwtSecret, jwtExpiresIn } = require('../config/env');
 const userRepository = require('../repositories/user.repository');
+const appleAuthRepository = require('../repositories/appleAuth.repository');
+const { signSessionToken } = require('../services/sessionToken.service');
+const {
+  decryptRefreshToken,
+  revokeRefreshToken,
+} = require('../services/appleAuth.service');
 const httpError = require('../utils/httpError');
 const { deletePublicBookFile } = require('../utils/publicBookStorage');
 
@@ -9,18 +13,6 @@ const AI_CONSENT_VERSION = 1;
 
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
-}
-
-function signToken(user) {
-  return jwt.sign(
-    {
-      id: user.id,
-      email: user.email,
-      tokenVersion: Number(user.token_version || 0),
-    },
-    jwtSecret,
-    { expiresIn: jwtExpiresIn },
-  );
 }
 
 async function register(req, res, next) {
@@ -43,7 +35,9 @@ async function register(req, res, next) {
 
     const passwordHash = await bcrypt.hash(password, 12);
     const user = await userRepository.createUser({ email, passwordHash });
-    const token = signToken(user);
+    user.has_password = true;
+    user.apple_linked = false;
+    const token = signSessionToken(user);
 
     return res.status(201).json({ user, token });
   } catch (error) {
@@ -68,7 +62,9 @@ async function login(req, res, next) {
       throw httpError(403, '账号已被封禁，请联系支持邮箱申诉');
     }
 
-    const ok = await bcrypt.compare(password, userWithPassword.password_hash);
+    const ok =
+      Boolean(userWithPassword.password_hash) &&
+      (await bcrypt.compare(password, userWithPassword.password_hash));
     if (!ok) {
       throw httpError(401, 'Invalid email or password');
     }
@@ -81,8 +77,10 @@ async function login(req, res, next) {
       created_at: userWithPassword.created_at,
       updated_at: userWithPassword.updated_at,
       token_version: userWithPassword.token_version,
+      has_password: true,
+      apple_linked: userWithPassword.apple_linked === true,
     };
-    const token = signToken(user);
+    const token = signSessionToken(user);
 
     return res.json({ user, token });
   } catch (error) {
@@ -135,10 +133,32 @@ async function revokeAiConsent(req, res, next) {
 async function deleteAccount(req, res, next) {
   try {
     const password = String(req.body?.password || '');
-    if (!password) throw httpError(400, '请输入密码确认注销账号');
-    const user = await userRepository.findUserByEmail(req.authUser.email);
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-      throw httpError(401, '密码不正确');
+    const user = await userRepository.findUserByIdWithCredentials(req.user.id);
+    if (!user) throw httpError(404, '账号不存在');
+    if (user.has_password) {
+      if (!password) throw httpError(400, '请输入密码确认注销账号');
+      if (!(await bcrypt.compare(password, user.password_hash))) {
+        throw httpError(401, '密码不正确');
+      }
+    } else if (user.apple_linked) {
+      if (req.body?.confirm !== true) {
+        throw httpError(400, '请确认永久注销 Apple 登录账号');
+      }
+    } else {
+      throw httpError(409, '账号没有可验证的登录方式，请联系支持邮箱');
+    }
+
+    const appleIdentity = await appleAuthRepository.findAppleIdentityByUserId(
+      req.user.id,
+    );
+    if (appleIdentity?.refresh_token_encrypted) {
+      try {
+        await revokeRefreshToken(
+          decryptRefreshToken(appleIdentity.refresh_token_encrypted),
+        );
+      } catch (_) {
+        throw httpError(502, '暂时无法撤销 Apple 授权，请稍后重试');
+      }
     }
     const deletionData = await userRepository.getAccountDeletionData(req.user.id);
     await userRepository.deleteUser(req.user.id);
