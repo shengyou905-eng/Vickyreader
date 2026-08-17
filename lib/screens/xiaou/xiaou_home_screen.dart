@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../config/theme.dart';
 import '../../l10n/l10n.dart';
 import '../../models/ai_conversation.dart';
 import '../../models/user_entry.dart';
 import '../../models/xiaou_conversation.dart';
+import '../../providers/reader_provider.dart';
 import '../../services/ai_service.dart';
 import '../../services/first_use_guide_service.dart';
 import '../../services/xiaou_conversation_service.dart';
@@ -381,6 +383,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         ),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 5),
+        persist: false,
         action: SnackBarAction(
           label: context.l10n.undo,
           onPressed: () {
@@ -397,7 +400,12 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     await controller.closed;
     if (undone) return;
     try {
-      await BookService.deleteMingtaiItem(id);
+      final deletion = await BookService.deleteMingtaiItem(id, item: item);
+      if (deletion.removedHighlight && mounted) {
+        context.read<ReaderProvider>().forgetDeletedHighlight(
+          deletion.sourceRecordId,
+        );
+      }
       if (!mounted) return;
       setState(() => _deletingIds.remove(id));
     } catch (e) {

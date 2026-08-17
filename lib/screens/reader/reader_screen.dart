@@ -646,7 +646,13 @@ class _ReaderScreenState extends State<ReaderScreen>
     final bookId = reader.book?.id;
     final chapter = reader.currentChapter;
     if (bookId == null || chapter == null) return null;
-    return '$bookId:${reader.currentChapterIndex}:${chapter.index}:${chapter.content.length}';
+    final chapterIndex = reader.currentChapterIndex.toString();
+    final highlightSignature = reader.highlights
+        .where((highlight) => highlight.chapterIndex == chapterIndex)
+        .map((highlight) => '${highlight.id}:${highlight.updatedAt}')
+        .join(',');
+    return '$bookId:$chapterIndex:${chapter.index}:${chapter.content.length}:'
+        '$highlightSignature';
   }
 
   bool _scheduleChapterLoadIfNeeded(ReaderProvider reader) {

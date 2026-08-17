@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../config/theme.dart';
+import '../../providers/reader_provider.dart';
 import '../../services/book_service.dart';
 import '../../l10n/l10n.dart';
 import 'xiaou_entry_grouping.dart';
@@ -111,6 +113,7 @@ class _XiaouBookTracesScreenState extends State<XiaouBookTracesScreen> {
         ),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 5),
+        persist: false,
         action: SnackBarAction(
           label: context.l10n.undo,
           onPressed: () {
@@ -127,7 +130,12 @@ class _XiaouBookTracesScreenState extends State<XiaouBookTracesScreen> {
     await controller.closed;
     if (undone) return;
     try {
-      await BookService.deleteMingtaiItem(id);
+      final deletion = await BookService.deleteMingtaiItem(id, item: item);
+      if (deletion.removedHighlight && mounted) {
+        context.read<ReaderProvider>().forgetDeletedHighlight(
+          deletion.sourceRecordId,
+        );
+      }
       if (mounted) setState(() => _busyIds.remove(id));
     } catch (e) {
       if (!mounted) return;

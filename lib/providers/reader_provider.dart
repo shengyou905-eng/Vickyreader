@@ -398,6 +398,7 @@ class ReaderProvider extends ChangeNotifier {
         originalText: selectedText,
         autoTags: const ['划线'],
         metadataJson: jsonEncode({
+          'source_record_id': h.id,
           'color': color,
           'startOffset': startOffset,
           'endOffset': endOffset,
@@ -420,9 +421,10 @@ class ReaderProvider extends ChangeNotifier {
     final selectedText = _selectedText ?? '';
     final chapterTitle = currentChapter?.title ?? '';
     final entryId = const Uuid().v4();
+    final noteId = const Uuid().v4();
 
     await BookService.insertNote(
-      id: const Uuid().v4(),
+      id: noteId,
       bookId: _book!.id,
       chapterIndex: _currentChapterIndex.toString(),
       selectedText: selectedText.isEmpty ? null : selectedText,
@@ -443,6 +445,7 @@ class ReaderProvider extends ChangeNotifier {
         userInput: content.trim(),
         autoTags: const ['想法'],
         metadataJson: jsonEncode({
+          'source_record_id': noteId,
           'book_author': _book!.author,
           'book_cover': _book!.coverPath ?? '',
         }),
@@ -519,6 +522,13 @@ class ReaderProvider extends ChangeNotifier {
     await BookService.deleteHighlight(id);
     _highlights.removeWhere((h) => h.id == id);
     notifyListeners();
+  }
+
+  void forgetDeletedHighlight(String id) {
+    if (id.isEmpty) return;
+    final previousLength = _highlights.length;
+    _highlights.removeWhere((highlight) => highlight.id == id);
+    if (_highlights.length != previousLength) notifyListeners();
   }
 
   bool _disposed = false;

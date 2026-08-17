@@ -84,6 +84,23 @@ class MingtaiInsight {
   }
 }
 
+class MingtaiDeletionResult {
+  final String source;
+  final String sourceRecordId;
+  final String bookId;
+  final String chapterIndex;
+
+  const MingtaiDeletionResult({
+    required this.source,
+    required this.sourceRecordId,
+    required this.bookId,
+    required this.chapterIndex,
+  });
+
+  bool get removedHighlight =>
+      source == 'highlight' && sourceRecordId.isNotEmpty;
+}
+
 class XiaouQuickQuestion {
   final String id;
   final String title;
@@ -3016,7 +3033,10 @@ class BookService {
     );
   }
 
-  static Future<void> deleteMingtaiItem(String id) async {
+  static Future<MingtaiDeletionResult> deleteMingtaiItem(
+    String id, {
+    Map<String, dynamic>? item,
+  }) async {
     final db = await DatabaseService.database;
     if (id.startsWith('entry:')) {
       final remoteId = id.substring(6);
@@ -3024,26 +3044,196 @@ class BookService {
         throw Exception('远端 entry id 为空，无法删除线上数据');
       }
 
+      final localEntries = await db.query(
+        'user_entries',
+        where: 'id = ? OR bmob_id = ?',
+        whereArgs: [remoteId, remoteId],
+        limit: 1,
+      );
+      final localEntry = localEntries.isEmpty ? null : localEntries.first;
+      final metadata = _metadataToRemote(
+        localEntry?['metadata_json'] ?? item?['metadata_json'],
+      );
+      final source =
+          item?['source']?.toString() ??
+          localEntry?['source']?.toString() ??
+          '';
+      final bookId =
+          item?['book_id']?.toString() ??
+          localEntry?['book_id']?.toString() ??
+          '';
+      final chapterIndex =
+          item?['chapter_index']?.toString() ??
+          localEntry?['chapter_index']?.toString() ??
+          '';
+      final originalText =
+          item?['original_text']?.toString() ??
+          localEntry?['original_text']?.toString() ??
+          '';
+      final userInput =
+          item?['user_note']?.toString() ??
+          localEntry?['user_input']?.toString() ??
+          '';
+      final sourceRecord = await _findLinkedSourceRecord(
+        db,
+        source: source,
+        sourceRecordId:
+            item?['source_record_id']?.toString() ??
+            metadata['source_record_id']?.toString() ??
+            '',
+        bookId: bookId,
+        chapterIndex: chapterIndex,
+        originalText: originalText,
+        userInput: userInput,
+        startOffset: metadata['startOffset'],
+        endOffset: metadata['endOffset'],
+      );
+      final sourceRecordId = sourceRecord?['id']?.toString() ?? '';
+
       final api = BmobApi.instance;
       if (api.isLoggedIn) {
         final deleted = await api.deleteUserEntry(remoteId);
         if (!deleted) {
-          throw Exception('线上 entry 不存在或 DELETE /api/entries/:id 未生效');
+          debugPrint('[XiaouDelete] remote entry already absent id=$remoteId');
         }
       } else {
         await deleteUserEntry(remoteId);
       }
 
-      await db.delete(
-        'user_entries',
-        where: 'id = ? OR bmob_id = ?',
-        whereArgs: [remoteId, remoteId],
-      );
+      final localEntryId = localEntry?['id']?.toString() ?? remoteId;
+      await db.transaction((txn) async {
+        if (sourceRecordId.isNotEmpty) {
+          final table = source == 'highlight'
+              ? 'highlights'
+              : source == 'thought'
+              ? 'notes'
+              : '';
+          if (table.isNotEmpty) {
+            await txn.delete(
+              table,
+              where: 'id = ?',
+              whereArgs: [sourceRecordId],
+            );
+          }
+        }
+        await txn.delete(
+          'user_entry_follow_ups',
+          where: 'entry_id = ? OR entry_id = ?',
+          whereArgs: [remoteId, localEntryId],
+        );
+        await txn.delete(
+          'user_entries',
+          where: 'id = ? OR bmob_id = ?',
+          whereArgs: [localEntryId, remoteId],
+        );
+      });
+      await _removeEntryFromXiaouDiskCache(remoteId);
       _invalidateMingtaiOverviewCache();
-      return;
+      debugPrint(
+        '[XiaouDelete] deleted entry=$remoteId source=$source '
+        'sourceRecord=${sourceRecordId.isEmpty ? 'unlinked' : sourceRecordId}',
+      );
+      return MingtaiDeletionResult(
+        source: source,
+        sourceRecordId: sourceRecordId,
+        bookId: bookId,
+        chapterIndex: chapterIndex,
+      );
     }
     await db.delete('mingtai_items', where: 'id = ?', whereArgs: [id]);
     _invalidateMingtaiOverviewCache();
+    return const MingtaiDeletionResult(
+      source: '',
+      sourceRecordId: '',
+      bookId: '',
+      chapterIndex: '',
+    );
+  }
+
+  static Future<Map<String, Object?>?> _findLinkedSourceRecord(
+    Database db, {
+    required String source,
+    required String sourceRecordId,
+    required String bookId,
+    required String chapterIndex,
+    required String originalText,
+    required String userInput,
+    Object? startOffset,
+    Object? endOffset,
+  }) async {
+    final table = source == 'highlight'
+        ? 'highlights'
+        : source == 'thought'
+        ? 'notes'
+        : '';
+    if (table.isEmpty) return null;
+
+    if (sourceRecordId.isNotEmpty) {
+      final linked = await db.query(
+        table,
+        where: 'id = ? OR bmob_id = ?',
+        whereArgs: [sourceRecordId, sourceRecordId],
+        limit: 1,
+      );
+      if (linked.isNotEmpty) return linked.first;
+    }
+
+    if (bookId.isEmpty || chapterIndex.isEmpty) return null;
+    final where = <String>['bookId = ?', 'chapterIndex = ?'];
+    final args = <Object?>[bookId, chapterIndex];
+    if (source == 'highlight') {
+      if (originalText.isEmpty) return null;
+      where.add('selectedText = ?');
+      args.add(originalText);
+      if (startOffset != null && endOffset != null) {
+        where.add('startOffset = ?');
+        where.add('endOffset = ?');
+        args.add(int.tryParse(startOffset.toString()) ?? startOffset);
+        args.add(int.tryParse(endOffset.toString()) ?? endOffset);
+      }
+    } else {
+      if (userInput.isEmpty) return null;
+      where.add('content = ?');
+      args.add(userInput);
+      if (originalText.isNotEmpty) {
+        where.add('selectedText = ?');
+        args.add(originalText);
+      }
+    }
+    final matches = await db.query(
+      table,
+      where: where.join(' AND '),
+      whereArgs: args,
+      limit: 2,
+    );
+    if (matches.length != 1) {
+      debugPrint(
+        '[XiaouDelete] legacy source match skipped source=$source '
+        'matches=${matches.length}',
+      );
+      return null;
+    }
+    return matches.first;
+  }
+
+  static Future<void> _removeEntryFromXiaouDiskCache(String remoteId) async {
+    final userId = await _ensureXiaouCacheOwner();
+    final overviewKey = _scopedCacheKey(_xiaouOverviewDiskCacheKey, userId);
+    final rows = await _readDiskMapList(overviewKey);
+    if (rows != null) {
+      rows.removeWhere((row) => row['id']?.toString() == remoteId);
+      await _writeDiskMapList(overviewKey, rows);
+    }
+
+    final homeKey = _scopedCacheKey(_xiaouHomeDiskCacheKey, userId);
+    final home = await _readDiskMap(homeKey);
+    final recentEntries = home?['recent_entries'];
+    if (home != null && recentEntries is List) {
+      recentEntries.removeWhere(
+        (entry) => entry is Map && entry['id']?.toString() == remoteId,
+      );
+      await _writeDiskMap(homeKey, home);
+    }
   }
 
   static Future<void> setMingtaiItemImportance(
@@ -3149,6 +3339,8 @@ class BookService {
       'id': remoteId.isNotEmpty ? 'entry:$remoteId' : '',
       'local_entry_id': metadata['local_id']?.toString() ?? '',
       'remote_entry_id': remoteId,
+      'metadata_json': metadata,
+      'source_record_id': metadata['source_record_id']?.toString() ?? '',
       'source': row['source']?.toString() ?? 'manual',
       'book_id': row['book_id']?.toString() ?? '',
       'book_title': row['book_title']?.toString() ?? '',
