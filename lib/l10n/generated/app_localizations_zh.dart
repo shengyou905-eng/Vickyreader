@@ -224,6 +224,25 @@ class AppLocalizationsZh extends AppLocalizations {
   String get passwordMinLength => '密码至少 6 位';
 
   @override
+  String get orUseApple => '或';
+
+  @override
+  String get bindApple => '绑定 Apple';
+
+  @override
+  String get appleLinked => '已绑定 Apple';
+
+  @override
+  String get appleBindingSuccess => 'Apple 账号已绑定';
+
+  @override
+  String get appleBindingFailed => 'Apple 账号绑定失败，请稍后重试';
+
+  @override
+  String get appleAccountDeleteConfirm =>
+      '此账号使用 Apple 登录。确认后将撤销 Apple 授权并永久注销账号。';
+
+  @override
   String get localDataMergeNotice => '注册后，你之前在本机的所有数据会自动合并到新账号';
 
   @override

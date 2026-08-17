@@ -518,6 +518,42 @@ abstract class AppLocalizations {
   /// **'密码至少 6 位'**
   String get passwordMinLength;
 
+  /// No description provided for @orUseApple.
+  ///
+  /// In zh, this message translates to:
+  /// **'或'**
+  String get orUseApple;
+
+  /// No description provided for @bindApple.
+  ///
+  /// In zh, this message translates to:
+  /// **'绑定 Apple'**
+  String get bindApple;
+
+  /// No description provided for @appleLinked.
+  ///
+  /// In zh, this message translates to:
+  /// **'已绑定 Apple'**
+  String get appleLinked;
+
+  /// No description provided for @appleBindingSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'Apple 账号已绑定'**
+  String get appleBindingSuccess;
+
+  /// No description provided for @appleBindingFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'Apple 账号绑定失败，请稍后重试'**
+  String get appleBindingFailed;
+
+  /// No description provided for @appleAccountDeleteConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'此账号使用 Apple 登录。确认后将撤销 Apple 授权并永久注销账号。'**
+  String get appleAccountDeleteConfirm;
+
   /// No description provided for @localDataMergeNotice.
   ///
   /// In zh, this message translates to:

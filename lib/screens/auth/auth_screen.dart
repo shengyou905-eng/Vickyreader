@@ -1,8 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import '../../config/theme.dart';
 import '../../l10n/l10n.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/apple_auth_service.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -18,11 +21,24 @@ class _AuthScreenState extends State<AuthScreen>
   final _passwordCtrl = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _obscurePassword = true;
+  late final Future<bool> _appleAvailable;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    final supportsNativeApple =
+        !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.macOS);
+    _appleAvailable = supportsNativeApple
+        ? AppleAuthService.isAvailable()
+        : Future<bool>.value(false);
+  }
+
+  Future<void> _signInWithApple() async {
+    final ok = await context.read<AuthProvider>().signInWithApple();
+    if (ok && mounted) Navigator.of(context).pop(true);
   }
 
   @override
@@ -155,6 +171,40 @@ class _AuthScreenState extends State<AuthScreen>
                 : Text(isLogin ? l10n.login : l10n.register),
           ),
         ),
+        if (isLogin)
+          FutureBuilder<bool>(
+            future: _appleAvailable,
+            builder: (context, snapshot) {
+              if (snapshot.data != true) return const SizedBox.shrink();
+              return Column(
+                children: [
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      const Expanded(child: Divider()),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Text(l10n.orUseApple),
+                      ),
+                      const Expanded(child: Divider()),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: SignInWithAppleButton(
+                      onPressed: auth.isLoading ? null : _signInWithApple,
+                      style: Theme.of(context).brightness == Brightness.dark
+                          ? SignInWithAppleButtonStyle.white
+                          : SignInWithAppleButtonStyle.black,
+                      borderRadius: const BorderRadius.all(Radius.circular(12)),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
         const SizedBox(height: 16),
         if (isLogin)
           Center(

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../config/theme.dart';
@@ -227,6 +228,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
         ),
+        if (_supportsAppleAuth) ...[
+          Divider(height: 18, color: palette.divider),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            minTileHeight: 44,
+            leading: Icon(Icons.apple, color: palette.icon),
+            title: Text(
+              auth.appleLinked
+                  ? context.l10n.appleLinked
+                  : context.l10n.bindApple,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            trailing: auth.appleLinked
+                ? Icon(Icons.check_rounded, color: palette.primary)
+                : const Icon(Icons.chevron_right_rounded),
+            onTap: auth.isLoading || auth.appleLinked
+                ? null
+                : () => _bindApple(auth),
+          ),
+        ],
         Divider(height: 18, color: palette.divider),
         Row(
           children: [
@@ -272,6 +293,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _deleteAccount(AuthProvider auth) async {
+    final needsPassword = auth.hasPassword;
     final controller = TextEditingController();
     final password = await showDialog<String>(
       context: context,
@@ -282,17 +304,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              context.l10n.deleteAccountBody,
+              needsPassword
+                  ? context.l10n.deleteAccountBody
+                  : context.l10n.appleAccountDeleteConfirm,
               style: const TextStyle(height: 1.55),
             ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              obscureText: true,
-              decoration: InputDecoration(
-                labelText: context.l10n.currentPassword,
+            if (needsPassword) ...[
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: context.l10n.currentPassword,
+                ),
               ),
-            ),
+            ],
           ],
         ),
         actions: [
@@ -304,7 +330,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFFAD6765),
             ),
-            onPressed: () => Navigator.pop(dialogContext, controller.text),
+            onPressed: () => Navigator.pop(
+              dialogContext,
+              needsPassword ? controller.text : '__confirmed__',
+            ),
             child: Text(context.l10n.deletePermanently),
           ),
         ],
@@ -313,7 +342,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     controller.dispose();
     if (password == null || password.isEmpty || !mounted) return;
     try {
-      await PrivacyService.deleteAccount(password);
+      await PrivacyService.deleteAccount(
+        password: needsPassword ? password : null,
+        confirm: !needsPassword,
+      );
       await auth.signOut();
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -327,6 +359,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       }
     }
+  }
+
+  bool get _supportsAppleAuth {
+    return !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.macOS);
+  }
+
+  Future<void> _bindApple(AuthProvider auth) async {
+    final linked = await auth.bindApple();
+    if (!mounted) return;
+    final message = linked
+        ? context.l10n.appleBindingSuccess
+        : (auth.error ?? context.l10n.appleBindingFailed);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
   }
 
   void _openMingtaiProfile() {

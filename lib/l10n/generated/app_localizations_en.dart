@@ -238,6 +238,26 @@ class AppLocalizationsEn extends AppLocalizations {
   String get passwordMinLength => 'Password must be at least 6 characters';
 
   @override
+  String get orUseApple => 'or';
+
+  @override
+  String get bindApple => 'Link Apple';
+
+  @override
+  String get appleLinked => 'Apple Linked';
+
+  @override
+  String get appleBindingSuccess => 'Your Apple Account is now linked.';
+
+  @override
+  String get appleBindingFailed =>
+      'Could not link your Apple Account. Please try again.';
+
+  @override
+  String get appleAccountDeleteConfirm =>
+      'This account uses Sign in with Apple. Continuing will revoke Apple authorization and permanently delete the account.';
+
+  @override
   String get localDataMergeNotice =>
       'After registration, existing data on this device will be merged into your new account.';
 
