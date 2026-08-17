@@ -150,6 +150,8 @@ void main() {
       expect('id="reader-font-face"'.allMatches(html).length, 1);
       expect(html, contains('window.readerReplaceChapter'));
       expect(html, contains('window.readerReportInitialReady'));
+      expect(html, contains('(faces && faces.length)'));
+      expect(html, contains("'FONT_FALLBACK'"));
       expect(html, contains('window.readerVisibleText'));
       expect(html, contains("return parts.join(' ').slice(0, 7000);"));
       expect(html, isNot(contains("parts.join('\n')")));

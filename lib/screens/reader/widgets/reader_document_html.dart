@@ -360,8 +360,11 @@ ${_readerRuntimeScriptTail()}
           postPerf('FONT_AVAILABLE', requestId);
           return;
         }
-        document.fonts.load('1em "' + family + '"').then(function() {
-          postPerf('FONT_AVAILABLE', requestId);
+        document.fonts.load('1em "' + family + '"').then(function(faces) {
+          postPerf(
+            (faces && faces.length) ? 'FONT_AVAILABLE' : 'FONT_FALLBACK',
+            requestId
+          );
         }, function() {
           postPerf('FONT_FALLBACK', requestId);
         });

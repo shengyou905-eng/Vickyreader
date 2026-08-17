@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -28,12 +30,14 @@ class ReaderFontService {
       fileName: 'SourceHanSerifCN-Regular.otf',
       cssFamily: 'ZhiDu Source Han Serif',
       format: 'opentype',
+      mimeType: 'font/otf',
     ),
     ReaderFontFamily.wenkai: _ReaderFontDefinition(
       assetPath: 'assets/fonts/LXGWWenKaiLite-Regular.ttf',
       fileName: 'LXGWWenKaiLite-Regular.ttf',
       cssFamily: 'LXGW WenKai Lite',
       format: 'truetype',
+      mimeType: 'font/ttf',
     ),
   };
   static final Map<ReaderFontFamily, Future<ReaderFontAsset>> _fontFutures = {};
@@ -43,15 +47,28 @@ class ReaderFontService {
     if (definition == null) return Future.value();
     return _fontFutures.putIfAbsent(
       family,
-      () => _copyFontToReadableLocation(definition),
+      () => _resolveFontResource(definition),
     );
   }
 
-  static Future<ReaderFontAsset> _copyFontToReadableLocation(
+  static Future<ReaderFontAsset> _resolveFontResource(
     _ReaderFontDefinition definition,
   ) async {
+    final assetData = await rootBundle.load(definition.assetPath);
+    final bytes = Uint8List.sublistView(assetData);
+    if (Platform.isIOS) {
+      // WKWebView does not consistently grant loadHtmlString documents access
+      // to absolute file:// font URLs. A session-cached data URI keeps the
+      // bundled font available without changing the chapter resource base URL.
+      return ReaderFontAsset(
+        cssFamily: definition.cssFamily,
+        uri: dataUriForBytes(bytes, definition.mimeType),
+        format: definition.format,
+      );
+    }
+
     // Keep WebView fonts under the same local resource root as chapter files.
-    // Android and WKWebView can reject fonts loaded across sandbox directories.
+    // Android requires file access for EPUB images and accepts this shared root.
     final documentsDir = await getApplicationDocumentsDirectory();
     final fontDir = Directory(
       p.join(documentsDir.path, AppConstants.booksDir, '.reader_fonts'),
@@ -59,10 +76,8 @@ class ReaderFontService {
     await fontDir.create(recursive: true);
     final target = File(p.join(fontDir.path, definition.fileName));
 
-    final assetData = await rootBundle.load(definition.assetPath);
     if (!await target.exists() ||
         await target.length() != assetData.lengthInBytes) {
-      final bytes = Uint8List.sublistView(assetData);
       await target.writeAsBytes(bytes, flush: true);
     }
     return ReaderFontAsset(
@@ -71,6 +86,11 @@ class ReaderFontService {
       format: definition.format,
     );
   }
+
+  @visibleForTesting
+  static String dataUriForBytes(Uint8List bytes, String mimeType) {
+    return 'data:$mimeType;base64,${base64Encode(bytes)}';
+  }
 }
 
 class _ReaderFontDefinition {
@@ -78,11 +98,13 @@ class _ReaderFontDefinition {
   final String fileName;
   final String cssFamily;
   final String format;
+  final String mimeType;
 
   const _ReaderFontDefinition({
     required this.assetPath,
     required this.fileName,
     required this.cssFamily,
     required this.format,
+    required this.mimeType,
   });
 }

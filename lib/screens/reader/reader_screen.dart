@@ -343,6 +343,18 @@ class _ReaderScreenState extends State<ReaderScreen>
             restore();
           }
         }
+        if (fontUrl && document.fonts && document.fonts.load) {
+          document.fonts.load('1em "$fontFaceFamily"').then(function(faces) {
+            FlutterBridge.postMessage(
+              'FONT_STATUS|$fontFaceFamily|' +
+              ((faces && faces.length) ? 'loaded' : 'fallback')
+            );
+          }, function() {
+            FlutterBridge.postMessage('FONT_STATUS|$fontFaceFamily|fallback');
+          });
+        } else {
+          FlutterBridge.postMessage('FONT_STATUS|system|loaded');
+        }
       })();
     ''';
     await _webViewController.runJavaScript(css);
@@ -357,8 +369,10 @@ class _ReaderScreenState extends State<ReaderScreen>
       _resolvedSessionFonts.add(family);
       _sessionFontAssets[family] = asset;
       return asset;
-    } catch (_) {
+    } catch (error, stackTrace) {
       // Keep the platform fallback stack usable if a bundled font cannot load.
+      debugPrint('[ReaderFont] resolve failed family=${family.name}: $error');
+      debugPrintStack(stackTrace: stackTrace);
       _resolvedSessionFonts.add(family);
       _sessionFontAssets[family] = null;
       return null;
@@ -402,6 +416,11 @@ class _ReaderScreenState extends State<ReaderScreen>
         if (requestId != null) {
           _recordPerformanceStage(requestId, parts[1]);
         }
+      }
+    } else if (text.startsWith('FONT_STATUS|')) {
+      final parts = text.split('|');
+      if (parts.length >= 3) {
+        debugPrint('[ReaderFont] family=${parts[1]} status=${parts[2]}');
       }
     } else if (text.startsWith('SELECT|')) {
       final selectedText = text.substring(7);
