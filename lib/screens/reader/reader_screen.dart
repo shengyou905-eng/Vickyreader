@@ -542,7 +542,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     final settings = context.read<SettingsProvider>();
     final fontAsset = await _fontAssetFor(settings.readerFontFamily);
     if (!mounted || generation != _chapterLoadGeneration) return;
-    final chapterIdx = targetIndex.toString();
+    final chapterIdx = chapter.sourceIndex.toString();
     final chapterHighlights = reader.highlights
         .where((h) => h.chapterIndex == chapterIdx)
         .toList();
@@ -639,7 +639,8 @@ class _ReaderScreenState extends State<ReaderScreen>
       final chapterIndex = indexes[i];
       final chapterHighlights = reader.highlights
           .where(
-            (highlight) => highlight.chapterIndex == chapterIndex.toString(),
+            (highlight) =>
+                highlight.chapterIndex == chapter.sourceIndex.toString(),
           )
           .toList(growable: false);
       _chapterMarkupFor(
@@ -665,13 +666,11 @@ class _ReaderScreenState extends State<ReaderScreen>
     final bookId = reader.book?.id;
     final chapter = reader.currentChapter;
     if (bookId == null || chapter == null) return null;
-    final chapterIndex = reader.currentChapterIndex.toString();
-    final highlightSignature = reader.highlights
-        .where((highlight) => highlight.chapterIndex == chapterIndex)
-        .map((highlight) => '${highlight.id}:${highlight.updatedAt}')
-        .join(',');
-    return '$bookId:$chapterIndex:${chapter.index}:${chapter.content.length}:'
-        '$highlightSignature';
+    // A locally created highlight is patched into the existing document with
+    // `wrapSelection`. Including highlights here would reload the chapter and
+    // reset the reading surface while the user is still at their selection.
+    return '$bookId:${reader.currentChapterIndex}:${chapter.index}:'
+        '${chapter.content.length}';
   }
 
   bool _scheduleChapterLoadIfNeeded(ReaderProvider reader) {
@@ -1013,6 +1012,8 @@ class _ReaderScreenState extends State<ReaderScreen>
                         _hideSelectionGuideTip();
                         final chapter = reader.currentChapter;
                         if (chapter != null) {
+                          final scrollRatio = await _captureScrollRatio();
+                          if (!mounted) return;
                           final plainText = EpubService.getPlainText(
                             chapter.content,
                           );
@@ -1041,6 +1042,9 @@ class _ReaderScreenState extends State<ReaderScreen>
                           _webViewController.runJavaScript(
                             "wrapSelection('$color', '${_jsEscape(selectedText)}')",
                           );
+                          if (scrollRatio != null) {
+                            _restoreScrollRatio(scrollRatio);
+                          }
                           _hasWebSelection = false;
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
@@ -1551,44 +1555,117 @@ class _ReaderScreenState extends State<ReaderScreen>
   void _showTableOfContents(ReaderProvider reader) {
     showModalBottomSheet(
       context: context,
-      builder: (_) => Container(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              context.l10n.tableOfContents,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: ListView.builder(
-                itemCount: reader.chapters.length,
-                itemBuilder: (_, i) => ListTile(
-                  dense: true,
-                  title: Text(
-                    reader.chapters[i].title,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: i == reader.currentChapterIndex
-                          ? FontWeight.w600
-                          : FontWeight.normal,
-                      color: i == reader.currentChapterIndex
-                          ? AppTheme.primary
-                          : AppTheme.textPrimary,
-                    ),
-                  ),
-                  onTap: () {
-                    _navigateToChapter(i, reason: 'table_of_contents');
-                    Navigator.pop(context);
-                  },
-                ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        final palette = sheetContext.appPalette;
+        final visuals = sheetContext.appVisuals;
+        final height = MediaQuery.sizeOf(sheetContext).height * 0.72;
+        return SafeArea(
+          top: false,
+          child: Container(
+            height: height,
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+            decoration: BoxDecoration(
+              color: palette.surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
               ),
             ),
-          ],
-        ),
-      ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Align(
+                  child: Container(
+                    width: 34,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: palette.divider,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  context.l10n.tableOfContents,
+                  style: TextStyle(
+                    color: palette.textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: reader.chapters.length,
+                    separatorBuilder: (_, _) => Divider(
+                      color: palette.divider.withValues(alpha: 0.7),
+                      height: 1,
+                    ),
+                    itemBuilder: (_, i) {
+                      final isCurrent = i == reader.currentChapterIndex;
+                      return Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(
+                            visuals.controlRadius,
+                          ),
+                          onTap: () {
+                            _navigateToChapter(i, reason: 'table_of_contents');
+                            Navigator.pop(sheetContext);
+                          },
+                          child: Container(
+                            constraints: const BoxConstraints(minHeight: 52),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isCurrent
+                                  ? palette.selectedBackground.withValues(
+                                      alpha: 0.56,
+                                    )
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(
+                                visuals.controlRadius,
+                              ),
+                              border: isCurrent
+                                  ? Border(
+                                      left: BorderSide(
+                                        color: palette.primary,
+                                        width: 3,
+                                      ),
+                                    )
+                                  : null,
+                            ),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                reader.chapters[i].title,
+                                softWrap: true,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  height: 1.45,
+                                  fontWeight: isCurrent
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                  color: isCurrent
+                                      ? palette.primaryDeep
+                                      : palette.textPrimary,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 

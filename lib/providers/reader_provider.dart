@@ -170,7 +170,7 @@ class ReaderProvider extends ChangeNotifier {
     final isMingtaiBook = BookService.isMingtaiShelfBook(book);
     final content = isMingtaiBook
         ? await BookService.getMingtaiChapterContent(book.id, index)
-        : await EpubService.getChapterContent(book.id, index);
+        : await EpubService.getChapterContent(book.id, chapter.sourceIndex);
     if (isMingtaiBook && content.trim().isEmpty) {
       throw Exception('服务器返回的章节内容为空，请重新发布这本书');
     }
@@ -218,7 +218,12 @@ class ReaderProvider extends ChangeNotifier {
     var scrollOffset = 0.0;
     if (progress != null) {
       final restoredChapter = int.tryParse(progress.chapterIndex) ?? 0;
-      chapterIndex = _chapters.isEmpty
+      final restoredListIndex = _chapters.indexWhere(
+        (chapter) => chapter.sourceIndex == restoredChapter,
+      );
+      chapterIndex = restoredListIndex >= 0
+          ? restoredListIndex
+          : _chapters.isEmpty
           ? 0
           : restoredChapter.clamp(0, _chapters.length - 1).toInt();
       scrollOffset = progress.scrollOffset;
@@ -270,15 +275,18 @@ class ReaderProvider extends ChangeNotifier {
   }
 
   void _checkBookmarkStatus() {
-    _isBookmarked = _bookmarks.any(
-      (b) => b.chapterIndex == _currentChapterIndex.toString(),
-    );
+    final storedIndex =
+        currentChapter?.sourceIndex.toString() ??
+        _currentChapterIndex.toString();
+    _isBookmarked = _bookmarks.any((b) => b.chapterIndex == storedIndex);
   }
 
   Future<void> toggleBookmark() async {
     final chapter = await _loadChapterContent(_currentChapterIndex);
     if (_book == null || chapter == null) return;
-    final chapterIdx = _currentChapterIndex.toString();
+    final chapterIdx =
+        currentChapter?.sourceIndex.toString() ??
+        _currentChapterIndex.toString();
 
     if (_isBookmarked) {
       // Remove bookmark
@@ -325,7 +333,8 @@ class ReaderProvider extends ChangeNotifier {
       final now = DateTime.now().toUtc().toIso8601String();
       await BookService.saveReadingProgress(
         _book!.id,
-        _currentChapterIndex.toString(),
+        currentChapter?.sourceIndex.toString() ??
+            _currentChapterIndex.toString(),
         _scrollOffset,
         userId: _getUserId(),
         updatedAt: now,
@@ -375,7 +384,9 @@ class ReaderProvider extends ChangeNotifier {
       id: const Uuid().v4(),
       userId: _getUserId(),
       bookId: _book!.id,
-      chapterIndex: _currentChapterIndex.toString(),
+      chapterIndex:
+          currentChapter?.sourceIndex.toString() ??
+          _currentChapterIndex.toString(),
       selectedText: selectedText,
       contextBefore: contextBefore,
       contextAfter: contextAfter,
@@ -393,7 +404,9 @@ class ReaderProvider extends ChangeNotifier {
         source: 'highlight',
         bookId: _book!.id,
         bookTitle: _book!.title,
-        chapterIndex: _currentChapterIndex.toString(),
+        chapterIndex:
+            currentChapter?.sourceIndex.toString() ??
+            _currentChapterIndex.toString(),
         chapterTitle: currentChapter?.title ?? '',
         originalText: selectedText,
         autoTags: const ['划线'],
@@ -426,7 +439,9 @@ class ReaderProvider extends ChangeNotifier {
     await BookService.insertNote(
       id: noteId,
       bookId: _book!.id,
-      chapterIndex: _currentChapterIndex.toString(),
+      chapterIndex:
+          currentChapter?.sourceIndex.toString() ??
+          _currentChapterIndex.toString(),
       selectedText: selectedText.isEmpty ? null : selectedText,
       chapterTitle: chapterTitle,
       content: content.trim(),
@@ -439,7 +454,9 @@ class ReaderProvider extends ChangeNotifier {
         source: 'thought',
         bookId: _book!.id,
         bookTitle: _book!.title,
-        chapterIndex: _currentChapterIndex.toString(),
+        chapterIndex:
+            currentChapter?.sourceIndex.toString() ??
+            _currentChapterIndex.toString(),
         chapterTitle: chapterTitle,
         originalText: selectedText,
         userInput: content.trim(),
@@ -475,7 +492,9 @@ class ReaderProvider extends ChangeNotifier {
         source: 'ai_question',
         bookId: _book!.id,
         bookTitle: _book!.title,
-        chapterIndex: _currentChapterIndex.toString(),
+        chapterIndex:
+            currentChapter?.sourceIndex.toString() ??
+            _currentChapterIndex.toString(),
         chapterTitle: currentChapter?.title ?? '',
         originalText: contextText.trim(),
         userInput: question.trim(),

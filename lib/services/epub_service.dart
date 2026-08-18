@@ -14,14 +14,18 @@ class EpubChapter {
   final String title;
   final String content; // raw HTML content with resolved image paths
   final int index;
+  // The on-disk chapter index. It differs from [index] only for legacy EPUBs
+  // whose stored spine still contains a navigation document.
+  final int sourceIndex;
   final String href;
 
   EpubChapter({
     required this.title,
     required this.content,
     required this.index,
+    int? sourceIndex,
     this.href = '',
-  });
+  }) : sourceIndex = sourceIndex ?? index;
 }
 
 class EpubMetadata {
@@ -250,23 +254,26 @@ class EpubService {
 
     // Extract chapters
     final chapters = <EpubChapter>[];
-    for (int i = 0; i < spine.length; i++) {
-      final href = spine[i];
+    final readingSpine = <String>[];
+    for (final href in spine) {
       final fullPath = _resolvePath(opfDir, href);
       final file = _findArchiveFile(archive, fullPath);
       if (file != null) {
         final rawHtml = utf8.decode(file.content as List<int>);
+        if (_isNavigationDocument(href, rawHtml)) continue;
         final cleanContent = _cleanHtml(rawHtml, archive, opfDir);
         final contentWithImages = _rewriteImagePaths(cleanContent, imageMap);
-        final title = _extractChapterTitle(rawHtml) ?? '第${i + 1}章';
+        final chapterIndex = chapters.length;
+        final title = _extractChapterTitle(rawHtml) ?? '第${chapterIndex + 1}章';
         chapters.add(
           EpubChapter(
             title: title,
             content: contentWithImages,
-            index: i,
-            href: fullPath,
+            index: chapterIndex,
+            href: href,
           ),
         );
+        readingSpine.add(href);
       }
     }
 
@@ -285,7 +292,7 @@ class EpubService {
     );
 
     final spineFile = File(p.join(bookChapterDir, 'spine.json'));
-    await spineFile.writeAsString(jsonEncode(spine));
+    await spineFile.writeAsString(jsonEncode(readingSpine));
 
     return Book(
       id: resolvedBookId,
@@ -319,14 +326,17 @@ class EpubService {
 
     final chapters = <EpubChapter>[];
     for (int i = 0; i < titles.length; i++) {
+      final href = i < spine.length ? spine[i] : '';
+      if (_isNavigationHref(href)) continue;
       final chapterFile = File(p.join(bookChapterDir, 'ch_$i.html'));
       if (await chapterFile.exists()) {
         chapters.add(
           EpubChapter(
             title: titles[i],
             content: await chapterFile.readAsString(),
-            index: i,
-            href: i < spine.length ? spine[i] : '',
+            index: chapters.length,
+            sourceIndex: i,
+            href: href,
           ),
         );
       }
@@ -337,15 +347,21 @@ class EpubService {
   static Future<List<EpubChapter>> getChapterShells(String bookId) async {
     final titles = await getChapterTitles(bookId);
     final spine = await getSpine(bookId);
-    return [
-      for (var i = 0; i < titles.length; i++)
+    final chapters = <EpubChapter>[];
+    for (var i = 0; i < titles.length; i++) {
+      final href = i < spine.length ? spine[i] : '';
+      if (_isNavigationHref(href)) continue;
+      chapters.add(
         EpubChapter(
           title: titles[i],
           content: '',
-          index: i,
-          href: i < spine.length ? spine[i] : '',
+          index: chapters.length,
+          sourceIndex: i,
+          href: href,
         ),
-    ];
+      );
+    }
+    return chapters;
   }
 
   static Future<String> getChapterContent(String bookId, int index) async {
@@ -629,6 +645,22 @@ class EpubService {
       }
     }
     return spine;
+  }
+
+  static bool _isNavigationDocument(String href, String rawHtml) {
+    if (_isNavigationHref(href)) return true;
+    final normalized = rawHtml.toLowerCase();
+    return normalized.contains('epub:type="toc"') ||
+        normalized.contains("epub:type='toc'") ||
+        normalized.contains('role="doc-toc"') ||
+        normalized.contains("role='doc-toc'");
+  }
+
+  static bool _isNavigationHref(String href) {
+    final filename = p.basename(href).toLowerCase();
+    return RegExp(
+      r'(^|[-_.])(nav|toc|contents?|table[-_]?of[-_]?contents?)([-_.]|$)',
+    ).hasMatch(filename);
   }
 
   /// Parse EPUB 2 `guide` element for cover reference

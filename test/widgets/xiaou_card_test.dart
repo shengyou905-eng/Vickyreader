@@ -70,4 +70,34 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('问小U'), findsWidgets);
   });
+
+  testWidgets('highlight card expands its original passage independently', (
+    tester,
+  ) async {
+    const original =
+        '这是一段足够长的划线原文，用来确认阅读痕迹卡片会先保持克制的三行预览，用户仍然可以自行展开并读完完整的句子，而不会跳转到别的页面。原文展开只影响这一段文字，不会改变书籍筛选、卡片排序或当前阅读位置。';
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.forTheme(AppThemeId.lavender),
+        home: const Scaffold(
+          body: XiaouCard(
+            source: 'highlight',
+            originalText: original,
+            bookTitle: '规训与惩罚',
+            chapterTitle: '第一章',
+          ),
+        ),
+      ),
+    );
+
+    final passage = find.text(original);
+    expect((tester.widget<Text>(passage)).maxLines, 3);
+    expect(find.text('展开原文'), findsOneWidget);
+
+    await tester.tap(find.text('展开原文'));
+    await tester.pumpAndSettle();
+
+    expect((tester.widget<Text>(passage)).maxLines, isNull);
+    expect(find.text('收起原文'), findsOneWidget);
+  });
 }

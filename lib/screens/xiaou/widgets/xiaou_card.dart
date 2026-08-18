@@ -50,6 +50,7 @@ class XiaouCard extends StatefulWidget {
 
 class _XiaouCardState extends State<XiaouCard> {
   bool _expanded = false;
+  bool _originalExpanded = false;
   late int _followUpCount;
   late String _latestFollowUpQuestion;
 
@@ -88,6 +89,7 @@ class _XiaouCardState extends State<XiaouCard> {
           widget.userNote,
           cleanedUnderstanding,
         );
+    final originalTextExpandable = _isTextExpandable(widget.originalText);
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -144,8 +146,8 @@ class _XiaouCardState extends State<XiaouCard> {
                 ),
                 child: Text(
                   widget.originalText,
-                  maxLines: isExplanation ? 3 : (_expanded ? null : 4),
-                  overflow: !isExplanation && _expanded
+                  maxLines: _originalExpanded ? null : 3,
+                  overflow: _originalExpanded
                       ? TextOverflow.visible
                       : TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -155,6 +157,31 @@ class _XiaouCardState extends State<XiaouCard> {
                   ),
                 ),
               ),
+              if (originalTextExpandable) ...[
+                const SizedBox(height: 2),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      minimumSize: const Size(44, 32),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    onPressed: () =>
+                        setState(() => _originalExpanded = !_originalExpanded),
+                    child: Text(
+                      _originalExpanded
+                          ? context.l10n.collapseOriginal
+                          : context.l10n.expandOriginal,
+                      style: TextStyle(
+                        color: palette.primaryDeep,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
               if (widget.userNote != null && widget.userNote!.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 Row(
@@ -410,6 +437,11 @@ class _XiaouCardState extends State<XiaouCard> {
       understanding ?? '',
     ].where((text) => text.trim().isNotEmpty).join('\n');
     return combined.length > 120 || combined.split('\n').length > 5;
+  }
+
+  bool _isTextExpandable(String text) {
+    final normalized = text.trim();
+    return normalized.length > 72 || normalized.split('\n').length > 2;
   }
 
   List<String> _parseTags(String? raw, {required String source}) {
