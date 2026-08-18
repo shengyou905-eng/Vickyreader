@@ -39,6 +39,8 @@
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose a photo from your library for your reading profile avatar.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Allow ZhiDu to use the camera when you choose to take a reading profile photo.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
