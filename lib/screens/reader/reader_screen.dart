@@ -10,6 +10,7 @@ import '../../config/reader_typography.dart';
 import '../../config/theme.dart';
 import '../../l10n/l10n.dart';
 import '../../models/highlight.dart';
+import '../../models/user_entry.dart';
 import '../../providers/reader_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/auth_service.dart';
@@ -62,6 +63,8 @@ class _ReaderScreenState extends State<ReaderScreen>
   final Map<String, ReaderChapterMarkup> _chapterMarkupCache = {};
   final Map<ReaderFontFamily, ReaderFontAsset?> _sessionFontAssets = {};
   final Set<ReaderFontFamily> _resolvedSessionFonts = {};
+  List<UserEntry> _currentParagraphThoughts = const [];
+  String? _paragraphThoughtsChapterKey;
   bool _showLongPressGuide = false;
   bool _awaitingLongPressSelection = false;
   bool _showSelectionGuideTip = false;
@@ -141,6 +144,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     _readerDocumentBookId = reader.book?.id;
     final settings = context.read<SettingsProvider>();
     unawaited(_applyReaderStyles(settings));
+    unawaited(_refreshParagraphThoughtMarkers(reader));
     final performanceRequestId = _pendingFullDocumentRequestId;
     if (performanceRequestId != null) {
       _pendingFullDocumentRequestId = null;
@@ -427,6 +431,11 @@ class _ReaderScreenState extends State<ReaderScreen>
       _hasWebSelection = selectedText.isNotEmpty;
       context.read<ReaderProvider>().selectText(selectedText);
       if (selectedText.isNotEmpty) _completeLongPressGesture();
+    } else if (text.startsWith('THOUGHT_MARKER|')) {
+      final paragraphIndex = int.tryParse(text.substring(15));
+      if (paragraphIndex != null) {
+        unawaited(_showParagraphThoughts(paragraphIndex));
+      }
     } else if (text.startsWith('CHAPTER|')) {
       if (_ignoreChapterMessages) return;
       final offset = int.tryParse(text.substring(8)) ?? 0;
@@ -577,6 +586,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (!mounted || generation != _chapterLoadGeneration) return;
       final updated = updateResult == true || updateResult.toString() == 'true';
       if (updated) {
+        unawaited(_refreshParagraphThoughtMarkers(reader));
         return;
       }
     }
@@ -1177,6 +1187,129 @@ class _ReaderScreenState extends State<ReaderScreen>
     );
   }
 
+  String? _paragraphThoughtsKey(ReaderProvider reader) {
+    final bookId = reader.book?.id;
+    final chapterIndex = reader.currentChapter?.sourceIndex;
+    if (bookId == null || chapterIndex == null) return null;
+    return '$bookId:$chapterIndex:${AuthService.userId ?? ''}';
+  }
+
+  Future<void> _refreshParagraphThoughtMarkers(ReaderProvider reader) async {
+    final key = _paragraphThoughtsKey(reader);
+    if (key == null) return;
+    final bookId = reader.book!.id;
+    final chapterIndex = reader.currentChapter!.sourceIndex.toString();
+    try {
+      final entries = await BookService.getLocalUserEntries(
+        bookId: bookId,
+        source: 'thought',
+        userId: AuthService.userId ?? '',
+      );
+      if (!mounted || _paragraphThoughtsKey(reader) != key) return;
+      final currentChapterThoughts = entries
+          .where(
+            (entry) =>
+                entry.chapterIndex == chapterIndex &&
+                _paragraphIndexForThought(entry) != null,
+          )
+          .toList(growable: false);
+      _currentParagraphThoughts = currentChapterThoughts;
+      _paragraphThoughtsChapterKey = key;
+      if (!_readerDocumentReady) return;
+      final counts = <int, int>{};
+      for (final entry in currentChapterThoughts) {
+        final paragraphIndex = _paragraphIndexForThought(entry);
+        if (paragraphIndex != null) {
+          counts.update(
+            paragraphIndex,
+            (count) => count + 1,
+            ifAbsent: () => 1,
+          );
+        }
+      }
+      final markers = counts.entries
+          .map(
+            (entry) => <String, int>{
+              'paragraphIndex': entry.key,
+              'count': entry.value,
+            },
+          )
+          .toList(growable: false);
+      await _webViewController.runJavaScript(
+        'window.readerSetThoughtMarkers && '
+        'window.readerSetThoughtMarkers(${jsonEncode(markers)});',
+      );
+    } catch (error) {
+      debugPrint('[ReaderThoughtMarker] refresh failed: $error');
+    }
+  }
+
+  int? _paragraphIndexForThought(UserEntry entry) {
+    final raw = entry.metadataJson.trim();
+    if (raw.isEmpty) return null;
+    try {
+      final metadata = jsonDecode(raw);
+      if (metadata is! Map) return null;
+      final value = metadata['paragraph_index'];
+      return switch (value) {
+        int value => value,
+        num value => value.toInt(),
+        String value => int.tryParse(value),
+        _ => null,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<_ReaderParagraphAnchor?> _captureReaderParagraphAnchor() async {
+    try {
+      final raw = await _webViewController.runJavaScriptReturningResult(
+        'window.readerSelectionAnchor ? window.readerSelectionAnchor() : "";',
+      );
+      var value = raw.toString();
+      if (value.isEmpty || value == 'null') return null;
+      dynamic decoded = jsonDecode(value);
+      if (decoded is String) decoded = jsonDecode(decoded);
+      if (decoded is! Map) return null;
+      final index = switch (decoded['paragraphIndex']) {
+        int value => value,
+        num value => value.toInt(),
+        String value => int.tryParse(value),
+        _ => null,
+      };
+      if (index == null || index < 0) return null;
+      return _ReaderParagraphAnchor(
+        paragraphIndex: index,
+        paragraphText: decoded['paragraphText']?.toString() ?? '',
+      );
+    } catch (error) {
+      debugPrint('[ReaderThoughtMarker] selection anchor unavailable: $error');
+      return null;
+    }
+  }
+
+  Future<void> _showParagraphThoughts(int paragraphIndex) async {
+    final reader = context.read<ReaderProvider>();
+    final key = _paragraphThoughtsKey(reader);
+    if (key == null) return;
+    if (_paragraphThoughtsChapterKey != key) {
+      await _refreshParagraphThoughtMarkers(reader);
+    }
+    if (!mounted || _paragraphThoughtsChapterKey != key) return;
+    final thoughts = _currentParagraphThoughts
+        .where((entry) => _paragraphIndexForThought(entry) == paragraphIndex)
+        .toList(growable: false);
+    if (thoughts.isEmpty) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ReaderParagraphThoughtsSheet(thoughts: thoughts),
+    );
+  }
+
   Future<void> _beginAiExplanation(ReaderProvider reader) async {
     if (reader.selectedText == null || reader.showAiPanel) return;
     if (!await AiConsentGate.ensure(context) || !mounted) return;
@@ -1673,6 +1806,8 @@ class _ReaderScreenState extends State<ReaderScreen>
     final book = reader.book;
     final selectedText = reader.selectedText?.trim() ?? '';
     if (book == null || selectedText.isEmpty) return;
+    final paragraphAnchor = await _captureReaderParagraphAnchor();
+    if (!mounted) return;
     await AuthService.init();
     if (!mounted) return;
     final chapterTitle = reader.currentChapter?.title.trim() ?? '';
@@ -1699,7 +1834,11 @@ class _ReaderScreenState extends State<ReaderScreen>
       return;
     }
 
-    final entryId = await reader.addThought(content: result.content);
+    final entryId = await reader.addThought(
+      content: result.content,
+      anchorMetadata: paragraphAnchor?.toMetadata() ?? const {},
+    );
+    await _refreshParagraphThoughtMarkers(reader);
     if (!mounted) return;
     if (!result.isPublic) {
       _clearReaderSelection(reader);
@@ -1982,6 +2121,114 @@ class _ReaderThoughtSheetState extends State<ReaderThoughtSheet> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ReaderParagraphAnchor {
+  final int paragraphIndex;
+  final String paragraphText;
+
+  const _ReaderParagraphAnchor({
+    required this.paragraphIndex,
+    required this.paragraphText,
+  });
+
+  Map<String, dynamic> toMetadata() => {
+    'paragraph_index': paragraphIndex,
+    'paragraph_text': paragraphText,
+  };
+}
+
+class _ReaderParagraphThoughtsSheet extends StatelessWidget {
+  final List<UserEntry> thoughts;
+
+  const _ReaderParagraphThoughtsSheet({required this.thoughts});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    final excerpt = thoughts
+        .map((thought) => thought.originalText.trim())
+        .firstWhere((text) => text.isNotEmpty, orElse: () => '');
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.68,
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+      decoration: BoxDecoration(
+        color: palette.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        border: Border.all(color: palette.divider.withValues(alpha: 0.55)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 32,
+              height: 4,
+              decoration: BoxDecoration(
+                color: palette.divider,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            context.l10n.readerThought,
+            style: TextStyle(
+              color: palette.textPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (excerpt.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: palette.primarySoft.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '“$excerpt”',
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: palette.textSecondary,
+                  fontSize: 13,
+                  height: 1.55,
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Flexible(
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: thoughts.length,
+              separatorBuilder: (_, _) => Divider(
+                color: palette.divider.withValues(alpha: 0.65),
+                height: 20,
+              ),
+              itemBuilder: (context, index) {
+                final thought = thoughts[index];
+                return Text(
+                  thought.userInput.trim(),
+                  style: TextStyle(
+                    color: palette.textPrimary,
+                    fontSize: 15,
+                    height: 1.7,
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

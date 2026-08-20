@@ -708,16 +708,12 @@ class _ComposeActionSheet extends StatelessWidget {
     final actions = [
       (
         'reading_update',
+        Icons.menu_book_outlined,
         context.l10n.shareCurrentReading,
-        context.l10n.shareCurrentReadingSubtitle,
       ),
-      (
-        'excerpt',
-        context.l10n.publishHighlight,
-        context.l10n.publishHighlightSubtitle,
-      ),
-      ('thought', context.l10n.writeThought, context.l10n.writeThoughtSubtitle),
-      ('review', context.l10n.writeReview, context.l10n.writeReviewSubtitle),
+      ('excerpt', Icons.format_quote_outlined, context.l10n.publicHighlight),
+      ('thought', Icons.edit_outlined, context.l10n.writeThought),
+      ('review', Icons.auto_stories_outlined, context.l10n.writeReview),
     ];
     return SafeArea(
       child: Container(
@@ -752,42 +748,22 @@ class _ComposeActionSheet extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             ...actions.map(
-              (action) => InkWell(
+              (action) => ListTile(
                 onTap: () => Navigator.pop(context, action.$1),
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              action.$2,
-                              style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              action.$3,
-                              style: TextStyle(
-                                color: palette.textSecondary,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(
-                        Icons.arrow_forward_rounded,
-                        size: 17,
-                        color: palette.icon.withValues(alpha: 0.72),
-                      ),
-                    ],
+                minVerticalPadding: 2,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 2),
+                leading: Icon(action.$2, color: palette.icon, size: 20),
+                title: Text(
+                  action.$3,
+                  style: TextStyle(
+                    color: palette.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
                   ),
+                ),
+                trailing: Icon(
+                  Icons.chevron_right_rounded,
+                  color: palette.icon.withValues(alpha: 0.68),
                 ),
               ),
             ),
@@ -2177,7 +2153,6 @@ class _CommunityPostComposer extends StatefulWidget {
 class _CommunityPostComposerState extends State<_CommunityPostComposer> {
   final _contentController = TextEditingController();
   final _quoteController = TextEditingController();
-  final _chapterController = TextEditingController();
   List<Book> _localBooks = const [];
   Book? _selectedLocalBook;
   late String _type;
@@ -2197,7 +2172,6 @@ class _CommunityPostComposerState extends State<_CommunityPostComposer> {
   void dispose() {
     _contentController.dispose();
     _quoteController.dispose();
-    _chapterController.dispose();
     super.dispose();
   }
 
@@ -2214,7 +2188,6 @@ class _CommunityPostComposerState extends State<_CommunityPostComposer> {
           .toList(growable: false);
       setState(() {
         _localBooks = local;
-        _selectedLocalBook ??= local.isEmpty ? null : local.first;
         _loading = false;
       });
     } catch (error) {
@@ -2284,7 +2257,7 @@ class _CommunityPostComposerState extends State<_CommunityPostComposer> {
         type: _type,
         content: content,
         quotedText: _quoteController.text.trim(),
-        chapterLabel: _chapterController.text.trim(),
+        chapterLabel: '',
       );
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
@@ -2334,7 +2307,7 @@ class _CommunityPostComposerState extends State<_CommunityPostComposer> {
                     ),
                     const SizedBox(height: 18),
                     Text(
-                      context.l10n.mingtaiComposeTitle,
+                      _composerTitle(context, _type),
                       style: const TextStyle(
                         fontSize: 21,
                         fontWeight: FontWeight.w700,
@@ -2357,6 +2330,7 @@ class _CommunityPostComposerState extends State<_CommunityPostComposer> {
                       DropdownButtonFormField<Book>(
                         initialValue: _selectedLocalBook,
                         isExpanded: true,
+                        hint: Text(context.l10n.selectBook),
                         decoration: InputDecoration(
                           labelText: context.l10n.selectBook,
                         ),
@@ -2375,56 +2349,19 @@ class _CommunityPostComposerState extends State<_CommunityPostComposer> {
                         onChanged: (value) =>
                             setState(() => _selectedLocalBook = value),
                       ),
-                    const SizedBox(height: 14),
-                    DropdownButtonFormField<String>(
-                      initialValue: _type,
-                      decoration: InputDecoration(
-                        labelText: context.l10n.postType,
+                    if (_type == 'excerpt') ...[
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: _quoteController,
+                        maxLines: 3,
+                        maxLength: 240,
+                        decoration: InputDecoration(
+                          labelText: context.l10n.shortExcerpt,
+                          hintText: context.l10n.shortExcerptHint,
+                        ),
                       ),
-                      items: [
-                        DropdownMenuItem(
-                          value: 'reading_update',
-                          child: Text(context.l10n.readingUpdate),
-                        ),
-                        DropdownMenuItem(
-                          value: 'excerpt',
-                          child: Text(context.l10n.publicHighlight),
-                        ),
-                        DropdownMenuItem(
-                          value: 'thought',
-                          child: Text(context.l10n.readingThought),
-                        ),
-                        DropdownMenuItem(
-                          value: 'fragment_thought',
-                          child: Text(context.l10n.fragmentThought),
-                        ),
-                        DropdownMenuItem(
-                          value: 'review',
-                          child: Text(context.l10n.bookReview),
-                        ),
-                        if (_type == 'question')
-                          DropdownMenuItem(
-                            value: 'question',
-                            child: Text(context.l10n.sameBookDiscussion),
-                          ),
-                      ],
-                      onChanged: (value) {
-                        if (value != null) setState(() => _type = value);
-                      },
-                    ),
+                    ],
                     const SizedBox(height: 14),
-                    TextField(
-                      controller: _quoteController,
-                      maxLines: 3,
-                      maxLength: 240,
-                      decoration: InputDecoration(
-                        labelText: _type == 'excerpt'
-                            ? context.l10n.shortExcerpt
-                            : context.l10n.shortExcerptOptional,
-                        hintText: context.l10n.shortExcerptHint,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
                     TextField(
                       controller: _contentController,
                       minLines: 5,
@@ -2432,16 +2369,8 @@ class _CommunityPostComposerState extends State<_CommunityPostComposer> {
                       maxLength: 4000,
                       decoration: InputDecoration(
                         labelText: _composerContentLabel(context, _type),
+                        hintText: _composerContentHint(context, _type),
                         alignLabelWithHint: true,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: _chapterController,
-                      maxLines: 1,
-                      decoration: InputDecoration(
-                        labelText: context.l10n.readingPositionOptional,
-                        hintText: context.l10n.readingPositionHint,
                       ),
                     ),
                     if (_error != null) ...[
@@ -3226,6 +3155,21 @@ String _composerContentLabel(BuildContext context, String type) =>
       'question' => context.l10n.questionHint,
       _ => context.l10n.yourThought,
     };
+
+String _composerContentHint(BuildContext context, String type) =>
+    switch (type) {
+      'reading_update' => context.l10n.composerReadingHint,
+      'excerpt' => context.l10n.composerExcerptHint,
+      'review' => context.l10n.composerReviewHint,
+      _ => context.l10n.composerThoughtHint,
+    };
+
+String _composerTitle(BuildContext context, String type) => switch (type) {
+  'reading_update' => context.l10n.shareCurrentReading,
+  'excerpt' => context.l10n.publicHighlight,
+  'review' => context.l10n.writeReview,
+  _ => context.l10n.writeThought,
+};
 
 String _timeLabel(BuildContext context, DateTime? date) {
   if (date == null) return '';

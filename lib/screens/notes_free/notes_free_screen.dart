@@ -127,6 +127,7 @@ class _NotesFreeScreenState extends State<NotesFreeScreen> {
     await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _FreeNoteEditor(note: note),
     );
@@ -984,112 +985,145 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
     final palette = context.appPalette;
 
     return SafeArea(
-      top: false,
-      child: AnimatedPadding(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
-        padding: EdgeInsets.only(bottom: viewInsets.bottom),
-        child: SizedBox(
-          height: screenHeight * 0.92,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: palette.surface,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(28),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 10, 10, 0),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        tooltip: context.l10n.close,
-                        icon: const Icon(Icons.close),
-                        onPressed: () async {
-                          await _autosave();
-                          if (context.mounted) Navigator.pop(context, true);
-                        },
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              widget.note == null
-                                  ? context.l10n.writeThisMoment
-                                  : context.l10n.returnToThisPage,
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w700,
-                                color: AppTheme.textPrimary,
-                              ),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              context.l10n.privatePageSubtitle,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: AppTheme.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      PopupMenuButton<String>(
-                        tooltip: context.l10n.more,
-                        enabled: !_changingAuthorization,
-                        onSelected: _onMenuSelected,
-                        itemBuilder: (_) => [
-                          PopupMenuItem(
-                            value: 'xiaou',
-                            child: Text(
-                              _xiaouAuthorized
-                                  ? context.l10n.revokeXiaou
-                                  : context.l10n.authorizeXiaou,
+      child: SizedBox(
+        height: screenHeight * 0.9,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: palette.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                child: Row(
+                  children: [
+                    IconButton(
+                      tooltip: context.l10n.close,
+                      icon: const Icon(Icons.close),
+                      onPressed: () async {
+                        await _autosave();
+                        if (context.mounted) Navigator.pop(context, true);
+                      },
+                    ),
+                    const SizedBox(width: 2),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.note == null
+                                ? context.l10n.writeThisMoment
+                                : context.l10n.returnToThisPage,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.textPrimary,
                             ),
                           ),
-                          const PopupMenuDivider(),
-                          PopupMenuItem(
-                            value: 'share_text',
-                            child: Text(context.l10n.shareText),
-                          ),
-                          PopupMenuItem(
-                            value: 'share_image',
-                            child: Text(context.l10n.shareImage),
+                          const SizedBox(height: 3),
+                          Text(
+                            context.l10n.privatePageSubtitle,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textSecondary,
+                            ),
                           ),
                         ],
                       ),
-                      TextButton(
-                        onPressed: _saving ? null : _save,
-                        child: Text(
-                          _saving ? context.l10n.saving : context.l10n.save,
+                    ),
+                    PopupMenuButton<String>(
+                      tooltip: context.l10n.more,
+                      enabled: !_changingAuthorization,
+                      onSelected: _onMenuSelected,
+                      itemBuilder: (_) => [
+                        PopupMenuItem(
+                          value: 'xiaou',
+                          child: Text(
+                            _xiaouAuthorized
+                                ? context.l10n.revokeXiaou
+                                : context.l10n.authorizeXiaou,
+                          ),
                         ),
+                        const PopupMenuDivider(),
+                        PopupMenuItem(
+                          value: 'share_text',
+                          child: Text(context.l10n.shareText),
+                        ),
+                        PopupMenuItem(
+                          value: 'share_image',
+                          child: Text(context.l10n.shareImage),
+                        ),
+                      ],
+                    ),
+                    TextButton(
+                      onPressed: _saving ? null : _save,
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(44, 44),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
                       ),
-                    ],
+                      child: Text(
+                        _saving ? context.l10n.saving : context.l10n.save,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 13, 20, 0),
+                child: Divider(height: 1, color: palette.divider),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 14, 22, 0),
+                child: TextField(
+                  controller: _titleController,
+                  maxLines: 1,
+                  textInputAction: TextInputAction.next,
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: context.l10n.titleOptional,
+                    hintStyle: TextStyle(color: palette.textSecondary),
+                    filled: false,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    contentPadding: EdgeInsets.zero,
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 13, 20, 0),
-                  child: Divider(height: 1, color: palette.divider),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 14, 22, 0),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(
+                    22,
+                    20,
+                    22,
+                    18 + viewInsets.bottom,
+                  ),
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
                   child: TextField(
-                    controller: _titleController,
-                    maxLines: 1,
-                    textInputAction: TextInputAction.next,
+                    controller: _controller,
+                    autofocus: true,
+                    minLines: 18,
+                    maxLines: null,
+                    keyboardType: TextInputType.multiline,
+                    textInputAction: TextInputAction.newline,
                     style: const TextStyle(
+                      fontSize: 17,
+                      height: 1.85,
                       color: AppTheme.textPrimary,
-                      fontSize: 19,
-                      fontWeight: FontWeight.w700,
                     ),
                     decoration: InputDecoration(
-                      hintText: context.l10n.titleOptional,
-                      hintStyle: TextStyle(color: palette.textSecondary),
+                      hintText: context.l10n.noteBodyHint,
+                      hintStyle: TextStyle(
+                        height: 1.75,
+                        color: palette.textSecondary,
+                      ),
                       filled: false,
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
@@ -1098,83 +1132,51 @@ class _FreeNoteEditorState extends State<_FreeNoteEditor> {
                     ),
                   ),
                 ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
-                    keyboardDismissBehavior:
-                        ScrollViewKeyboardDismissBehavior.onDrag,
-                    child: TextField(
-                      controller: _controller,
-                      autofocus: true,
-                      minLines: 18,
-                      maxLines: null,
-                      keyboardType: TextInputType.multiline,
-                      textInputAction: TextInputAction.newline,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        height: 1.85,
-                        color: AppTheme.textPrimary,
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 8, 22, 18),
+                child: Row(
+                  children: [
+                    if (_changingAuthorization)
+                      const SizedBox(
+                        width: 15,
+                        height: 15,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else
+                      Icon(
+                        _xiaouAuthorized
+                            ? Icons.auto_awesome
+                            : Icons.lock_outline,
+                        size: 15,
+                        color: _xiaouAuthorized
+                            ? palette.primary
+                            : palette.textSecondary,
                       ),
-                      decoration: InputDecoration(
-                        hintText: context.l10n.noteBodyHint,
-                        hintStyle: TextStyle(
-                          height: 1.75,
-                          color: palette.textSecondary,
-                        ),
-                        filled: false,
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 8, 22, 18),
-                  child: Row(
-                    children: [
-                      if (_changingAuthorization)
-                        const SizedBox(
-                          width: 15,
-                          height: 15,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      else
-                        Icon(
-                          _xiaouAuthorized
-                              ? Icons.auto_awesome
-                              : Icons.lock_outline,
-                          size: 15,
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _changingAuthorization
+                            ? _xiaouAuthorized
+                                  ? context.l10n.revokingXiaou
+                                  : context.l10n.authorizingXiaou
+                            : _autosaving
+                            ? context.l10n.autosaving
+                            : _xiaouAuthorized
+                            ? context.l10n.authorizedToXiaou
+                            : context.l10n.privateOnlyNote,
+                        style: TextStyle(
+                          fontSize: 12,
                           color: _xiaouAuthorized
-                              ? palette.primary
+                              ? palette.primaryDark
                               : palette.textSecondary,
                         ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          _changingAuthorization
-                              ? _xiaouAuthorized
-                                    ? context.l10n.revokingXiaou
-                                    : context.l10n.authorizingXiaou
-                              : _autosaving
-                              ? context.l10n.autosaving
-                              : _xiaouAuthorized
-                              ? context.l10n.authorizedToXiaou
-                              : context.l10n.privateOnlyNote,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: _xiaouAuthorized
-                                ? palette.primaryDark
-                                : palette.textSecondary,
-                          ),
-                        ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

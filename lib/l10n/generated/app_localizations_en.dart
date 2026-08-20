@@ -773,8 +773,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get xiaouDiscovery => 'Xiaou noticed something';
 
   @override
-  String get xiaouChatSubtitle =>
-      'Ask directly. Xiaou will try to ground the question in your reading.';
+  String get xiaouChatSubtitle => 'Start from your reading.';
 
   @override
   String get xiaouStartFromReading => 'Begin with what you are reading';
@@ -831,11 +830,25 @@ class AppLocalizationsEn extends AppLocalizations {
       'Leave a considered reflection after reading';
 
   @override
-  String get mingtaiComposeTitle => 'Leave a Reading Note';
+  String get mingtaiComposeTitle => 'Share Reading';
 
   @override
   String get mingtaiComposePrivacy =>
-      'Every public post must be connected to a book.';
+      'Private by default; every public post is linked to a book.';
+
+  @override
+  String get composerReadingHint =>
+      'Say where you are and why you paused here.';
+
+  @override
+  String get composerExcerptHint => 'Share why this passage made you pause.';
+
+  @override
+  String get composerThoughtHint =>
+      'Write what this book or passage makes you think.';
+
+  @override
+  String get composerReviewHint => 'Write the echo this book left with you.';
 
   @override
   String get loginRequiredMingtai => 'Sign in to join discussions on Mingtai';

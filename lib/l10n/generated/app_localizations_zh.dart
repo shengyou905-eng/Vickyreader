@@ -737,7 +737,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get xiaouDiscovery => '小U发现了一件事';
 
   @override
-  String get xiaouChatSubtitle => '直接问。小U会尽量把问题放回你的阅读里。';
+  String get xiaouChatSubtitle => '从你的阅读里聊起。';
 
   @override
   String get xiaouStartFromReading => '从正在读的地方开始';
@@ -788,10 +788,22 @@ class AppLocalizationsZh extends AppLocalizations {
   String get writeReviewSubtitle => '写一段完整而克制的读后回声';
 
   @override
-  String get mingtaiComposeTitle => '留下一段阅读';
+  String get mingtaiComposeTitle => '分享阅读';
 
   @override
-  String get mingtaiComposePrivacy => '每一条公开内容都需要关联一本书。';
+  String get mingtaiComposePrivacy => '内容默认私密；每条公开内容都会关联一本书。';
+
+  @override
+  String get composerReadingHint => '说说你此刻读到哪里，为什么想停一停。';
+
+  @override
+  String get composerExcerptHint => '写下这段原文为什么让你停留。';
+
+  @override
+  String get composerThoughtHint => '写下你对这本书或这一段的理解。';
+
+  @override
+  String get composerReviewHint => '写下这本书留给你的回声。';
 
   @override
   String get loginRequiredMingtai => '登录后才能参与明台讨论';

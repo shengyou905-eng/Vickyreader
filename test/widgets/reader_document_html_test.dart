@@ -56,6 +56,11 @@ void main() {
       );
       expect(html, contains('font-weight: bold'));
       expect(html, contains('font-style: italic'));
+      expect(html, contains('.chapter-body p, .chapter-body li {'));
+      expect(html, contains('text-align: justify !important;'));
+      expect(html, contains('text-justify: inter-ideograph;'));
+      expect(html, contains('.chapter-title {\n    font-family'));
+      expect(html, contains('text-align: center;'));
     });
 
     test('adds the embedded WenKai face and keeps fallback fonts', () {
@@ -177,6 +182,25 @@ void main() {
       expect(script, contains('"scrollToEnd":true'));
       expect(script, isNot(contains('@font-face')));
       expect(script, isNot(contains('<!DOCTYPE html>')));
+    });
+
+    test('exposes private paragraph thought anchors and marker updates', () {
+      final html = ReaderDocumentHtml.build(
+        title: '第一章',
+        content: '<p>一段可以留下想法的文字。</p><p>另一段正文。</p>',
+        settings: SettingsProvider(),
+        highlights: const [],
+        pagingMode: ReaderPagingMode.vertical,
+      );
+
+      expect(html, contains('window.readerSelectionAnchor'));
+      expect(html, contains('window.readerSetThoughtMarkers'));
+      expect(html, contains('data-reader-paragraph-index'));
+      expect(html, contains('reader-thought-marker'));
+      expect(
+        html,
+        contains("FlutterBridge.postMessage('THOUGHT_MARKER|' + index)"),
+      );
     });
   });
 }

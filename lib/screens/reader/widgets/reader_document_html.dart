@@ -137,7 +137,8 @@ $fontFaceStyle
     max-width: 760px;
     margin: 0 auto;
     font-family: var(--reader-font-family) !important;
-    text-align: start;
+    text-align: justify;
+    text-justify: inter-ideograph;
     overflow-wrap: anywhere;
   }
   .chapter-body * {
@@ -155,8 +156,14 @@ $fontFaceStyle
   }
   .chapter-body img { max-width: 100%; height: auto; display: block; margin: 12px auto; border-radius: 4px; }
   .chapter-body h1, .chapter-body h2, .chapter-body h3 { margin: 16px 0 8px; }
-  .chapter-body p, .chapter-body div, .chapter-body section, .chapter-body article, .chapter-body li {
-    text-align: start !important;
+  .chapter-body p, .chapter-body li {
+    text-align: justify !important;
+    text-justify: inter-ideograph;
+    width: auto !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  .chapter-body div, .chapter-body section, .chapter-body article {
     width: auto !important;
     margin-left: 0 !important;
     margin-right: 0 !important;
@@ -182,6 +189,48 @@ $fontFaceStyle
     border-radius: 3px;
     box-decoration-break: clone;
     -webkit-box-decoration-break: clone;
+  }
+  .reader-thought-marker {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 20px;
+    height: 18px;
+    margin-left: 5px;
+    padding: 0 4px;
+    vertical-align: baseline;
+    color: var(--text-color);
+    opacity: 0.56;
+    background: transparent;
+    border: 0;
+    border-radius: 9px;
+    font: 500 10px/1 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .reader-thought-marker:active { opacity: 0.88; }
+  .reader-thought-marker__bubble {
+    display: inline-block;
+    position: relative;
+    width: 13px;
+    height: 10px;
+    border: 1px solid currentColor;
+    border-radius: 5px;
+  }
+  .reader-thought-marker__bubble::after {
+    content: '';
+    position: absolute;
+    left: 2px;
+    bottom: -4px;
+    width: 4px;
+    height: 4px;
+    border-left: 1px solid currentColor;
+    border-bottom: 1px solid currentColor;
+    transform: skewY(-32deg);
+    background: var(--bg-color);
   }
   .chapter-section-title {
     font-family: var(--reader-font-family) !important;
@@ -354,6 +403,84 @@ ${_readerRuntimeScriptTail()}
         FlutterBridge.postMessage('PERF|' + stage + '|' + requestId);
       }
 
+      var _readerThoughtMarkers = [];
+      function readerParagraphBlocks() {
+        if (!s) return [];
+        var root = s.querySelector('.chapter-body');
+        if (!root) return [];
+        var blocks = Array.prototype.slice.call(
+          root.querySelectorAll('p, li, blockquote')
+        );
+        if (!blocks.length) {
+          blocks = Array.prototype.slice.call(root.querySelectorAll('div'));
+        }
+        return blocks.filter(function(block) {
+          return (block.textContent || '').replace(/\\s+/g, ' ').trim().length > 0;
+        });
+      }
+
+      function assignReaderParagraphIndexes() {
+        var blocks = readerParagraphBlocks();
+        blocks.forEach(function(block, index) {
+          block.setAttribute('data-reader-paragraph-index', String(index));
+        });
+        return blocks;
+      }
+
+      function readerBlockForNode(node) {
+        var root = s && s.querySelector('.chapter-body');
+        var element = node && node.nodeType === Node.ELEMENT_NODE
+          ? node
+          : (node ? node.parentElement : null);
+        while (element && root && element !== root) {
+          if (element.hasAttribute('data-reader-paragraph-index')) return element;
+          element = element.parentElement;
+        }
+        return null;
+      }
+
+      window.readerSelectionAnchor = function() {
+        var selection = window.getSelection();
+        if (!selection || !selection.rangeCount || !selection.toString().trim()) {
+          return '';
+        }
+        assignReaderParagraphIndexes();
+        var range = selection.getRangeAt(0);
+        var block = readerBlockForNode(range.startContainer);
+        if (!block) return '';
+        return JSON.stringify({
+          paragraphIndex: Number(block.getAttribute('data-reader-paragraph-index')),
+          paragraphText: (block.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 600)
+        });
+      };
+
+      window.readerSetThoughtMarkers = function(markers) {
+        _readerThoughtMarkers = Array.isArray(markers) ? markers : [];
+        assignReaderParagraphIndexes();
+        var oldMarkers = s ? s.querySelectorAll('.reader-thought-marker') : [];
+        oldMarkers.forEach(function(marker) { marker.remove(); });
+        if (!s) return;
+        _readerThoughtMarkers.forEach(function(item) {
+          var index = Number(item && item.paragraphIndex);
+          var count = Number(item && item.count);
+          if (!Number.isFinite(index) || !Number.isFinite(count) || count < 1) return;
+          var block = s.querySelector('[data-reader-paragraph-index="' + index + '"]');
+          if (!block) return;
+          var marker = document.createElement('button');
+          marker.type = 'button';
+          marker.className = 'reader-thought-marker';
+          marker.setAttribute('aria-label', count + ' thoughts on this paragraph');
+          marker.innerHTML = '<span class="reader-thought-marker__bubble"></span><span>' + count + '</span>';
+          marker.addEventListener('click', function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            _suppressClickUntil = Date.now() + 420;
+            FlutterBridge.postMessage('THOUGHT_MARKER|' + index);
+          });
+          block.appendChild(marker);
+        });
+      };
+
       function reportFontAvailable(requestId) {
         var family = window.readerFontFaceFamily || '';
         if (!family || !document.fonts || !document.fonts.load) {
@@ -393,7 +520,9 @@ ${_readerRuntimeScriptTail()}
         clearTimeout(_chDebounce);
 
         s.setAttribute('data-paging', payload.paging || 'vertical');
+        _readerThoughtMarkers = [];
         s.innerHTML = payload.surfaceHtml || '';
+        window.readerSetThoughtMarkers(_readerThoughtMarkers);
         s.scrollLeft = 0;
         s.scrollTop = 0;
         setupChapterObserver();
@@ -428,6 +557,10 @@ ${_readerRuntimeScriptTail()}
 
       document.addEventListener('click', function(e) {
         if (_aiInteractionLocked) return;
+        var thoughtMarker = e.target && e.target.closest
+          ? e.target.closest('.reader-thought-marker')
+          : null;
+        if (thoughtMarker) return;
         var a = e.target && e.target.closest ? e.target.closest('a') : null;
         if (a) {
           e.preventDefault();
@@ -513,6 +646,8 @@ ${_readerRuntimeScriptTail()}
           }
         }, { passive: true });
       }
+
+      window.readerSetThoughtMarkers(_readerThoughtMarkers);
 
       var t;
       document.addEventListener('selectionchange', function() {

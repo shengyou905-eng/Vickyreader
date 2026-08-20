@@ -1517,7 +1517,7 @@ abstract class AppLocalizations {
   /// No description provided for @xiaouChatSubtitle.
   ///
   /// In zh, this message translates to:
-  /// **'直接问。小U会尽量把问题放回你的阅读里。'**
+  /// **'从你的阅读里聊起。'**
   String get xiaouChatSubtitle;
 
   /// No description provided for @xiaouStartFromReading.
@@ -1619,14 +1619,38 @@ abstract class AppLocalizations {
   /// No description provided for @mingtaiComposeTitle.
   ///
   /// In zh, this message translates to:
-  /// **'留下一段阅读'**
+  /// **'分享阅读'**
   String get mingtaiComposeTitle;
 
   /// No description provided for @mingtaiComposePrivacy.
   ///
   /// In zh, this message translates to:
-  /// **'每一条公开内容都需要关联一本书。'**
+  /// **'内容默认私密；每条公开内容都会关联一本书。'**
   String get mingtaiComposePrivacy;
+
+  /// No description provided for @composerReadingHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'说说你此刻读到哪里，为什么想停一停。'**
+  String get composerReadingHint;
+
+  /// No description provided for @composerExcerptHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'写下这段原文为什么让你停留。'**
+  String get composerExcerptHint;
+
+  /// No description provided for @composerThoughtHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'写下你对这本书或这一段的理解。'**
+  String get composerThoughtHint;
+
+  /// No description provided for @composerReviewHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'写下这本书留给你的回声。'**
+  String get composerReviewHint;
 
   /// No description provided for @loginRequiredMingtai.
   ///

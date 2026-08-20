@@ -1561,6 +1561,39 @@ class BookService {
     return maps.map((m) => UserEntry.fromMap(m)).toList();
   }
 
+  /// Reads the on-device copy without triggering a network sync.
+  ///
+  /// Reader annotations use this path so a visible paragraph marker never
+  /// waits on the network, and a transient sync failure cannot hide it.
+  static Future<List<UserEntry>> getLocalUserEntries({
+    String? bookId,
+    String? source,
+    String? userId,
+  }) async {
+    final db = await DatabaseService.database;
+    final whereParts = <String>[];
+    final whereArgs = <Object?>[];
+    if (bookId != null && bookId.isNotEmpty) {
+      whereParts.add('book_id = ?');
+      whereArgs.add(bookId);
+    }
+    if (source != null && source.isNotEmpty) {
+      whereParts.add('source = ?');
+      whereArgs.add(source);
+    }
+    if (userId != null) {
+      whereParts.add("COALESCE(user_id, '') = ?");
+      whereArgs.add(userId);
+    }
+    final maps = await db.query(
+      'user_entries',
+      where: whereParts.isEmpty ? null : whereParts.join(' AND '),
+      whereArgs: whereArgs.isEmpty ? null : whereArgs,
+      orderBy: 'created_at DESC',
+    );
+    return maps.map(UserEntry.fromMap).toList(growable: false);
+  }
+
   static Future<List<String>> getUserEntryTags() async {
     final db = await DatabaseService.database;
     final maps = await db.query('user_entries', columns: ['auto_tags']);

@@ -428,7 +428,10 @@ class ReaderProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<String?> addThought({required String content}) async {
+  Future<String?> addThought({
+    required String content,
+    Map<String, dynamic> anchorMetadata = const {},
+  }) async {
     if (_book == null || content.trim().isEmpty) return null;
     final now = DateTime.now().toUtc().toIso8601String();
     final selectedText = _selectedText ?? '';
@@ -465,6 +468,7 @@ class ReaderProvider extends ChangeNotifier {
           'source_record_id': noteId,
           'book_author': _book!.author,
           'book_cover': _book!.coverPath ?? '',
+          ...anchorMetadata,
         }),
         createdAt: DateTime.now(),
         updatedAt: now,
