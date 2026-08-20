@@ -249,13 +249,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ],
         Divider(height: 18, color: palette.divider),
-        Row(
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
           children: [
             OutlinedButton(
               onPressed: _switchAccount,
               child: Text(context.l10n.switchAccount),
             ),
-            const SizedBox(width: 8),
             TextButton(
               onPressed: () => auth.signOut(),
               child: Text(
@@ -263,7 +264,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: const TextStyle(color: Color(0xFFAD6765)),
               ),
             ),
-            const Spacer(),
             TextButton(
               onPressed: () => _deleteAccount(auth),
               child: Text(
