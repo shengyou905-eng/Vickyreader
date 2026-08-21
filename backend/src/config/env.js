@@ -21,6 +21,13 @@ module.exports = {
   publicBaseUrl: process.env.PUBLIC_BASE_URL || '',
   supportEmail: process.env.SUPPORT_EMAIL || '2931952407@qq.com',
   authRateLimitSecret: process.env.AUTH_RATE_LIMIT_SECRET || process.env.JWT_SECRET,
+  // MCP tokens are separate from app sessions. Keep this secret server-side so
+  // the database only ever contains a keyed hash of a generated MCP token.
+  mcpTokenHashSecret: process.env.MCP_TOKEN_HASH_SECRET || '',
+  mcpTokenTtlDays: Math.min(
+    Math.max(Number(process.env.MCP_TOKEN_TTL_DAYS || 90), 1),
+    365,
+  ),
   appleTeamId: process.env.APPLE_TEAM_ID || '',
   appleKeyId: process.env.APPLE_KEY_ID || '',
   appleClientId: process.env.APPLE_CLIENT_ID || '',

@@ -836,6 +836,7 @@ class BookService {
       book.toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+    unawaited(_syncMcpLibraryBook(book));
   }
 
   static Future<void> updateBook(Book book) async {
@@ -846,6 +847,7 @@ class BookService {
       where: 'id = ?',
       whereArgs: [book.id],
     );
+    unawaited(_syncMcpLibraryBook(book));
   }
 
   static Future<void> deleteBook(String id) async {
@@ -857,6 +859,50 @@ class BookService {
     await db.delete('reading_progress', where: 'bookId = ?', whereArgs: [id]);
     await db.delete('bookmarks', where: 'bookId = ?', whereArgs: [id]);
     await db.delete('user_entries', where: 'book_id = ?', whereArgs: [id]);
+    unawaited(_deleteMcpLibraryBook(id));
+  }
+
+  /// Synchronises only the small, non-sensitive bookshelf index used by the
+  /// opt-in MCP feature. A local file path, file bytes, and cover path never
+  /// leave the device through this method.
+  static Future<void> syncMcpLibraryMetadata() async {
+    if (!BmobApi.instance.isLoggedIn) return;
+    final books = await getBooks();
+    await BmobApi.instance.syncMcpLibraryBooks(
+      books.map(_mcpLibraryPayload).toList(growable: false),
+      replace: true,
+    );
+  }
+
+  static Future<void> _syncMcpLibraryBook(Book book) async {
+    if (!BmobApi.instance.isLoggedIn) return;
+    try {
+      await BmobApi.instance.syncMcpLibraryBooks([_mcpLibraryPayload(book)]);
+    } catch (_) {
+      // Local reading must never wait for an optional cloud index. The next
+      // normal sync or MCP settings visit will retry the metadata upload.
+    }
+  }
+
+  static Future<void> _deleteMcpLibraryBook(String bookId) async {
+    if (!BmobApi.instance.isLoggedIn) return;
+    try {
+      await BmobApi.instance.deleteMcpLibraryBook(bookId);
+    } catch (_) {
+      // The local deletion remains authoritative; a later sync can clean up
+      // stale metadata without retaining the imported file itself.
+    }
+  }
+
+  static Map<String, dynamic> _mcpLibraryPayload(Book book) {
+    return {
+      'book_id': book.id,
+      'title': book.title,
+      'author': book.author,
+      'format': book.format,
+      'added_at': book.addedAt.toIso8601String(),
+      'last_opened_at': book.lastOpenedAt.toIso8601String(),
+    };
   }
 
   // ---- Highlights ----

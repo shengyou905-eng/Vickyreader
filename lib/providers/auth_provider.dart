@@ -124,5 +124,14 @@ class AuthProvider extends ChangeNotifier {
     } catch (_) {
       // 登录不能被同步问题卡住；随心记页面进入时还会再次尝试同步。
     }
+
+    // MCP uses a deliberately separate, metadata-only bookshelf mirror.
+    // Keep it independent from the older sync flow so a transient failure in
+    // either path cannot prevent the other one from completing.
+    try {
+      await BookService.syncMcpLibraryMetadata();
+    } catch (_) {
+      // MCP stays opt-in and can retry from Settings without affecting login.
+    }
   }
 }

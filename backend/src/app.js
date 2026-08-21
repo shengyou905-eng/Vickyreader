@@ -11,12 +11,28 @@ const aiRoutes = require('./routes/ai.routes');
 const freeNotesRoutes = require('./routes/freeNotes.routes');
 const xiaouConversationRoutes = require('./routes/xiaouConversation.routes');
 const legalRoutes = require('./routes/legal.routes');
+const libraryRoutes = require('./routes/library.routes');
+const mcpSettingsRoutes = require('./routes/mcpSettings.routes');
+const { mcpAuth } = require('./middleware/mcpAuth');
+const { mcpNodeHandler } = require('./mcp/server');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
 
 app.set('trust proxy', true);
-app.use(cors({ origin: corsOrigin === '*' ? true : corsOrigin }));
+app.use(
+  cors({
+    origin: corsOrigin === '*' ? true : corsOrigin,
+    allowedHeaders: [
+      'Authorization',
+      'Content-Type',
+      'Accept',
+      'MCP-Protocol-Version',
+      'Mcp-Method',
+      'Mcp-Name',
+    ],
+  }),
+);
 // Public e-book uploads are disabled; 8 MB still covers compressed avatars
 // while limiting oversized JSON request abuse.
 app.use(express.json({ limit: '8mb' }));
@@ -45,6 +61,15 @@ app.use('/api/reading-progress', readingProgressRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/free-notes', freeNotesRoutes);
 app.use('/api/xiaou', xiaouConversationRoutes);
+app.use('/api/library', libraryRoutes);
+app.use('/api/mcp', mcpSettingsRoutes);
+
+// MCP v0.1 is deliberately modern Streamable HTTP only. Express has already
+// parsed JSON, so pass req.body as the explicit third argument to the official
+// Node adapter instead of letting it try to read an exhausted request stream.
+app.post('/mcp', mcpAuth, (req, res, next) => {
+  mcpNodeHandler(req, res, req.body).catch(next);
+});
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });

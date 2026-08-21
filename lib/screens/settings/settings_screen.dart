@@ -12,6 +12,7 @@ import '../../services/first_use_guide_service.dart';
 import '../auth/auth_screen.dart';
 import '../mingtai/community_mingtai_screen.dart';
 import 'legal_document_screen.dart';
+import 'mcp_settings_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -79,6 +80,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
+
+          if (context.watch<AuthProvider>().isLoggedIn) ...[
+            const _ExperimentalFeaturesSection(),
+            const SizedBox(height: 24),
+          ],
 
           // About
           _SectionHeader(title: context.l10n.about),
@@ -496,6 +502,47 @@ class _LanguageSection extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ExperimentalFeaturesSection extends StatelessWidget {
+  const _ExperimentalFeaturesSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    final english = Localizations.localeOf(context).languageCode == 'en';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionHeader(title: english ? 'Experimental' : '实验性功能'),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: palette.card,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: palette.divider),
+          ),
+          child: ListTile(
+            minTileHeight: 56,
+            leading: Icon(Icons.hub_outlined, color: palette.icon),
+            title: Text(
+              'MCP',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(
+              english
+                  ? 'Read-only access to your reading knowledge'
+                  : '让外部助手只读访问你的阅读知识',
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const McpSettingsScreen()),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

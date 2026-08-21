@@ -1285,6 +1285,81 @@ class BmobApi {
     throw Exception('查询阅读进度失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
+  // ---- Private library metadata for MCP ----
+
+  Future<void> syncMcpLibraryBooks(
+    List<Map<String, dynamic>> books, {
+    bool replace = false,
+  }) async {
+    if (!isLoggedIn) return;
+    final res = await AppHttp.client
+        .post(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/library/books/sync'),
+          headers: _authHeaders(),
+          body: jsonEncode({'books': books, 'replace': replace}),
+        )
+        .timeout(const Duration(seconds: 12));
+    if (res.statusCode != 200) {
+      throw Exception('同步书架元数据失败 (HTTP ${res.statusCode}): ${res.body}');
+    }
+  }
+
+  Future<void> deleteMcpLibraryBook(String bookId) async {
+    if (!isLoggedIn || bookId.trim().isEmpty) return;
+    final res = await AppHttp.client
+        .delete(
+          Uri.parse(
+            '${AppConstants.apiBaseUrl}/api/library/books/${Uri.encodeComponent(bookId)}',
+          ),
+          headers: _authHeaders(),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (res.statusCode != 204 && res.statusCode != 404) {
+      throw Exception('删除书架元数据失败 (HTTP ${res.statusCode}): ${res.body}');
+    }
+  }
+
+  Future<Map<String, dynamic>> getMcpTokenStatus() async {
+    final res = await AppHttp.client
+        .get(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/mcp/token'),
+          headers: _authHeaders(),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (res.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(res.body) as Map);
+    }
+    throw Exception('读取 MCP 状态失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<Map<String, dynamic>> generateMcpToken({String? label}) async {
+    final res = await AppHttp.client
+        .post(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/mcp/token'),
+          headers: _authHeaders(),
+          body: jsonEncode({
+            if (label != null && label.trim().isNotEmpty) 'label': label.trim(),
+          }),
+        )
+        .timeout(const Duration(seconds: 15));
+    if (res.statusCode == 201) {
+      return Map<String, dynamic>.from(jsonDecode(res.body) as Map);
+    }
+    throw Exception('生成 MCP token 失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<void> revokeMcpToken() async {
+    final res = await AppHttp.client
+        .delete(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/mcp/token'),
+          headers: _authHeaders(),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (res.statusCode != 200) {
+      throw Exception('撤销 MCP token 失败 (HTTP ${res.statusCode}): ${res.body}');
+    }
+  }
+
   // ---- Internal ----
 
   Future<void> _saveSession({

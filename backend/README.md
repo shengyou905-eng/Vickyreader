@@ -127,6 +127,55 @@ https://api.youxugarden.com/legal/account-deletion
 `https://api.youxugarden.com/privacy` 会重定向到中文隐私政策，可作为
 App Store Connect 的 Privacy Policy URL。不要带着默认占位主体提交审核。
 
+## MCP v0.1（实验性、只读）
+
+知读的 MCP endpoint 是一个仅供用户主动开启的只读阅读知识接口：
+
+```text
+POST https://<your-api-host>/mcp
+```
+
+它只能列出用户明确同步的书架元数据，并搜索该用户自己的划线、想法、
+小U解读与问小U记录；不会返回随心记、完整小U聊天、账号资料、电子书文件、
+本地路径或任何写入能力。
+
+服务端环境变量：
+
+```env
+# Required before allowing a user to generate a custom MCP access token.
+MCP_TOKEN_HASH_SECRET=generate-a-distinct-long-random-secret
+MCP_TOKEN_TTL_DAYS=90
+```
+
+`MCP_TOKEN_HASH_SECRET` 仅用于 HMAC 哈希用户的 `zd_mcp_...` 自定义
+访问令牌；原始令牌只会在用户生成时返回一次，不能写进 Flutter、Git 或日志。
+
+### Transport
+
+MCP v0.1 严格使用 2026-07-28 的无状态 Streamable HTTP，不提供旧版
+HTTP+SSE `/sse` 或 `/messages` endpoint。每个 `POST /mcp` 需要：
+
+```text
+Authorization: Bearer zd_mcp_...
+Content-Type: application/json
+MCP-Protocol-Version: 2026-07-28
+Mcp-Method: tools/call
+```
+
+调用具体工具时还必须附带：
+
+```text
+Mcp-Name: <tool-name>
+```
+
+请求 JSON-RPC 的 `params._meta` 必须带与 header 相同的
+`io.modelcontextprotocol/protocolVersion`，以及客户端 capability 声明。
+客户端不能传 `user_id`；服务端始终从 token 绑定的 user ID 决定数据范围。
+
+当前工具：`list_books`、`search_books`、`get_book_traces`、
+`search_traces`、`get_trace`。所有分页默认 20 条、最大 50 条；
+`search_traces` 仅为关键词/标签/文本搜索，不是向量或语义搜索。
+
 ## 初始化数据库表
 
 后端启动时会自动执行 `src/db/schema.sql` 创建表。也可以手动执行：
