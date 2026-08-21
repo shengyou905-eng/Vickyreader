@@ -128,6 +128,10 @@ function createServer({ authInfo }, repository = mcpRepository) {
 }
 
 const mcpHandler = createMcpHandler(createServer, {
+  // Keep the endpoint pinned to the one modern revision we implement.  The
+  // 2026-07-28 transport uses server/discover plus a per-request _meta
+  // envelope; it intentionally does not negotiate through legacy initialize.
+  supportedProtocolVersions: [protocolVersion],
   legacy: 'reject',
   responseMode: 'json',
   onerror(error) {

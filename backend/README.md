@@ -172,6 +172,42 @@ Mcp-Name: <tool-name>
 `io.modelcontextprotocol/protocolVersion`，以及客户端 capability 声明。
 客户端不能传 `user_id`；服务端始终从 token 绑定的 user ID 决定数据范围。
 
+### 2026-07-28 协商
+
+`2026-07-28` 是现代无状态协议：首次探测使用 `server/discover`，不是旧版
+`initialize` 握手。即使旧式 `initialize.params.protocolVersion` 写成
+`2026-07-28`，它仍会被严格端点识别为 legacy 请求并返回 `-32022`；这不是
+版本字符串比较失败。
+
+正确的首次请求形态如下（`<token>` 必须是用户刚生成且尚未撤销的 MCP token）：
+
+```text
+POST /mcp
+Authorization: Bearer <token>
+Content-Type: application/json
+Accept: application/json, text/event-stream
+MCP-Protocol-Version: 2026-07-28
+Mcp-Method: server/discover
+```
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "server/discover",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+      "io.modelcontextprotocol/clientInfo": { "name": "your-client", "version": "1.0.0" },
+      "io.modelcontextprotocol/clientCapabilities": {}
+    }
+  }
+}
+```
+
+后续每个工具请求同样保留 `_meta`，并让 `Mcp-Method` 与 JSON-RPC 的
+`method` 一致；`tools/call` 还需 `Mcp-Name` 与 `params.name` 一致。
+
 当前工具：`list_books`、`search_books`、`get_book_traces`、
 `search_traces`、`get_trace`。所有分页默认 20 条、最大 50 条；
 `search_traces` 仅为关键词/标签/文本搜索，不是向量或语义搜索。

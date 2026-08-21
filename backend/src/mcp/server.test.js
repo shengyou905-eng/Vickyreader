@@ -138,3 +138,64 @@ test('strict Streamable HTTP accepts a modern per-request envelope and exposes t
   assert.equal(response.status, 200);
   assert.equal(body.result.tools.length, 5);
 });
+
+test('2026-07-28 negotiates through modern server/discover, while other revisions are rejected', async () => {
+  const makeRequest = (version) =>
+    new Request('http://localhost/mcp', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'mcp-protocol-version': version,
+        'mcp-method': 'server/discover',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'server/discover',
+        params: {
+          _meta: {
+            'io.modelcontextprotocol/protocolVersion': version,
+            'io.modelcontextprotocol/clientInfo': { name: 'zhidu-mcp-test', version: '0.1.0' },
+            'io.modelcontextprotocol/clientCapabilities': {},
+          },
+        },
+      }),
+    });
+
+  const accepted = await mcpHandler.fetch(makeRequest(protocolVersion), { authInfo: authInfo() });
+  const acceptedBody = await accepted.json();
+  assert.equal(accepted.status, 200);
+  assert.deepEqual(acceptedBody.result.supportedVersions, [protocolVersion]);
+
+  const rejected = await mcpHandler.fetch(makeRequest('2025-11-25'), { authInfo: authInfo() });
+  const rejectedBody = await rejected.json();
+  assert.equal(rejected.status, 400);
+  assert.equal(rejectedBody.error.code, -32022);
+  assert.equal(rejectedBody.error.data.requested, '2025-11-25');
+  assert.deepEqual(rejectedBody.error.data.supported, [protocolVersion]);
+});
+
+test('legacy initialize is rejected even when it names 2026-07-28', async () => {
+  const response = await mcpHandler.fetch(
+    new Request('http://localhost/mcp', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'initialize',
+        params: {
+          protocolVersion,
+          capabilities: {},
+          clientInfo: { name: 'legacy-manual-test', version: '1.0.0' },
+        },
+      }),
+    }),
+    { authInfo: authInfo() },
+  );
+  const body = await response.json();
+  assert.equal(response.status, 400);
+  assert.equal(body.error.code, -32022);
+  assert.equal(body.error.data.requested, protocolVersion);
+  assert.deepEqual(body.error.data.supported, [protocolVersion]);
+});
