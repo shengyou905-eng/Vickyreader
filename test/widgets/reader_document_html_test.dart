@@ -84,6 +84,15 @@ void main() {
       expect(html, contains('font-family: "LXGW WenKai Lite"'));
       expect(html, contains('"Kaiti SC"'));
       expect(html, contains('data-paging="horizontal"'));
+      expect(html, contains('--reader-viewport-width: 100vw'));
+      expect(html, contains('column-width: var(--horizontal-column-width)'));
+      expect(
+        html,
+        contains('window.visualViewport ? window.visualViewport.width'),
+      );
+      expect(html, contains('Math.max(s.clientWidth || 0, visualWidth || 0'));
+      expect(html, contains('window.readerSyncViewport'));
+      expect(html, contains('new ResizeObserver'));
     });
 
     test('adds the embedded Source Han Serif face for Song typography', () {

@@ -19,227 +19,246 @@ class ReaderSettings extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.appPalette;
-    final maxHeight = MediaQuery.sizeOf(context).height * 0.88;
-    return Consumer<SettingsProvider>(
-      builder: (context, settings, _) {
-        return Container(
-          constraints: BoxConstraints(maxHeight: maxHeight),
-          decoration: BoxDecoration(
-            color: palette.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
-          ),
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              20,
-              10,
-              20,
-              20 + MediaQuery.paddingOf(context).bottom,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 36,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: palette.divider,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
+    return DraggableScrollableSheet(
+      key: const ValueKey('reader-settings-sheet'),
+      initialChildSize: 0.68,
+      minChildSize: 0.62,
+      maxChildSize: 0.9,
+      snap: true,
+      snapSizes: const [0.68, 0.9],
+      expand: false,
+      builder: (context, scrollController) {
+        final palette = context.appPalette;
+        return Consumer<SettingsProvider>(
+          builder: (context, settings, _) {
+            return Container(
+              decoration: BoxDecoration(
+                color: palette.surface,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(26),
                 ),
-                const SizedBox(height: 14),
-                Row(
+              ),
+              child: SingleChildScrollView(
+                key: const ValueKey('reader-settings-scrollable'),
+                controller: scrollController,
+                physics: const ClampingScrollPhysics(),
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  10,
+                  20,
+                  20 + MediaQuery.paddingOf(context).bottom,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Text(
-                        context.l10n.readingTypography,
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                          color: palette.textPrimary,
+                    Center(
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: palette.divider,
+                          borderRadius: BorderRadius.circular(12),
                         ),
                       ),
                     ),
-                    TextButton(
-                      onPressed: () async {
-                        await settings.resetReaderSettings();
-                        onReaderStyleChanged?.call();
-                      },
-                      style: TextButton.styleFrom(
-                        foregroundColor: palette.textSecondary,
-                        textStyle: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          fontFamilyFallback: ['SourceHanSerifCN'],
-                        ),
-                        minimumSize: const Size(0, 36),
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                      ),
-                      child: Text(context.l10n.resetDefaults),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 22),
-                _SectionTitle(context.l10n.readingPreview),
-                const SizedBox(height: 10),
-                _ReadingPreview(settings: settings),
-                const SizedBox(height: 24),
-                _SectionTitle(context.l10n.font),
-                const SizedBox(height: 10),
-                Row(
-                  children: ReaderFontFamily.values
-                      .map(
-                        (font) => Expanded(
-                          child: Padding(
-                            padding: EdgeInsets.only(
-                              right: font == ReaderFontFamily.wenkai ? 0 : 8,
-                            ),
-                            child: _FontCard(
-                              font: font,
-                              selected: settings.readerFontFamily == font,
-                              onTap: () => _update(
-                                () => settings.setReaderFontFamily(font),
-                              ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            context.l10n.readingTypography,
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                              color: palette.textPrimary,
                             ),
                           ),
                         ),
-                      )
-                      .toList(growable: false),
-                ),
-                const SizedBox(height: 24),
-                _SectionTitle(context.l10n.typography),
-                const SizedBox(height: 10),
-                _SliderSetting(
-                  label: context.l10n.fontSize,
-                  valueLabel: '${settings.fontSize.round()}',
-                  value: settings.fontSize,
-                  min: 12,
-                  max: 28,
-                  divisions: 16,
-                  onChanged: (value) =>
-                      _update(() => settings.setFontSize(value)),
-                ),
-                const SizedBox(height: 16),
-                _SliderSetting(
-                  label: context.l10n.lineHeight,
-                  valueLabel: settings.lineHeight.toStringAsFixed(1),
-                  value: settings.lineHeight,
-                  min: 1.2,
-                  max: 2.4,
-                  divisions: 12,
-                  onChanged: (value) =>
-                      _update(() => settings.setLineHeight(value)),
-                ),
-                const SizedBox(height: 16),
-                _SliderSetting(
-                  label: context.l10n.pageMargin,
-                  valueLabel: '${settings.pageMargin.round()}',
-                  value: settings.pageMargin,
-                  min: 12,
-                  max: 36,
-                  divisions: 12,
-                  onChanged: (value) =>
-                      _update(() => settings.setPageMargin(value)),
-                ),
-                const SizedBox(height: 24),
-                _SectionTitle(context.l10n.pagingMode),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: SegmentedButton<ReaderPagingMode>(
-                    segments: [
-                      ButtonSegment<ReaderPagingMode>(
-                        value: ReaderPagingMode.vertical,
-                        label: Text(context.l10n.verticalScroll),
-                        icon: Icon(Icons.swap_vert_rounded, size: 16),
-                      ),
-                      ButtonSegment<ReaderPagingMode>(
-                        value: ReaderPagingMode.horizontal,
-                        label: Text(context.l10n.horizontalPaging),
-                        icon: Icon(Icons.swap_horiz_rounded, size: 16),
-                      ),
-                    ],
-                    selected: {settings.readerPagingMode},
-                    showSelectedIcon: false,
-                    style: ButtonStyle(
-                      visualDensity: VisualDensity.compact,
-                      minimumSize: const WidgetStatePropertyAll(Size(0, 40)),
-                      padding: const WidgetStatePropertyAll(
-                        EdgeInsets.symmetric(horizontal: 10),
-                      ),
-                      textStyle: const WidgetStatePropertyAll(
-                        TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          fontFamilyFallback: ['SourceHanSerifCN'],
+                        TextButton(
+                          onPressed: () async {
+                            await settings.resetReaderSettings();
+                            onReaderStyleChanged?.call();
+                          },
+                          style: TextButton.styleFrom(
+                            foregroundColor: palette.textSecondary,
+                            textStyle: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              fontFamilyFallback: ['SourceHanSerifCN'],
+                            ),
+                            minimumSize: const Size(0, 36),
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                          child: Text(context.l10n.resetDefaults),
                         ),
-                      ),
-                      side: WidgetStateProperty.resolveWith(
-                        (states) => BorderSide(
-                          color: states.contains(WidgetState.selected)
-                              ? palette.primary
-                              : palette.divider,
+                      ],
+                    ),
+                    const SizedBox(height: 22),
+                    _SectionTitle(context.l10n.readingPreview),
+                    const SizedBox(height: 10),
+                    _ReadingPreview(settings: settings),
+                    const SizedBox(height: 24),
+                    _SectionTitle(context.l10n.font),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: ReaderFontFamily.values
+                          .map(
+                            (font) => Expanded(
+                              child: Padding(
+                                padding: EdgeInsets.only(
+                                  right: font == ReaderFontFamily.wenkai
+                                      ? 0
+                                      : 8,
+                                ),
+                                child: _FontCard(
+                                  font: font,
+                                  selected: settings.readerFontFamily == font,
+                                  onTap: () => _update(
+                                    () => settings.setReaderFontFamily(font),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
+                    ),
+                    const SizedBox(height: 24),
+                    _SectionTitle(context.l10n.typography),
+                    const SizedBox(height: 10),
+                    _SliderSetting(
+                      label: context.l10n.fontSize,
+                      valueLabel: '${settings.fontSize.round()}',
+                      value: settings.fontSize,
+                      min: 12,
+                      max: 28,
+                      divisions: 16,
+                      onChanged: (value) =>
+                          _update(() => settings.setFontSize(value)),
+                    ),
+                    const SizedBox(height: 16),
+                    _SliderSetting(
+                      label: context.l10n.lineHeight,
+                      valueLabel: settings.lineHeight.toStringAsFixed(1),
+                      value: settings.lineHeight,
+                      min: 1.2,
+                      max: 2.4,
+                      divisions: 12,
+                      onChanged: (value) =>
+                          _update(() => settings.setLineHeight(value)),
+                    ),
+                    const SizedBox(height: 16),
+                    _SliderSetting(
+                      label: context.l10n.pageMargin,
+                      valueLabel: '${settings.pageMargin.round()}',
+                      value: settings.pageMargin,
+                      min: 12,
+                      max: 36,
+                      divisions: 12,
+                      onChanged: (value) =>
+                          _update(() => settings.setPageMargin(value)),
+                    ),
+                    const SizedBox(height: 24),
+                    _SectionTitle(context.l10n.pagingMode),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: SegmentedButton<ReaderPagingMode>(
+                        segments: [
+                          ButtonSegment<ReaderPagingMode>(
+                            value: ReaderPagingMode.vertical,
+                            label: Text(context.l10n.verticalScroll),
+                            icon: Icon(Icons.swap_vert_rounded, size: 16),
+                          ),
+                          ButtonSegment<ReaderPagingMode>(
+                            value: ReaderPagingMode.horizontal,
+                            label: Text(context.l10n.horizontalPaging),
+                            icon: Icon(Icons.swap_horiz_rounded, size: 16),
+                          ),
+                        ],
+                        selected: {settings.readerPagingMode},
+                        showSelectedIcon: false,
+                        style: ButtonStyle(
+                          visualDensity: VisualDensity.compact,
+                          minimumSize: const WidgetStatePropertyAll(
+                            Size(0, 40),
+                          ),
+                          padding: const WidgetStatePropertyAll(
+                            EdgeInsets.symmetric(horizontal: 10),
+                          ),
+                          textStyle: const WidgetStatePropertyAll(
+                            TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              fontFamilyFallback: ['SourceHanSerifCN'],
+                            ),
+                          ),
+                          side: WidgetStateProperty.resolveWith(
+                            (states) => BorderSide(
+                              color: states.contains(WidgetState.selected)
+                                  ? palette.primary
+                                  : palette.divider,
+                            ),
+                          ),
+                          backgroundColor: WidgetStateProperty.resolveWith(
+                            (states) => states.contains(WidgetState.selected)
+                                ? palette.primary.withValues(alpha: 0.08)
+                                : palette.surface,
+                          ),
+                          foregroundColor: WidgetStateProperty.resolveWith(
+                            (states) => states.contains(WidgetState.selected)
+                                ? palette.primary
+                                : palette.textSecondary,
+                          ),
                         ),
-                      ),
-                      backgroundColor: WidgetStateProperty.resolveWith(
-                        (states) => states.contains(WidgetState.selected)
-                            ? palette.primary.withValues(alpha: 0.08)
-                            : palette.surface,
-                      ),
-                      foregroundColor: WidgetStateProperty.resolveWith(
-                        (states) => states.contains(WidgetState.selected)
-                            ? palette.primary
-                            : palette.textSecondary,
+                        onSelectionChanged: (next) {
+                          if (next.isNotEmpty) {
+                            settings.setReaderPagingMode(next.first);
+                          }
+                        },
                       ),
                     ),
-                    onSelectionChanged: (next) {
-                      if (next.isNotEmpty) {
-                        settings.setReaderPagingMode(next.first);
-                      }
-                    },
-                  ),
-                ),
-                const SizedBox(height: 24),
-                _SectionTitle(context.l10n.paperBackground),
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _ThemeOption(
-                      label: context.l10n.paperWhite,
-                      color: const Color(0xFFFDFDFC),
-                      selected: settings.themeMode == 'light',
-                      onTap: () =>
-                          _update(() => settings.setThemeMode('light')),
-                    ),
-                    _ThemeOption(
-                      label: context.l10n.paperSepia,
-                      color: const Color(0xFFF5ECD7),
-                      selected: settings.themeMode == 'sepia',
-                      onTap: () =>
-                          _update(() => settings.setThemeMode('sepia')),
-                    ),
-                    _ThemeOption(
-                      label: context.l10n.paperGreen,
-                      color: const Color(0xFFEAF4E3),
-                      selected: settings.themeMode == 'green',
-                      onTap: () =>
-                          _update(() => settings.setThemeMode('green')),
-                    ),
-                    _ThemeOption(
-                      label: context.l10n.paperDark,
-                      color: const Color(0xFF262626),
-                      selected: settings.themeMode == 'dark',
-                      onTap: () => _update(() => settings.setThemeMode('dark')),
+                    const SizedBox(height: 24),
+                    _SectionTitle(context.l10n.paperBackground),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _ThemeOption(
+                          label: context.l10n.paperWhite,
+                          color: const Color(0xFFFDFDFC),
+                          selected: settings.themeMode == 'light',
+                          onTap: () =>
+                              _update(() => settings.setThemeMode('light')),
+                        ),
+                        _ThemeOption(
+                          label: context.l10n.paperSepia,
+                          color: const Color(0xFFF5ECD7),
+                          selected: settings.themeMode == 'sepia',
+                          onTap: () =>
+                              _update(() => settings.setThemeMode('sepia')),
+                        ),
+                        _ThemeOption(
+                          label: context.l10n.paperGreen,
+                          color: const Color(0xFFEAF4E3),
+                          selected: settings.themeMode == 'green',
+                          onTap: () =>
+                              _update(() => settings.setThemeMode('green')),
+                        ),
+                        _ThemeOption(
+                          label: context.l10n.paperDark,
+                          color: const Color(0xFF262626),
+                          selected: settings.themeMode == 'dark',
+                          onTap: () =>
+                              _update(() => settings.setThemeMode('dark')),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );

@@ -31,18 +31,24 @@ void main() {
         value: settings,
         child: MaterialApp(
           theme: AppTheme.lightTheme,
-          home: const Scaffold(body: ReaderSettings()),
+          home: const Scaffold(body: Stack(children: [ReaderSettings()])),
         ),
       ),
     );
 
     expect(find.text('阅读排版'), findsOneWidget);
     expect(find.text('文楷'), findsOneWidget);
+    final sheet = tester.widget<DraggableScrollableSheet>(
+      find.byKey(const ValueKey('reader-settings-sheet')),
+    );
+    expect(sheet.initialChildSize, 0.68);
+    expect(sheet.minChildSize, 0.62);
+    expect(sheet.maxChildSize, 0.9);
     expect(tester.takeException(), isNull);
 
     await tester.drag(
-      find.byType(SingleChildScrollView),
-      const Offset(0, -300),
+      find.byKey(const ValueKey('reader-settings-scrollable')),
+      const Offset(0, -520),
     );
     await tester.pumpAndSettle();
 
@@ -64,7 +70,7 @@ void main() {
         value: settings,
         child: MaterialApp(
           theme: AppTheme.lightTheme,
-          home: const Scaffold(body: ReaderSettings()),
+          home: const Scaffold(body: Stack(children: [ReaderSettings()])),
         ),
       ),
     );
@@ -113,7 +119,7 @@ void main() {
         value: settings,
         child: MaterialApp(
           theme: AppTheme.lightTheme,
-          home: const Scaffold(body: ReaderSettings()),
+          home: const Scaffold(body: Stack(children: [ReaderSettings()])),
         ),
       ),
     );
@@ -140,8 +146,10 @@ void main() {
         child: MaterialApp(
           theme: AppTheme.lightTheme,
           home: Scaffold(
-            body: ReaderSettings(
-              onReaderStyleChanged: () => styleChangeCount++,
+            body: Stack(
+              children: [
+                ReaderSettings(onReaderStyleChanged: () => styleChangeCount++),
+              ],
             ),
           ),
         ),

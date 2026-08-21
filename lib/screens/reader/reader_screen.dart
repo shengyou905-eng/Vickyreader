@@ -329,13 +329,16 @@ class _ReaderScreenState extends State<ReaderScreen>
         root.style.setProperty('--bg-color', '${_colorToHex(settings.backgroundColor)}');
         root.style.setProperty('--text-color', '${_colorToHex(settings.textColor)}');
         var surface = document.getElementById('readSurface');
-        if (surface) {
-          surface.setAttribute(
-            'data-paging',
-            '${settings.readerPagingMode.storageValue}'
-          );
-        }
-        if (ratio !== null && window.scrollToRatio) {
+         if (surface) {
+           surface.setAttribute(
+             'data-paging',
+             '${settings.readerPagingMode.storageValue}'
+           );
+         }
+         if (window.readerSyncViewport) {
+           window.readerSyncViewport(false);
+         }
+         if (ratio !== null && window.scrollToRatio) {
           var restore = function() {
             requestAnimationFrame(function() { window.scrollToRatio(ratio); });
           };
@@ -877,6 +880,9 @@ class _ReaderScreenState extends State<ReaderScreen>
       context: modalContext,
       isScrollControlled: true,
       useSafeArea: true,
+      // ReaderSettings owns the drag gesture so iOS does not let the outer
+      // modal sheet intercept a vertical scroll before the content can move.
+      enableDrag: false,
       backgroundColor: Colors.transparent,
       builder: (_) => ReaderSettings(
         onReaderStyleChanged: () {

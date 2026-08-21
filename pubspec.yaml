@@ -1,7 +1,7 @@
 name: ai_reader
 description: "AI辅助阅读器 - 支持EPUB阅读、AI解释、笔记标注"
 publish_to: 'none'
-version: 1.0.0+7
+version: 1.0.0+8
 
 environment:
   sdk: ^3.10.8

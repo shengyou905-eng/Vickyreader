@@ -86,6 +86,10 @@ $fontFaceStyle
     --text-color: $textHex;
     --page-pad-x: ${settings.pageMargin}px;
     --page-pad-y: 16px;
+    /* Updated from #readSurface.clientWidth once WebKit has laid out the page. */
+    --reader-viewport-width: 100vw;
+    --horizontal-page-step: calc(var(--reader-viewport-width) - 8px);
+    --horizontal-column-width: calc(var(--horizontal-page-step) - 28px);
     --reader-top-inset: ${topInset.toStringAsFixed(0)}px;
     --reader-bottom-inset: ${bottomInset.toStringAsFixed(0)}px;
   }
@@ -118,8 +122,11 @@ $fontFaceStyle
     overflow-x: hidden;
     overflow-y: hidden;
     touch-action: pan-y;
-    column-width: calc(100vw - 2 * var(--page-pad-x));
+    /* Do not use 100vw directly here. On some iOS WKWebView sizes it can
+       describe the layout viewport instead of this reading surface. */
+    column-width: var(--horizontal-column-width);
     column-gap: 28px;
+    column-fill: auto;
     scrollbar-width: none;
   }
   #readSurface[data-paging="horizontal"]::-webkit-scrollbar { display: none; }
@@ -305,12 +312,35 @@ ${_readerRuntimeScriptTail()}
       function isHorizontal() {
         return s && s.getAttribute('data-paging') === 'horizontal';
       }
+      var _readerViewportWidth = 0;
+      function syncReadingViewport(preservePosition) {
+        if (!s) return 0;
+        // WKWebView can retain a smaller layout viewport after a safe-area or
+        // orientation change. visualViewport tracks the width the reader is
+        // actually painting into on modern iOS.
+        var visualWidth = window.visualViewport ? window.visualViewport.width : 0;
+        var width = Math.max(
+          1,
+          Math.round(Math.max(s.clientWidth || 0, visualWidth || 0, window.innerWidth || 0))
+        );
+        if (width === _readerViewportWidth) return width;
+        var ratio = preservePosition && isHorizontal() ? scrollRatio() : null;
+        _readerViewportWidth = width;
+        document.documentElement.style.setProperty('--reader-viewport-width', width + 'px');
+        if (ratio !== null) {
+          requestAnimationFrame(function() { window.scrollToRatio && window.scrollToRatio(ratio); });
+        }
+        return width;
+      }
+      window.readerSyncViewport = function(preservePosition) {
+        return syncReadingViewport(!!preservePosition);
+      };
       function hasSelection() {
         var sel = window.getSelection();
         return !!(sel && sel.toString().trim());
       }
       function pageStep() {
-        return window.innerWidth - 8;
+        return Math.max(1, syncReadingViewport(false) - 8);
       }
       function maxScroll() {
         if (!s) return 0;
@@ -520,6 +550,7 @@ ${_readerRuntimeScriptTail()}
         clearTimeout(_chDebounce);
 
         s.setAttribute('data-paging', payload.paging || 'vertical');
+        syncReadingViewport(false);
         _readerThoughtMarkers = [];
         s.innerHTML = payload.surfaceHtml || '';
         window.readerSetThoughtMarkers(_readerThoughtMarkers);
@@ -554,6 +585,18 @@ ${_readerRuntimeScriptTail()}
           }
         }, 150);
       }, { passive: true });
+
+      if (window.ResizeObserver && s) {
+        new ResizeObserver(function() { syncReadingViewport(true); }).observe(s);
+      } else {
+        window.addEventListener('resize', function() { syncReadingViewport(true); });
+      }
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', function() {
+          syncReadingViewport(true);
+        });
+      }
+      syncReadingViewport(false);
 
       document.addEventListener('click', function(e) {
         if (_aiInteractionLocked) return;
