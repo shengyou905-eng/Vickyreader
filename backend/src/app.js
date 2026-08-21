@@ -64,9 +64,10 @@ app.use('/api/xiaou', xiaouConversationRoutes);
 app.use('/api/library', libraryRoutes);
 app.use('/api/mcp', mcpSettingsRoutes);
 
-// MCP v0.1 is deliberately modern Streamable HTTP only. Express has already
-// parsed JSON, so pass req.body as the explicit third argument to the official
-// Node adapter instead of letting it try to read an exhausted request stream.
+// MCP v0.1 uses one Streamable HTTP endpoint. The SDK handles modern 2026
+// requests and stateless legacy initialize negotiation on this same POST route;
+// we intentionally do not expose legacy /sse or /messages routes. Express has
+// already parsed JSON, so pass req.body to the official Node adapter.
 app.post('/mcp', mcpAuth, (req, res, next) => {
   mcpNodeHandler(req, res, req.body).catch(next);
 });

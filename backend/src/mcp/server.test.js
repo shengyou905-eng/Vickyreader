@@ -21,6 +21,20 @@ function textPayload(result) {
   return JSON.parse(result.structuredContent ? JSON.stringify(result.structuredContent) : result.content[0].text);
 }
 
+async function readJsonRpcResponse(response) {
+  const body = await response.text();
+  if (response.headers.get('content-type')?.includes('application/json')) {
+    return JSON.parse(body);
+  }
+
+  // The stateless legacy transport may return its initialize result as an SSE
+  // frame on the same Streamable HTTP POST response. It is not a legacy /sse
+  // endpoint, so exercise the wire format that compatibility clients receive.
+  const data = body.match(/^data:\s*(.+)$/m)?.[1];
+  assert.ok(data, `Expected JSON or an SSE data frame, received: ${body}`);
+  return JSON.parse(data);
+}
+
 test('registers only the five read-only reading tools', () => {
   const server = createServer({ authInfo: authInfo() });
   assert.deepEqual(Object.keys(server._registeredTools), [
@@ -134,7 +148,7 @@ test('strict Streamable HTTP accepts a modern per-request envelope and exposes t
     }),
     { authInfo: authInfo() },
   );
-  const body = await response.json();
+  const body = await readJsonRpcResponse(response);
   assert.equal(response.status, 200);
   assert.equal(body.result.tools.length, 5);
 });
@@ -175,11 +189,14 @@ test('2026-07-28 negotiates through modern server/discover, while other revision
   assert.deepEqual(rejectedBody.error.data.supported, [protocolVersion]);
 });
 
-test('legacy initialize is rejected even when it names 2026-07-28', async () => {
+test('legacy initialize negotiates through the same Streamable HTTP endpoint', async () => {
   const response = await mcpHandler.fetch(
     new Request('http://localhost/mcp', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+      },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 3,
@@ -193,9 +210,12 @@ test('legacy initialize is rejected even when it names 2026-07-28', async () => 
     }),
     { authInfo: authInfo() },
   );
-  const body = await response.json();
-  assert.equal(response.status, 400);
-  assert.equal(body.error.code, -32022);
-  assert.equal(body.error.data.requested, protocolVersion);
-  assert.deepEqual(body.error.data.supported, [protocolVersion]);
+  const body = await readJsonRpcResponse(response);
+  assert.equal(response.status, 200);
+  // 2026-07-28 is selected through server/discover. A claim-less initialize
+  // request is a legacy handshake, so the SDK counters with its 2025-era
+  // stateless protocol revision instead of rejecting the connection.
+  assert.equal(body.result.protocolVersion, '2025-11-25');
+  assert.equal(body.result.serverInfo.name, 'zhidu-reading-mcp');
+  assert.equal(response.headers.get('mcp-session-id'), null);
 });

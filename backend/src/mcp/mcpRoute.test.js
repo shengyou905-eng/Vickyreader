@@ -9,7 +9,18 @@ const { createRawToken } = require('../services/mcpToken.service');
 const { protocolVersion } = require('./server');
 const app = require('../app');
 
-test('POST /mcp forwards token-derived auth to the strict Streamable HTTP handler', async () => {
+async function readJsonRpcResponse(response) {
+  const body = await response.text();
+  if (response.headers.get('content-type')?.includes('application/json')) {
+    return JSON.parse(body);
+  }
+
+  const data = body.match(/^data:\s*(.+)$/m)?.[1];
+  assert.ok(data, `Expected JSON or an SSE data frame, received: ${body}`);
+  return JSON.parse(data);
+}
+
+test('POST /mcp forwards token-derived auth to modern and legacy Streamable HTTP handlers', async () => {
   const originalFind = mcpRepository.findActiveMcpTokenByHash;
   const originalTouch = mcpRepository.touchMcpAccessToken;
   const originalListBooks = mcpRepository.listLibraryBooks;
@@ -87,6 +98,50 @@ test('POST /mcp forwards token-derived auth to the strict Streamable HTTP handle
 
     assert.equal(toolResponse.status, 200);
     assert.match(toolBody.result.content[0].text, /server-owned-user-id/);
+
+    const legacyInitialize = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${createRawToken()}`,
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'initialize',
+        params: {
+          protocolVersion,
+          capabilities: {},
+          clientInfo: { name: 'legacy-route-test', version: '1.0.0' },
+        },
+      }),
+    });
+    const legacyBody = await readJsonRpcResponse(legacyInitialize);
+
+    assert.equal(legacyInitialize.status, 200);
+    assert.equal(legacyBody.result.protocolVersion, '2025-11-25');
+    assert.equal(legacyInitialize.headers.get('mcp-session-id'), null);
+
+    const legacyTools = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${createRawToken()}`,
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-protocol-version': legacyBody.result.protocolVersion,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 4,
+        method: 'tools/list',
+        params: {},
+      }),
+    });
+    const legacyToolsBody = await readJsonRpcResponse(legacyTools);
+
+    assert.equal(legacyTools.status, 200);
+    assert.equal(legacyToolsBody.result.tools.length, 5);
   } finally {
     mcpRepository.findActiveMcpTokenByHash = originalFind;
     mcpRepository.touchMcpAccessToken = originalTouch;

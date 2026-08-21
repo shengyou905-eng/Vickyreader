@@ -128,11 +128,12 @@ function createServer({ authInfo }, repository = mcpRepository) {
 }
 
 const mcpHandler = createMcpHandler(createServer, {
-  // Keep the endpoint pinned to the one modern revision we implement.  The
-  // 2026-07-28 transport uses server/discover plus a per-request _meta
-  // envelope; it intentionally does not negotiate through legacy initialize.
+  // The modern path is pinned to 2026-07-28 and uses server/discover plus a
+  // per-request _meta envelope. SDK v2's stateless legacy fallback keeps the
+  // same POST /mcp endpoint reachable for initialize-capable 2025-era clients.
+  // This does not expose legacy /sse or /messages routes.
   supportedProtocolVersions: [protocolVersion],
-  legacy: 'reject',
+  legacy: 'stateless',
   responseMode: 'json',
   onerror(error) {
     console.error('[mcp] request failed', error.message);
