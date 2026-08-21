@@ -2,6 +2,13 @@ require('dotenv').config();
 
 const nodeEnv = process.env.NODE_ENV || 'development';
 
+function normalizeMcpTokenTtlDays(value) {
+  if (typeof value === 'string' && !value.trim()) return 90;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 90;
+  return Math.min(Math.max(Math.floor(parsed), 1), 365);
+}
+
 const required = ['JWT_SECRET', 'DATABASE_URL'];
 
 for (const key of required) {
@@ -24,10 +31,7 @@ module.exports = {
   // MCP tokens are separate from app sessions. Keep this secret server-side so
   // the database only ever contains a keyed hash of a generated MCP token.
   mcpTokenHashSecret: process.env.MCP_TOKEN_HASH_SECRET || '',
-  mcpTokenTtlDays: Math.min(
-    Math.max(Number(process.env.MCP_TOKEN_TTL_DAYS || 90), 1),
-    365,
-  ),
+  mcpTokenTtlDays: normalizeMcpTokenTtlDays(process.env.MCP_TOKEN_TTL_DAYS),
   appleTeamId: process.env.APPLE_TEAM_ID || '',
   appleKeyId: process.env.APPLE_KEY_ID || '',
   appleClientId: process.env.APPLE_CLIENT_ID || '',
@@ -42,4 +46,5 @@ module.exports = {
     '\n',
   ),
   appleTokenEncryptionKey: process.env.APPLE_TOKEN_ENCRYPTION_KEY || '',
+  normalizeMcpTokenTtlDays,
 };

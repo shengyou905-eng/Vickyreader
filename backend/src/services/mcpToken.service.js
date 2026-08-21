@@ -30,8 +30,12 @@ function getTokenPrefix(token) {
 }
 
 function getExpiryDate(now = new Date()) {
+  // The configuration parser already normalizes this value. Keep the token
+  // path defensive too: an invalid expiry must never become a PostgreSQL
+  // timestamp error while a user is enabling MCP.
+  const ttlDays = Number.isFinite(mcpTokenTtlDays) ? mcpTokenTtlDays : 90;
   const expiresAt = new Date(now);
-  expiresAt.setUTCDate(expiresAt.getUTCDate() + mcpTokenTtlDays);
+  expiresAt.setUTCDate(expiresAt.getUTCDate() + ttlDays);
   return expiresAt;
 }
 
