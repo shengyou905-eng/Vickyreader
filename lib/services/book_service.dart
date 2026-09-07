@@ -25,6 +25,7 @@ import 'database_service.dart';
 import 'epub_service.dart';
 import 'import_service.dart';
 import 'pdf_service.dart';
+import 'reliable_upload_service.dart';
 
 class MingtaiOverview {
   final List<Map<String, dynamic>> items;
@@ -818,7 +819,11 @@ class BookService {
 
   static Future<List<Book>> getBooks() async {
     final db = await DatabaseService.database;
-    final maps = await db.query('books', orderBy: 'lastOpenedAt DESC');
+    final maps = await db.query(
+      'books',
+      where: 'is_archived = 0',
+      orderBy: 'lastOpenedAt DESC',
+    );
     return maps.map((m) => Book.fromMap(m)).toList();
   }
 
@@ -831,67 +836,203 @@ class BookService {
 
   static Future<void> insertBook(Book book) async {
     final db = await DatabaseService.database;
-    await db.insert(
-      'books',
-      book.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-    unawaited(_syncMcpLibraryBook(book));
+    await db.transaction((txn) async {
+      // UPDATE preserves dependent history when a stable book ID is restored.
+      final owner = _uploadOwner(book.userId);
+      if ((await txn.query(
+        'locally_deleted_books',
+        where: 'user_id = ? AND book_id = ?',
+        whereArgs: [owner, book.id],
+      )).isNotEmpty) {
+        throw StateError(
+          'Permanently deleted books require a new import identity',
+        );
+      }
+      final data = {...book.toMap(), 'user_id': owner, 'is_archived': 0};
+      final changed = await txn.update(
+        'books',
+        data,
+        where: 'id = ?',
+        whereArgs: [book.id],
+      );
+      if (changed == 0) await txn.insert('books', data);
+      await _enqueueLibrarySnapshot(txn);
+    });
+    unawaited(ReliableUploadService.instance.drain());
   }
 
   static Future<void> updateBook(Book book) async {
     final db = await DatabaseService.database;
-    await db.update(
-      'books',
-      book.toMap(),
-      where: 'id = ?',
-      whereArgs: [book.id],
-    );
-    unawaited(_syncMcpLibraryBook(book));
+    await db.transaction((txn) async {
+      await txn.update(
+        'books',
+        book.toMap(),
+        where: 'id = ?',
+        whereArgs: [book.id],
+      );
+      await _enqueueLibrarySnapshot(txn);
+    });
+    unawaited(ReliableUploadService.instance.drain());
   }
 
   static Future<void> deleteBook(String id) async {
+    await removeFromLibrary(id);
+  }
+
+  /// Removes shelf membership, not the user's reading history.
+  static Future<void> removeFromLibrary(String id) async {
     final db = await DatabaseService.database;
-    await db.delete('books', where: 'id = ?', whereArgs: [id]);
-    await db.delete('highlights', where: 'bookId = ?', whereArgs: [id]);
-    await db.delete('notes', where: 'bookId = ?', whereArgs: [id]);
-    await db.delete('ai_messages', where: 'bookId = ?', whereArgs: [id]);
-    await db.delete('reading_progress', where: 'bookId = ?', whereArgs: [id]);
-    await db.delete('bookmarks', where: 'bookId = ?', whereArgs: [id]);
-    await db.delete('user_entries', where: 'book_id = ?', whereArgs: [id]);
-    unawaited(_deleteMcpLibraryBook(id));
+    await db.transaction((txn) async {
+      await txn.update(
+        'books',
+        {'is_archived': 1},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      await _enqueueLibrarySnapshot(txn);
+    });
+    unawaited(ReliableUploadService.instance.drain());
+  }
+
+  /// Destructive local-history removal. No ordinary shelf UI calls this.
+  /// One server transaction deletes all owned book history, including other devices.
+  static Future<void> permanentlyDeleteBookData(String id) async {
+    final db = await DatabaseService.database;
+    await db.transaction((txn) async {
+      final traces = await txn.query(
+        'user_entries',
+        columns: ['id', 'user_id'],
+        where: 'book_id = ?',
+        whereArgs: [id],
+      );
+      final books = await txn.query(
+        'books',
+        columns: ['user_id'],
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      // Retain the metadata anchor for excluded, device-private chat history.
+      await txn.update(
+        'books',
+        {'is_archived': 1},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      await txn.delete('highlights', where: 'bookId = ?', whereArgs: [id]);
+      await txn.delete('notes', where: 'bookId = ?', whereArgs: [id]);
+      await txn.delete(
+        'reading_progress',
+        where: 'bookId = ?',
+        whereArgs: [id],
+      );
+      await txn.delete('bookmarks', where: 'bookId = ?', whereArgs: [id]);
+      for (final trace in traces) {
+        await txn.delete(
+          'user_entry_follow_ups',
+          where: 'entry_id = ?',
+          whereArgs: [trace['id']],
+        );
+      }
+      await txn.delete('user_entries', where: 'book_id = ?', whereArgs: [id]);
+      await ReliableUploadService.instance.enqueuePermanentBookDeletion(
+        txn,
+        userId: _uploadOwner(
+          books.isEmpty ? null : books.first['user_id']?.toString(),
+        ),
+        bookId: id,
+        localTraceIds: traces.map((trace) => trace['id'].toString()).toList(),
+      );
+      await _enqueueLibrarySnapshot(txn);
+    });
+    unawaited(ReliableUploadService.instance.drain());
   }
 
   /// Synchronises only the small, non-sensitive bookshelf index used by the
   /// opt-in MCP feature. A local file path, file bytes, and cover path never
   /// leave the device through this method.
   static Future<void> syncMcpLibraryMetadata() async {
-    if (!BmobApi.instance.isLoggedIn) return;
-    final books = await getBooks();
-    await BmobApi.instance.syncMcpLibraryBooks(
-      books.map(_mcpLibraryPayload).toList(growable: false),
-      replace: true,
+    final db = await DatabaseService.database;
+    await db.transaction(_enqueueLibrarySnapshot);
+    await ReliableUploadService.instance.drain();
+  }
+
+  /// Queues the canonical local reading state after login or app restart.
+  /// This repairs writes made while signed out or while an older best-effort
+  /// upload path was offline. Private free notes and full chat history are
+  /// deliberately excluded.
+  static Future<void> enqueueReliableUploadSnapshot() async {
+    final db = await DatabaseService.database;
+    await db.transaction((txn) async {
+      final entries = await txn.query('user_entries');
+      for (final row in entries) {
+        final localId = row['id']?.toString() ?? '';
+        if (localId.isEmpty) continue;
+        await ReliableUploadService.instance.enqueueTrace(
+          txn,
+          userId: _uploadOwner(row['user_id']?.toString()),
+          entityId: localId,
+          operation: 'create',
+          payload: _localUserEntryMapToRemote(row),
+        );
+      }
+      final progresses = await txn.rawQuery('''SELECT p.*, b.chapterTitles
+         FROM reading_progress p
+         LEFT JOIN books b ON b.id = p.bookId''');
+      for (final row in progresses) {
+        final bookId = row['bookId']?.toString() ?? '';
+        if (bookId.isEmpty) continue;
+        final chapterIndex = row['chapterIndex']?.toString() ?? '0';
+        final titles = row['chapterTitles']?.toString() ?? '';
+        final total = titles.isEmpty ? 0 : titles.split('\t').length;
+        final chapter = int.tryParse(chapterIndex) ?? 0;
+        final progress = total > 0
+            ? ((chapter + 1) / total).clamp(0.0, 1.0).toDouble()
+            : 0.0;
+        await ReliableUploadService.instance.enqueueReadingProgress(
+          txn,
+          userId: _uploadOwner(row['user_id']?.toString()),
+          bookId: bookId,
+          operation: 'upsert',
+          payload: {
+            'book_id': bookId,
+            'progress': progress,
+            'chapter_index': chapterIndex,
+            'scroll_offset': (row['scrollOffset'] as num?)?.toDouble() ?? 0,
+          },
+        );
+      }
+      await _enqueueLibrarySnapshot(txn);
+    });
+    await ReliableUploadService.instance.drain();
+  }
+
+  static Future<void> _enqueueLibrarySnapshot(DatabaseExecutor db) async {
+    final owner = _uploadOwner(null);
+    final rows = await db.query(
+      'books',
+      where:
+          "is_archived = 0 AND (user_id = '' OR user_id = ?) AND NOT EXISTS "
+          "(SELECT 1 FROM locally_deleted_books d WHERE d.book_id = books.id AND d.user_id = ?)",
+      whereArgs: [owner, owner],
+      orderBy: 'lastOpenedAt DESC',
+    );
+    final books = rows
+        .map(Book.fromMap)
+        .map(_mcpLibraryPayload)
+        .toList(growable: false);
+    await ReliableUploadService.instance.enqueueLibrarySnapshot(
+      db,
+      userId: owner,
+      books: books,
     );
   }
 
-  static Future<void> _syncMcpLibraryBook(Book book) async {
-    if (!BmobApi.instance.isLoggedIn) return;
-    try {
-      await BmobApi.instance.syncMcpLibraryBooks([_mcpLibraryPayload(book)]);
-    } catch (_) {
-      // Local reading must never wait for an optional cloud index. The next
-      // normal sync or MCP settings visit will retry the metadata upload.
-    }
-  }
-
-  static Future<void> _deleteMcpLibraryBook(String bookId) async {
-    if (!BmobApi.instance.isLoggedIn) return;
-    try {
-      await BmobApi.instance.deleteMcpLibraryBook(bookId);
-    } catch (_) {
-      // The local deletion remains authoritative; a later sync can clean up
-      // stale metadata without retaining the imported file itself.
-    }
+  static String _uploadOwner(String? fallback) {
+    if (fallback?.trim().isNotEmpty == true) return fallback!.trim();
+    return BmobApi.instance.userId?.trim().isNotEmpty == true
+        ? BmobApi.instance.userId!.trim()
+        : (fallback?.trim() ?? '');
   }
 
   static Map<String, dynamic> _mcpLibraryPayload(Book book) {
@@ -935,17 +1076,79 @@ class BookService {
 
   static Future<void> updateHighlightNote(String id, String? note) async {
     final db = await DatabaseService.database;
-    await db.update(
-      'highlights',
-      {'note': note},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    final linked = await _findLocalEntryBySourceRecordId(id, 'highlight');
+    await db.transaction((txn) async {
+      await txn.update(
+        'highlights',
+        {'note': note, 'updated_at': DateTime.now().toUtc().toIso8601String()},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      if (linked != null) {
+        final now = DateTime.now().toUtc().toIso8601String();
+        final updated = Map<String, Object?>.from(linked)
+          ..['user_input'] = note ?? ''
+          ..['updated_at'] = now;
+        await txn.update(
+          'user_entries',
+          {'user_input': note ?? '', 'updated_at': now},
+          where: 'id = ?',
+          whereArgs: [linked['id']],
+        );
+        await ReliableUploadService.instance.enqueueTrace(
+          txn,
+          userId: _uploadOwner(linked['user_id']?.toString()),
+          entityId: linked['id']?.toString() ?? '',
+          operation: 'update',
+          payload: _localUserEntryMapToRemote(updated),
+        );
+      }
+    });
+    unawaited(ReliableUploadService.instance.drain());
   }
 
   static Future<void> deleteHighlight(String id) async {
     final db = await DatabaseService.database;
-    await db.delete('highlights', where: 'id = ?', whereArgs: [id]);
+    final linked = await _findLocalEntryBySourceRecordId(id, 'highlight');
+    await db.transaction((txn) async {
+      await txn.delete('highlights', where: 'id = ?', whereArgs: [id]);
+      if (linked != null) {
+        final entryId = linked['id']?.toString() ?? '';
+        await txn.delete(
+          'user_entry_follow_ups',
+          where: 'entry_id = ? OR entry_id = ?',
+          whereArgs: [entryId, linked['bmob_id']?.toString() ?? ''],
+        );
+        await txn.delete('user_entries', where: 'id = ?', whereArgs: [entryId]);
+        await ReliableUploadService.instance.enqueueTrace(
+          txn,
+          userId: _uploadOwner(linked['user_id']?.toString()),
+          entityId: entryId,
+          operation: 'delete',
+        );
+      }
+    });
+    unawaited(ReliableUploadService.instance.drain());
+  }
+
+  static Future<Map<String, Object?>?> _findLocalEntryBySourceRecordId(
+    String sourceRecordId,
+    String source,
+  ) async {
+    final db = await DatabaseService.database;
+    final rows = await db.query(
+      'user_entries',
+      where: 'source = ?',
+      whereArgs: [source],
+      orderBy: 'created_at DESC',
+    );
+    for (final row in rows) {
+      final metadata = _metadataToRemote(row['metadata_json']);
+      if (metadata['source_record_id']?.toString() == sourceRecordId) {
+        return row;
+      }
+    }
+    return null;
   }
 
   // ---- AI Messages ----
@@ -1018,21 +1221,29 @@ class BookService {
         ? ((chapter + 1) / totalChapters).clamp(0.0, 1.0).toDouble()
         : 0.0;
 
-    await db.insert('reading_progress', {
-      'bookId': bookId,
-      'user_id': userId,
-      'chapterIndex': chapterIndex,
-      'scrollOffset': scrollOffset,
-      'updatedAt': now,
-      'updated_at': now,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
-
-    await _saveRemoteReadingProgressIfPossible(
-      bookId: bookId,
-      progress: progress,
-      chapterIndex: chapterIndex,
-      scrollOffset: scrollOffset,
-    );
+    await db.transaction((txn) async {
+      await txn.insert('reading_progress', {
+        'bookId': bookId,
+        'user_id': userId,
+        'chapterIndex': chapterIndex,
+        'scrollOffset': scrollOffset,
+        'updatedAt': now,
+        'updated_at': now,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await ReliableUploadService.instance.enqueueReadingProgress(
+        txn,
+        userId: _uploadOwner(userId),
+        bookId: bookId,
+        operation: 'upsert',
+        payload: {
+          'book_id': bookId,
+          'progress': progress,
+          'chapter_index': chapterIndex,
+          'scroll_offset': scrollOffset,
+        },
+      );
+    });
+    unawaited(ReliableUploadService.instance.drain());
   }
 
   // ---- Notes ----
@@ -1548,14 +1759,33 @@ class BookService {
 
   static Future<String> insertUserEntry(UserEntry entry) async {
     final db = await DatabaseService.database;
-    await db.insert(
+    await db.transaction((txn) async {
+      await txn.insert(
+        'user_entries',
+        entry.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await ReliableUploadService.instance.enqueueTrace(
+        txn,
+        userId: _uploadOwner(entry.userId),
+        entityId: entry.id,
+        operation: 'create',
+        payload: _userEntryToRemote(entry),
+      );
+    });
+    await ReliableUploadService.instance.drain();
+    final remoteRows = await db.query(
       'user_entries',
-      entry.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      columns: ['bmob_id'],
+      where: 'id = ?',
+      whereArgs: [entry.id],
+      limit: 1,
     );
-    final remoteId = await _createRemoteUserEntryIfPossible(db, entry);
+    final remoteId = remoteRows.isEmpty
+        ? ''
+        : remoteRows.first['bmob_id']?.toString() ?? '';
     _invalidateMingtaiOverviewCache();
-    return remoteId ?? entry.id;
+    return remoteId.isNotEmpty ? remoteId : entry.id;
   }
 
   static Future<List<UserEntry>> getUserEntries({
@@ -1761,43 +1991,27 @@ class BookService {
     final db = await DatabaseService.database;
     final rows = await db.query(
       'user_entries',
-      columns: ['id', 'bmob_id'],
+      columns: ['id', 'user_id', 'bmob_id'],
       where: 'id = ? OR bmob_id = ?',
       whereArgs: [id, id],
       limit: 1,
     );
     final localId = rows.isNotEmpty ? (rows.first['id'] as String? ?? id) : id;
-    final remoteId = rows.isNotEmpty
-        ? (rows.first['bmob_id'] as String? ?? '')
-        : '';
-    final api = BmobApi.instance;
-    if (api.isLoggedIn) {
-      final idToDelete = remoteId.isNotEmpty
-          ? remoteId
-          : rows.isEmpty
-          ? id
-          : await _findRemoteEntryIdByLocalId(localId);
-      if (idToDelete.isEmpty) {
-        throw Exception('找不到远端 entry id，无法确认线上删除');
-      }
-
-      final deleted = await api.deleteUserEntry(idToDelete);
-      if (!deleted) {
-        final fallbackId = await _findRemoteEntryIdByLocalId(localId);
-        if (fallbackId.isEmpty || fallbackId == idToDelete) {
-          throw Exception('线上 entry 不存在或已被删除');
-        }
-        final fallbackDeleted = await api.deleteUserEntry(fallbackId);
-        if (!fallbackDeleted) {
-          throw Exception('线上 entry 不存在或已被删除');
-        }
-      }
-    }
-    await db.delete(
-      'user_entries',
-      where: 'id = ? OR bmob_id = ?',
-      whereArgs: [localId, id],
-    );
+    final owner = rows.isEmpty ? '' : rows.first['user_id']?.toString() ?? '';
+    await db.transaction((txn) async {
+      await txn.delete(
+        'user_entries',
+        where: 'id = ? OR bmob_id = ?',
+        whereArgs: [localId, id],
+      );
+      await ReliableUploadService.instance.enqueueTrace(
+        txn,
+        userId: _uploadOwner(owner),
+        entityId: localId,
+        operation: 'delete',
+      );
+    });
+    unawaited(ReliableUploadService.instance.drain());
   }
 
   // ---- MingTai ----
@@ -2945,20 +3159,27 @@ class BookService {
     metadata['public_annotation_id'] = item.id;
     metadata['public_entry_id'] = item.entryId;
 
-    await api.createUserEntry({
-      'source': 'manual',
-      'book_id': item.bookId,
-      'book_title': item.bookTitle,
-      'chapter_index': item.chapterIndex,
-      'chapter_title': item.chapterTitle,
-      'original_text': item.originalText,
-      'user_input': item.annotationText.isNotEmpty
-          ? '引用明台批注：${item.annotationText}'
-          : '引用明台页边笔记',
-      'auto_tags': ['明台引用', ...item.tags],
-      'auto_summary': item.annotationText,
-      'metadata_json': metadata,
-    });
+    final now = DateTime.now();
+    await insertUserEntry(
+      UserEntry(
+        id: const Uuid().v4(),
+        userId: api.userId ?? '',
+        source: 'manual',
+        bookId: item.bookId,
+        bookTitle: item.bookTitle,
+        chapterIndex: item.chapterIndex,
+        chapterTitle: item.chapterTitle,
+        originalText: item.originalText,
+        userInput: item.annotationText.isNotEmpty
+            ? '引用明台批注：${item.annotationText}'
+            : '引用明台页边笔记',
+        autoTags: ['明台引用', ...item.tags],
+        autoSummary: item.annotationText,
+        metadataJson: jsonEncode(metadata),
+        createdAt: now,
+        updatedAt: now.toUtc().toIso8601String(),
+      ),
+    );
   }
 
   static Future<List<Map<String, dynamic>>> getMingtaiItems({
@@ -3169,17 +3390,8 @@ class BookService {
       );
       final sourceRecordId = sourceRecord?['id']?.toString() ?? '';
 
-      final api = BmobApi.instance;
-      if (api.isLoggedIn) {
-        final deleted = await api.deleteUserEntry(remoteId);
-        if (!deleted) {
-          debugPrint('[XiaouDelete] remote entry already absent id=$remoteId');
-        }
-      } else {
-        await deleteUserEntry(remoteId);
-      }
-
       final localEntryId = localEntry?['id']?.toString() ?? remoteId;
+      await deleteUserEntry(localEntryId);
       await db.transaction((txn) async {
         if (sourceRecordId.isNotEmpty) {
           final table = source == 'highlight'
@@ -3199,11 +3411,6 @@ class BookService {
           'user_entry_follow_ups',
           where: 'entry_id = ? OR entry_id = ?',
           whereArgs: [remoteId, localEntryId],
-        );
-        await txn.delete(
-          'user_entries',
-          where: 'id = ? OR bmob_id = ?',
-          whereArgs: [localEntryId, remoteId],
         );
       });
       await _removeEntryFromXiaouDiskCache(remoteId);
@@ -3323,19 +3530,37 @@ class BookService {
     if (remoteId.isEmpty) {
       throw Exception('远端 entry id 为空，无法保存重要标记');
     }
-    final api = BmobApi.instance;
-    if (!api.isLoggedIn) {
-      throw Exception('请先登录后再标记重要');
-    }
-
-    await api.updateUserEntryImportance(remoteId, isImportant: isImportant);
     final db = await DatabaseService.database;
-    await db.update(
+    final rows = await db.query(
       'user_entries',
-      {'is_important': isImportant ? 1 : 0},
       where: 'id = ? OR bmob_id = ?',
       whereArgs: [remoteId, remoteId],
+      limit: 1,
     );
+    if (rows.isEmpty) throw Exception('找不到本地阅读痕迹');
+    final localId = rows.first['id']?.toString() ?? '';
+    final updated = Map<String, Object?>.from(rows.first)
+      ..['is_important'] = isImportant ? 1 : 0
+      ..['updated_at'] = DateTime.now().toUtc().toIso8601String();
+    await db.transaction((txn) async {
+      await txn.update(
+        'user_entries',
+        {
+          'is_important': isImportant ? 1 : 0,
+          'updated_at': updated['updated_at'],
+        },
+        where: 'id = ?',
+        whereArgs: [localId],
+      );
+      await ReliableUploadService.instance.enqueueTrace(
+        txn,
+        userId: _uploadOwner(rows.first['user_id']?.toString()),
+        entityId: localId,
+        operation: 'update',
+        payload: _localUserEntryMapToRemote(updated),
+      );
+    });
+    unawaited(ReliableUploadService.instance.drain());
 
     final overview = _mingtaiOverviewCache;
     if (overview != null) {
@@ -3552,42 +3777,6 @@ class BookService {
     }
   }
 
-  static Future<String> _findRemoteEntryIdByLocalId(String localId) async {
-    final api = BmobApi.instance;
-    try {
-      final rows = await api.listUserEntries(limit: 500);
-      for (final row in rows) {
-        final remoteId = (row['id'] as String?) ?? '';
-        if (remoteId == localId) return remoteId;
-
-        final metadata = _metadataToRemote(row['metadata_json']);
-        if (metadata['local_id'] == localId && remoteId.isNotEmpty) {
-          return remoteId;
-        }
-      }
-    } catch (_) {}
-    return '';
-  }
-
-  static Future<void> _saveRemoteReadingProgressIfPossible({
-    required String bookId,
-    required double progress,
-    required String chapterIndex,
-    required double scrollOffset,
-  }) async {
-    final api = BmobApi.instance;
-    if (!api.isLoggedIn) return;
-
-    try {
-      await api.saveReadingProgress(
-        bookId: bookId,
-        progress: progress,
-        chapterIndex: chapterIndex,
-        scrollOffset: scrollOffset,
-      );
-    } catch (_) {}
-  }
-
   static Future<void> _pullRemoteReadingProgressIfPossible(
     Database db,
     String bookId,
@@ -3596,20 +3785,56 @@ class BookService {
     if (!api.isLoggedIn) return;
 
     try {
+      final owner = api.userId;
+      if (owner == null || owner.isEmpty) return;
       final row = await api.getReadingProgress(bookId);
       if (row == null) return;
+      await applyRemoteReadingProgress(
+        db,
+        bookId,
+        owner,
+        row,
+        isCurrentUser: () => api.isLoggedIn && api.userId == owner,
+      );
+    } catch (_) {}
+  }
 
+  @visibleForTesting
+  static Future<void> applyRemoteReadingProgress(
+    Database db,
+    String bookId,
+    String owner,
+    Map<String, dynamic> row, {
+    required bool Function() isCurrentUser,
+  }) async {
+    if (row['user_id'] != owner || row['book_id'] != bookId) return;
+    await db.transaction((txn) async {
+      // The local table has a book-only PK. Never replace any locally versioned
+      // state with an unversioned GET, even after its pending ACK was removed.
+      final protected = await txn.rawQuery(
+        '''
+        SELECT 1 FROM upload_entity_revisions
+          WHERE entity_type='reading_progress' AND entity_id=?
+        UNION ALL SELECT 1 FROM pending_upload_operations
+          WHERE entity_type='reading_progress' AND entity_id=?
+        UNION ALL SELECT 1 FROM locally_deleted_books WHERE book_id=? LIMIT 1
+      ''',
+        [bookId, bookId, bookId],
+      );
+      if (protected.isNotEmpty) return;
       final updatedAt =
           (row['updated_at'] as String?) ??
           DateTime.now().toUtc().toIso8601String();
-      final localRows = await db.query(
+      final localRows = await txn.query(
         'reading_progress',
-        columns: ['updatedAt', 'updated_at'],
+        columns: ['updatedAt', 'updated_at', 'user_id'],
         where: 'bookId = ?',
         whereArgs: [bookId],
         limit: 1,
       );
       if (localRows.isNotEmpty) {
+        final localOwner = localRows.first['user_id']?.toString() ?? '';
+        if (localOwner.isNotEmpty && localOwner != owner) return;
         final localUpdatedAt =
             (localRows.first['updated_at'] as String?) ??
             (localRows.first['updatedAt'] as String?) ??
@@ -3619,7 +3844,8 @@ class BookService {
           return;
         }
       }
-      await db.insert('reading_progress', {
+      if (!isCurrentUser()) return;
+      await txn.insert('reading_progress', {
         'bookId': bookId,
         'user_id': (row['user_id'] as String?) ?? '',
         'chapterIndex': (row['chapter_index'] as String?) ?? '0',
@@ -3627,7 +3853,7 @@ class BookService {
         'updatedAt': updatedAt,
         'updated_at': updatedAt,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
-    } catch (_) {}
+    });
   }
 
   static bool _isIsoDateAfter(String candidate, String baseline) {
@@ -3636,31 +3862,6 @@ class BookService {
     } catch (_) {
       return true;
     }
-  }
-
-  static Future<String?> _createRemoteUserEntryIfPossible(
-    Database db,
-    UserEntry entry,
-  ) async {
-    final api = BmobApi.instance;
-    if (!api.isLoggedIn) return null;
-
-    try {
-      final result = await api.createUserEntry(_userEntryToRemote(entry));
-      final objectId = result?['id'] as String?;
-      if (objectId != null && objectId.isNotEmpty) {
-        await db.update(
-          'user_entries',
-          {'bmob_id': objectId},
-          where: 'id = ?',
-          whereArgs: [entry.id],
-        );
-        return objectId;
-      }
-    } catch (_) {
-      // Keep local entry; SyncService can retry later.
-    }
-    return null;
   }
 
   static Future<void> _syncPendingUserEntryFollowUps(
@@ -3743,7 +3944,15 @@ class BookService {
       'auto_summary': entry.autoSummary,
       'metadata_json': metadata,
       'is_important': entry.isImportant,
+      'created_at': entry.createdAt.toUtc().toIso8601String(),
     };
+  }
+
+  static Map<String, dynamic> _localUserEntryMapToRemote(
+    Map<String, Object?> row,
+  ) {
+    final entry = UserEntry.fromMap(Map<String, dynamic>.from(row));
+    return _userEntryToRemote(entry);
   }
 
   static Map<String, dynamic> _remoteUserEntryToLocal(

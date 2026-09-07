@@ -288,11 +288,11 @@ class AppLocalizationsZh extends AppLocalizations {
   String get legacyPublicBookDisabled => '旧明台借阅入口已停用。请在私人书架重新导入你合法获得的电子书。';
 
   @override
-  String get deleteBook => '删除书籍';
+  String get deleteBook => '移出书架';
 
   @override
   String deleteBookConfirm(Object title) {
-    return '确定要删除《$title》吗？\n相关的笔记和标注也会被删除。';
+    return '将《$title》移出书架吗？\n划线、想法和阅读进度都会保留。';
   }
 
   @override

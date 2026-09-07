@@ -1,15 +1,18 @@
 const readingProgressRepository = require('../repositories/readingProgress.repository');
 const httpError = require('../utils/httpError');
+const { validateVersion } = require('../repositories/uploadState.repository');
 
 async function saveReadingProgress(req, res, next) {
   try {
-    if (!req.body.book_id) {
+    validateVersion(req.body);
+    const bookId = req.params.bookId || req.body.book_id;
+    if (typeof bookId !== 'string' || !bookId.trim() || bookId.length > 200 || bookId.trim() !== bookId) {
       throw httpError(400, 'book_id is required');
     }
 
     const readingProgress = await readingProgressRepository.upsertReadingProgress(
       req.user.id,
-      req.body,
+      { ...req.body, book_id: bookId },
     );
     return res.json({ reading_progress: readingProgress });
   } catch (error) {
@@ -34,7 +37,22 @@ async function getReadingProgress(req, res, next) {
   }
 }
 
+async function deleteReadingProgress(req, res, next) {
+  try {
+    validateVersion(req.body);
+    await readingProgressRepository.deleteReadingProgress(
+      req.user.id,
+      req.params.bookId,
+      req.body,
+    );
+    return res.status(204).send();
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   saveReadingProgress,
   getReadingProgress,
+  deleteReadingProgress,
 };

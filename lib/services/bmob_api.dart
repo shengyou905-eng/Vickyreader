@@ -261,6 +261,58 @@ class BmobApi {
     throw Exception('创建 user_entry 失败 (HTTP ${res.statusCode}): ${res.body}');
   }
 
+  Future<Map<String, dynamic>?> upsertUserEntryByClientId(
+    String clientEntryId,
+    Map<String, dynamic> body,
+  ) async {
+    final safeId = Uri.encodeComponent(clientEntryId);
+    final res = await AppHttp.client
+        .put(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/entries/client/$safeId'),
+          headers: _authHeaders(),
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (res.statusCode == 200 || res.statusCode == 201) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return data['entry'] as Map<String, dynamic>?;
+    }
+    throw Exception('同步 user_entry 失败 (HTTP ${res.statusCode})');
+  }
+
+  Future<void> deleteUserEntryByClientId(
+    String clientEntryId,
+    Map<String, dynamic> version,
+  ) async {
+    final safeId = Uri.encodeComponent(clientEntryId);
+    final res = await AppHttp.client
+        .delete(
+          Uri.parse('${AppConstants.apiBaseUrl}/api/entries/client/$safeId'),
+          headers: _authHeaders(),
+          body: jsonEncode(version),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (res.statusCode != 204) {
+      throw Exception('删除 user_entry 失败 (HTTP ${res.statusCode})');
+    }
+  }
+
+  Future<void> permanentlyDeleteBookData(String bookId) async {
+    final res = await AppHttp.client
+        .delete(
+          Uri.parse(
+            '${AppConstants.apiBaseUrl}/api/library/books/${Uri.encodeComponent(bookId)}/data',
+          ),
+          headers: _authHeaders(),
+        )
+        .timeout(const Duration(seconds: 15));
+    if (res.statusCode != 204) {
+      throw Exception(
+        'Permanent book deletion failed (HTTP ${res.statusCode})',
+      );
+    }
+  }
+
   Future<List<Map<String, dynamic>>> listUserEntries({
     String? bookId,
     String? source,
@@ -1246,11 +1298,14 @@ class BmobApi {
     required double progress,
     required String chapterIndex,
     required double scrollOffset,
+    required Map<String, dynamic> version,
     String? cfi,
   }) async {
     final res = await AppHttp.client
-        .post(
-          Uri.parse('${AppConstants.apiBaseUrl}/api/reading-progress'),
+        .put(
+          Uri.parse(
+            '${AppConstants.apiBaseUrl}/api/reading-progress/versioned/${Uri.encodeComponent(bookId)}',
+          ),
           headers: _authHeaders(),
           body: jsonEncode({
             'book_id': bookId,
@@ -1258,6 +1313,7 @@ class BmobApi {
             'chapter_index': chapterIndex,
             'scroll_offset': scrollOffset,
             if (cfi != null && cfi.isNotEmpty) 'cfi': cfi,
+            ...version,
           }),
         )
         .timeout(const Duration(seconds: 10));
@@ -1266,13 +1322,15 @@ class BmobApi {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       return data['reading_progress'] as Map<String, dynamic>?;
     }
-    throw Exception('保存阅读进度失败 (HTTP ${res.statusCode}): ${res.body}');
+    throw Exception('保存阅读进度失败 (HTTP ${res.statusCode})');
   }
 
   Future<Map<String, dynamic>?> getReadingProgress(String bookId) async {
     final res = await AppHttp.client
         .get(
-          Uri.parse('${AppConstants.apiBaseUrl}/api/reading-progress/$bookId'),
+          Uri.parse(
+            '${AppConstants.apiBaseUrl}/api/reading-progress/versioned/${Uri.encodeComponent(bookId)}',
+          ),
           headers: _authHeaders(),
         )
         .timeout(const Duration(seconds: 10));
@@ -1283,6 +1341,25 @@ class BmobApi {
     }
     if (res.statusCode == 404) return null;
     throw Exception('查询阅读进度失败 (HTTP ${res.statusCode}): ${res.body}');
+  }
+
+  Future<void> deleteReadingProgress(
+    String bookId,
+    Map<String, dynamic> version,
+  ) async {
+    final safeBookId = Uri.encodeComponent(bookId);
+    final res = await AppHttp.client
+        .delete(
+          Uri.parse(
+            '${AppConstants.apiBaseUrl}/api/reading-progress/versioned/$safeBookId',
+          ),
+          headers: _authHeaders(),
+          body: jsonEncode(version),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (res.statusCode != 204) {
+      throw Exception('删除阅读进度失败 (HTTP ${res.statusCode})');
+    }
   }
 
   // ---- Private library metadata for MCP ----

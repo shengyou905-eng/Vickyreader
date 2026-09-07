@@ -307,11 +307,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'Legacy Mingtai borrowing is no longer available. Please import an ebook you are legally entitled to read into your private library.';
 
   @override
-  String get deleteBook => 'Delete Book';
+  String get deleteBook => 'Remove from Library';
 
   @override
   String deleteBookConfirm(Object title) {
-    return 'Delete “$title”?\nIts related notes and highlights will also be deleted.';
+    return 'Remove “$title” from your library?\nYour highlights, thoughts and reading progress will be kept.';
   }
 
   @override

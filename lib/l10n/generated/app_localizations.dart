@@ -647,13 +647,13 @@ abstract class AppLocalizations {
   /// No description provided for @deleteBook.
   ///
   /// In zh, this message translates to:
-  /// **'删除书籍'**
+  /// **'移出书架'**
   String get deleteBook;
 
   /// No description provided for @deleteBookConfirm.
   ///
   /// In zh, this message translates to:
-  /// **'确定要删除《{title}》吗？\n相关的笔记和标注也会被删除。'**
+  /// **'将《{title}》移出书架吗？\n划线、想法和阅读进度都会保留。'**
   String deleteBookConfirm(Object title);
 
   /// No description provided for @settingsTooltip.

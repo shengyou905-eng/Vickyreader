@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'l10n/l10n.dart';
@@ -13,6 +15,7 @@ import 'screens/mingtai/community_mingtai_screen.dart';
 import 'screens/xiaou/xiaou_home_screen.dart';
 import 'screens/notes_free/notes_free_screen.dart';
 import 'screens/settings/settings_screen.dart';
+import 'services/reliable_upload_service.dart';
 
 class AiReaderApp extends StatelessWidget {
   const AiReaderApp({super.key});
@@ -89,6 +92,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       return;
     }
     _wasBackgrounded = false;
+    unawaited(ReliableUploadService.instance.drain());
     debugPrint('[AppDataRefresh] resumed; refreshing initialized tabs');
     setState(() {
       if (_initializedTabs.contains(1)) _xiaouRefreshSignal++;

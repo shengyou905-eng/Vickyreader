@@ -1,5 +1,15 @@
 const mcpRepository = require('../repositories/mcp.repository');
 const httpError = require('../utils/httpError');
+const bookDeletion = require('../repositories/bookDeletion.repository');
+
+async function permanentlyDeleteBookData(req, res, next) {
+  try {
+    const bookId = String(req.params.bookId || '').trim();
+    if (!bookId || bookId.length > 200) throw httpError(400, 'Invalid book id');
+    await bookDeletion.permanentlyDeleteBookData(req.user.id, bookId);
+    return res.status(204).send();
+  } catch (error) { return next(error); }
+}
 
 function normalizeBookPayload(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -46,6 +56,7 @@ async function deleteLibraryBook(req, res, next) {
 }
 
 module.exports = {
+  permanentlyDeleteBookData,
   syncLibraryBooks,
   deleteLibraryBook,
 };

@@ -1,4 +1,6 @@
 const { query, withTransaction } = require('../config/db');
+const { appendSyncChange } = require('./syncChange.repository');
+const { lockUploadUser } = require('./uploadState.repository');
 
 const MAX_SYNC_BOOKS = 200;
 const MAX_PAGE_SIZE = 50;
@@ -67,7 +69,7 @@ function toTrace(row) {
 }
 
 async function syncLibraryBooks(userId, books, { replace = false } = {}) {
-  const normalized = (Array.isArray(books) ? books : [])
+  let normalized = (Array.isArray(books) ? books : [])
     .slice(0, MAX_SYNC_BOOKS)
     .map((book) => ({
       bookId: normalizeText(book?.book_id, 200),
@@ -80,52 +82,110 @@ async function syncLibraryBooks(userId, books, { replace = false } = {}) {
     .filter((book) => book.bookId && book.title);
 
   await withTransaction(async (txQuery) => {
+    await lockUploadUser(txQuery, userId);
+    const removed = await txQuery('SELECT book_id FROM permanently_deleted_books WHERE user_id = $1 AND book_id = ANY($2::text[])',
+      [userId, normalized.map(book => book.bookId)]);
+    const deletedIds = new Set(removed.rows.map(row => row.book_id));
+    normalized = normalized.filter(book => !deletedIds.has(book.bookId));
     if (replace) {
+      let deleted;
       if (normalized.length === 0) {
-        await txQuery('DELETE FROM user_library_books WHERE user_id = $1', [userId]);
-      } else {
-        await txQuery(
+        deleted = await txQuery(
           `DELETE FROM user_library_books
-           WHERE user_id = $1 AND NOT (book_id = ANY($2::text[]))`,
+           WHERE user_id = $1
+           RETURNING book_id`,
+          [userId],
+        );
+      } else {
+        deleted = await txQuery(
+          `DELETE FROM user_library_books
+           WHERE user_id = $1 AND NOT (book_id = ANY($2::text[]))
+           RETURNING book_id`,
           [userId, normalized.map((book) => book.bookId)],
         );
+      }
+      for (const row of deleted.rows) {
+        await appendSyncChange(txQuery, {
+          userId,
+          entityType: 'book',
+          entityId: row.book_id,
+          operation: 'deleted',
+        });
       }
     }
 
     for (const book of normalized) {
-      await txQuery(
+      const values = [
+        userId,
+        book.bookId,
+        book.title,
+        book.author,
+        book.format,
+        book.addedAt,
+        book.lastOpenedAt,
+      ];
+      const inserted = await txQuery(
         `INSERT INTO user_library_books (
            user_id, book_id, title, author, format, added_at, last_opened_at, synced_at, updated_at
          ) VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
-         ON CONFLICT (user_id, book_id) DO UPDATE SET
-           title = EXCLUDED.title,
-           author = EXCLUDED.author,
-           format = EXCLUDED.format,
-           added_at = EXCLUDED.added_at,
-           last_opened_at = EXCLUDED.last_opened_at,
-           synced_at = now(),
-           updated_at = now()`,
-        [
-          userId,
-          book.bookId,
-          book.title,
-          book.author,
-          book.format,
-          book.addedAt,
-          book.lastOpenedAt,
-        ],
+         ON CONFLICT (user_id, book_id) DO NOTHING
+         RETURNING *`,
+        values,
       );
+      const operation = inserted.rowCount > 0 ? 'created' : 'updated';
+      const result = inserted.rowCount > 0
+        ? inserted
+        : await txQuery(
+          `UPDATE user_library_books
+           SET title = $3,
+               author = $4,
+               format = $5,
+               added_at = $6,
+               last_opened_at = $7,
+               synced_at = now(),
+               updated_at = now()
+           WHERE user_id = $1 AND book_id = $2
+             AND (
+               title IS DISTINCT FROM $3 OR
+               author IS DISTINCT FROM $4 OR
+               format IS DISTINCT FROM $5 OR
+               added_at IS DISTINCT FROM $6 OR
+               last_opened_at IS DISTINCT FROM $7
+             )
+           RETURNING *`,
+          values,
+        );
+      if (result.rowCount === 0) continue;
+      await appendSyncChange(txQuery, {
+        userId,
+        entityType: 'book',
+        entityId: result.rows[0].book_id,
+        operation,
+      });
     }
   });
   return normalized.length;
 }
 
 async function deleteLibraryBook(userId, bookId) {
-  const result = await query(
-    `DELETE FROM user_library_books WHERE user_id = $1 AND book_id = $2`,
-    [userId, bookId],
-  );
-  return result.rowCount > 0;
+  return withTransaction(async (txQuery) => {
+    await lockUploadUser(txQuery, userId);
+    const result = await txQuery(
+      `DELETE FROM user_library_books
+       WHERE user_id = $1 AND book_id = $2
+       RETURNING book_id`,
+      [userId, bookId],
+    );
+    if (result.rowCount === 0) return false;
+
+    await appendSyncChange(txQuery, {
+      userId,
+      entityType: 'book',
+      entityId: result.rows[0].book_id,
+      operation: 'deleted',
+    });
+    return true;
+  });
 }
 
 async function listLibraryBooks(userId, { queryText = '', cursor, limit } = {}) {

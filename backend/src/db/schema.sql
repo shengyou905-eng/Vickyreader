@@ -68,15 +68,53 @@ CREATE TABLE IF NOT EXISTS user_entries (
   auto_summary TEXT,
   metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   is_important BOOLEAN NOT NULL DEFAULT false,
+  client_entry_id TEXT,
 
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 ALTER TABLE user_entries
   ADD COLUMN IF NOT EXISTS chapter_title TEXT;
 
 ALTER TABLE user_entries
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+
+UPDATE user_entries
+SET updated_at = created_at
+WHERE updated_at IS NULL;
+
+ALTER TABLE user_entries
+  ALTER COLUMN updated_at SET DEFAULT now();
+
+ALTER TABLE user_entries
+  ALTER COLUMN updated_at SET NOT NULL;
+
+ALTER TABLE user_entries
   ADD COLUMN IF NOT EXISTS is_important BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE user_entries
+  ADD COLUMN IF NOT EXISTS client_entry_id TEXT;
+
+WITH unique_local_ids AS (
+  SELECT user_id,
+         metadata_json ->> 'local_id' AS local_id
+  FROM user_entries
+  WHERE NULLIF(BTRIM(metadata_json ->> 'local_id'), '') IS NOT NULL
+  GROUP BY user_id, metadata_json ->> 'local_id'
+  HAVING COUNT(*) = 1
+)
+UPDATE user_entries AS entries
+SET client_entry_id = unique_local_ids.local_id
+FROM unique_local_ids
+WHERE entries.user_id = unique_local_ids.user_id
+  AND entries.metadata_json ->> 'local_id' = unique_local_ids.local_id
+  AND entries.client_entry_id IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM user_entries AS bound
+    WHERE bound.user_id = entries.user_id
+      AND bound.client_entry_id = unique_local_ids.local_id
+  );
 
 ALTER TABLE user_entries
   DROP CONSTRAINT IF EXISTS user_entries_source_check;
@@ -97,6 +135,9 @@ CREATE INDEX IF NOT EXISTS idx_user_entries_user_source
 
 CREATE INDEX IF NOT EXISTS idx_user_entries_tags
   ON user_entries USING GIN(auto_tags);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_entries_user_client_entry
+  ON user_entries(user_id, client_entry_id);
 
 CREATE TABLE IF NOT EXISTS user_entry_follow_ups (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -151,8 +192,107 @@ CREATE INDEX IF NOT EXISTS idx_user_library_books_user_opened
 CREATE INDEX IF NOT EXISTS idx_user_library_books_user_title
   ON user_library_books(user_id, lower(title));
 
+-- Append-only index of server-side reading data changes. It intentionally
+-- stores no reading content; future sync APIs resolve current rows from the
+-- business tables and use deletion rows as tombstones.
+CREATE TABLE IF NOT EXISTS sync_user_cursors (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  last_sequence BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS sync_changes (
+  sequence BIGSERIAL PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_sequence BIGINT,
+  entity_type TEXT NOT NULL CHECK (
+    entity_type IN ('trace', 'reading_progress', 'book')
+  ),
+  entity_id TEXT NOT NULL,
+  operation TEXT NOT NULL CHECK (
+    operation IN ('created', 'updated', 'deleted')
+  ),
+  changed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE sync_changes
+  ADD COLUMN IF NOT EXISTS user_sequence BIGINT;
+
+WITH ranked_changes AS (
+  SELECT sequence,
+         ROW_NUMBER() OVER (
+           PARTITION BY user_id
+           ORDER BY sequence
+         )::BIGINT AS user_sequence
+  FROM sync_changes
+  WHERE user_sequence IS NULL
+)
+UPDATE sync_changes AS changes
+SET user_sequence = ranked_changes.user_sequence
+FROM ranked_changes
+WHERE changes.sequence = ranked_changes.sequence;
+
+INSERT INTO sync_user_cursors (user_id, last_sequence)
+SELECT user_id, MAX(user_sequence)
+FROM sync_changes
+GROUP BY user_id
+ON CONFLICT (user_id) DO UPDATE
+SET last_sequence = GREATEST(
+  sync_user_cursors.last_sequence,
+  EXCLUDED.last_sequence
+);
+
+ALTER TABLE sync_changes
+  ALTER COLUMN user_sequence SET NOT NULL;
+
+DROP INDEX IF EXISTS idx_sync_changes_user_sequence;
+DROP INDEX IF EXISTS idx_sync_changes_user_sequence_unique;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_changes_user_sequence
+  ON sync_changes(user_id, user_sequence);
+
 -- Custom, revocable tokens for the read-only MCP endpoint. token_hash is a
 -- keyed SHA-256 digest, never the raw zd_mcp_ token shown to the user once.
+
+-- Reliable upload ordering and permanent-deletion fences (migration 005).
+CREATE TABLE IF NOT EXISTS user_entry_upload_states (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  client_entry_id TEXT NOT NULL,
+  writer_id UUID,
+  latest_revision BIGINT NOT NULL DEFAULT 0 CHECK (latest_revision >= 0),
+  deleted BOOLEAN NOT NULL DEFAULT false,
+  book_id TEXT,
+  request_hash TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, client_entry_id)
+);
+CREATE INDEX IF NOT EXISTS idx_entry_upload_states_book
+  ON user_entry_upload_states(user_id, book_id);
+CREATE TABLE IF NOT EXISTS permanently_deleted_books (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  book_id TEXT NOT NULL,
+  deleted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, book_id)
+);
+INSERT INTO user_entry_upload_states (user_id, client_entry_id, book_id)
+SELECT user_id, client_entry_id, book_id FROM user_entries
+WHERE client_entry_id IS NOT NULL
+ON CONFLICT (user_id, client_entry_id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS reading_progress_upload_states (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  book_id TEXT NOT NULL,
+  writer_id UUID,
+  latest_revision BIGINT NOT NULL DEFAULT 0 CHECK (latest_revision >= 0),
+  deleted BOOLEAN NOT NULL DEFAULT false,
+  request_hash TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, book_id)
+);
+
+INSERT INTO reading_progress_upload_states (user_id, book_id)
+SELECT user_id, book_id FROM reading_progresses
+ON CONFLICT (user_id, book_id) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS mcp_access_tokens (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

@@ -6,6 +6,8 @@ const router = express.Router();
 
 router.post('/', auth, entriesController.createEntry);
 router.get('/', auth, entriesController.listEntries);
+router.put('/client/:clientEntryId', auth, entriesController.upsertEntryByClientId);
+router.delete('/client/:clientEntryId', auth, entriesController.deleteEntryByClientId);
 router.get('/:id/follow-ups', auth, entriesController.listFollowUps);
 router.post('/:id/follow-ups', auth, entriesController.createFollowUp);
 router.patch('/:id/importance', auth, entriesController.updateEntryImportance);

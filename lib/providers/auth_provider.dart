@@ -5,6 +5,7 @@ import '../services/auth_service.dart';
 import '../services/apple_auth_service.dart';
 import '../services/book_service.dart';
 import '../services/sync_service.dart';
+import '../services/reliable_upload_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   bool _isLoading = false;
@@ -24,6 +25,13 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> _init() async {
     await AuthService.init();
+    if (AuthService.isLoggedIn && AuthService.userId?.isNotEmpty == true) {
+      await ReliableUploadService.instance.claimAnonymousOperations(
+        AuthService.userId!,
+      );
+      ReliableUploadService.instance.start();
+      unawaited(BookService.enqueueReliableUploadSnapshot());
+    }
     notifyListeners();
   }
 
@@ -76,6 +84,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    ReliableUploadService.instance.stop();
     await AuthService.signOut();
     _error = null;
     notifyListeners();
@@ -115,6 +124,8 @@ class AuthProvider extends ChangeNotifier {
   Future<void> _afterAuthSuccess() async {
     final userId = AuthService.userId;
     if (userId == null || userId.isEmpty) return;
+    await ReliableUploadService.instance.claimAnonymousOperations(userId);
+    ReliableUploadService.instance.start();
 
     try {
       SyncService.instance.setUserId(userId);
@@ -129,7 +140,7 @@ class AuthProvider extends ChangeNotifier {
     // Keep it independent from the older sync flow so a transient failure in
     // either path cannot prevent the other one from completing.
     try {
-      await BookService.syncMcpLibraryMetadata();
+      await BookService.enqueueReliableUploadSnapshot();
     } catch (_) {
       // MCP stays opt-in and can retry from Settings without affecting login.
     }

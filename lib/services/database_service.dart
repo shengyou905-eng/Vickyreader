@@ -4,10 +4,25 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart'
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
 import '../config/constants.dart';
+import 'upload_revision.dart';
 
 class DatabaseService {
   static Database? _db;
+
+  @visibleForTesting
+  static Future<Database> openForTesting(String path) async {
+    _db = await openDatabase(
+      path,
+      version: AppConstants.dbVersion,
+      onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
+    );
+    return _db!;
+  }
 
   static Future<Database> get database async {
     if (_db != null) return _db!;
@@ -44,6 +59,7 @@ class DatabaseService {
         addedAt TEXT NOT NULL,
         lastOpenedAt TEXT NOT NULL,
         readingProgress REAL DEFAULT 0.0,
+        is_archived INTEGER NOT NULL DEFAULT 0,
         chapterTitles TEXT DEFAULT '',
         updated_at TEXT DEFAULT '',
         bmob_id TEXT DEFAULT ''
@@ -178,6 +194,9 @@ class DatabaseService {
       CREATE INDEX idx_user_entry_follow_ups_entry_created
       ON user_entry_follow_ups(entry_id, created_at ASC)
     ''');
+    await _createPendingUploadTable(db);
+    await createUploadRevisionSchema(db);
+    await createProgressRevisionSchema(db);
   }
 
   static Future<void> _onUpgrade(
@@ -313,6 +332,127 @@ class DatabaseService {
         'INTEGER NOT NULL DEFAULT 0',
       );
     }
+    if (oldVersion < 14) {
+      await _createPendingUploadTable(db);
+    }
+    if (oldVersion < 15) {
+      await _addColumnIfMissing(
+        db,
+        'books',
+        'is_archived',
+        'INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (oldVersion < 16) {
+      await createUploadRevisionSchema(db);
+    }
+    if (oldVersion < 17) {
+      await createProgressRevisionSchema(db);
+    }
+  }
+
+  static Future<void> createProgressRevisionSchema(Database db) async {
+    await db.execute('''UPDATE pending_upload_operations
+      SET client_revision = generation
+      WHERE entity_type = 'reading_progress' AND client_revision = 0''');
+    final pending = await db.query(
+      'pending_upload_operations',
+      where: "entity_type = 'reading_progress'",
+    );
+    for (final row in pending) {
+      Map<String, dynamic> payload;
+      try {
+        payload = Map<String, dynamic>.from(
+          jsonDecode(row['payload_json'] as String) as Map,
+        );
+      } catch (_) {
+        throw StateError(
+          'Invalid pending upload payload; migration was not applied',
+        );
+      }
+      await db.insert('upload_entity_revisions', {
+        'user_id': row['user_id'],
+        'entity_type': 'reading_progress',
+        'entity_id': row['entity_id'],
+        'last_revision': row['client_revision'],
+        'state_hash': uploadStateHash(row['operation'] as String, payload),
+        'book_id': row['entity_id'],
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+  }
+
+  static Future<void> createUploadRevisionSchema(Database db) async {
+    await _addColumnIfMissing(
+      db,
+      'pending_upload_operations',
+      'client_revision',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
+    await db.execute('''CREATE TABLE IF NOT EXISTS upload_writer (
+      id INTEGER PRIMARY KEY CHECK (id = 1), writer_id TEXT NOT NULL)''');
+    await db.insert('upload_writer', {
+      'id': 1,
+      'writer_id': const Uuid().v4(),
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    await db.execute('''CREATE TABLE IF NOT EXISTS upload_entity_revisions (
+      user_id TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL,
+      last_revision INTEGER NOT NULL, state_hash TEXT, book_id TEXT,
+      PRIMARY KEY (user_id, entity_type, entity_id))''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS locally_deleted_books (
+      user_id TEXT NOT NULL, book_id TEXT NOT NULL,
+      PRIMARY KEY (user_id, book_id))''');
+    await db.execute(
+      '''UPDATE pending_upload_operations SET client_revision = generation
+      WHERE entity_type = 'trace' AND client_revision = 0''',
+    );
+    final pending = await db.query(
+      'pending_upload_operations',
+      where: "entity_type = 'trace'",
+    );
+    for (final row in pending) {
+      Map<String, dynamic> payload;
+      try {
+        payload = Map<String, dynamic>.from(
+          jsonDecode(row['payload_json'] as String) as Map,
+        );
+      } catch (_) {
+        throw StateError(
+          'Invalid pending upload payload; migration was not applied',
+        );
+      }
+      await db.insert('upload_entity_revisions', {
+        'user_id': row['user_id'],
+        'entity_type': 'trace',
+        'entity_id': row['entity_id'],
+        'last_revision': row['client_revision'],
+        'state_hash': uploadStateHash(row['operation'] as String, payload),
+        'book_id': payload['book_id'],
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+  }
+
+  static Future<void> _createPendingUploadTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS pending_upload_operations (
+        operation_id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL DEFAULT '',
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        last_error_at TEXT,
+        next_retry_at TEXT NOT NULL,
+        generation INTEGER NOT NULL DEFAULT 1,
+        UNIQUE(user_id, entity_type, entity_id)
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_pending_upload_due
+      ON pending_upload_operations(user_id, next_retry_at, created_at)
+    ''');
   }
 
   static Future<void> _addColumnIfMissing(

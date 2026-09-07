@@ -2,6 +2,12 @@ name: Build iOS Internal IPA
 
 on:
   workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: HTTPS backend for this internal test build
+        required: true
+        default: https://wonyoung.taild268af.ts.net
+        type: string
   push:
     branches:
       - main
@@ -41,11 +47,17 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 知读（内部测试）" ios/Runner/Info.plist
 
       - name: Build iOS app without code signing
+        env:
+          API_BASE_URL: ${{ inputs.api_base_url || (github.ref_name == 'codex/reliable-upload-acceptance' && 'https://wonyoung.taild268af.ts.net' || 'https://api.youxugarden.com') }}
         run: |
+          case "$API_BASE_URL" in
+            https://*) ;;
+            *) echo "API_BASE_URL must use HTTPS"; exit 1 ;;
+          esac
           flutter build ios \
             --release \
             --no-codesign \
-            --dart-define=API_BASE_URL=https://api.youxugarden.com
+            --dart-define=API_BASE_URL="$API_BASE_URL"
 
       - name: Package unsigned IPA
         run: |
