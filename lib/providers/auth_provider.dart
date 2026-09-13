@@ -6,6 +6,7 @@ import '../services/apple_auth_service.dart';
 import '../services/book_service.dart';
 import '../services/sync_service.dart';
 import '../services/reliable_upload_service.dart';
+import '../config/local_diagnostics_mode.dart';
 
 class AuthProvider extends ChangeNotifier {
   bool _isLoading = false;
@@ -24,6 +25,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> _init() async {
+    if (LocalDiagnosticsMode.enabled) return;
     await AuthService.init();
     if (AuthService.isLoggedIn && AuthService.userId?.isNotEmpty == true) {
       await ReliableUploadService.instance.claimAnonymousOperations(
@@ -122,6 +124,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> _afterAuthSuccess() async {
+    if (LocalDiagnosticsMode.enabled) return;
     final userId = AuthService.userId;
     if (userId == null || userId.isEmpty) return;
     await ReliableUploadService.instance.claimAnonymousOperations(userId);

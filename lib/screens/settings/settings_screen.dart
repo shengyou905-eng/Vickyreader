@@ -13,6 +13,8 @@ import '../auth/auth_screen.dart';
 import '../mingtai/community_mingtai_screen.dart';
 import 'legal_document_screen.dart';
 import 'mcp_settings_screen.dart';
+import '../../services/local_sync_diagnostics.dart';
+import 'local_sync_diagnostics_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -83,6 +85,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           if (context.watch<AuthProvider>().isLoggedIn) ...[
             const _ExperimentalFeaturesSection(),
+            const SizedBox(height: 24),
+          ],
+
+          if (LocalSyncDiagnostics.enabled) ...[
+            ListTile(
+              leading: const Icon(Icons.bug_report_outlined),
+              title: Text(
+                Localizations.localeOf(context).languageCode == 'zh'
+                    ? '开发者诊断'
+                    : 'Developer Diagnostics',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const LocalSyncDiagnosticsScreen(),
+                ),
+              ),
+            ),
             const SizedBox(height: 24),
           ],
 

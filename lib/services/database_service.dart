@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import '../config/constants.dart';
+import '../config/local_diagnostics_mode.dart';
 import 'upload_revision.dart';
 
 class DatabaseService {
@@ -25,6 +26,7 @@ class DatabaseService {
   }
 
   static Future<Database> get database async {
+    LocalDiagnosticsMode.requireBusinessWritesAllowed();
     if (_db != null) return _db!;
     _db = await _initDb();
     return _db!;

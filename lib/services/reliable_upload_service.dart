@@ -8,6 +8,7 @@ import 'upload_revision.dart';
 
 import 'bmob_api.dart';
 import 'database_service.dart';
+import '../config/local_diagnostics_mode.dart';
 
 typedef UploadDatabaseProvider = Future<Database> Function();
 typedef UploadClock = DateTime Function();
@@ -159,6 +160,7 @@ class ReliableUploadService {
   static const _maxRetryDelay = Duration(minutes: 15);
 
   void start() {
+    if (LocalDiagnosticsMode.enabled) return;
     _timer ??= Timer.periodic(const Duration(seconds: 30), (_) {
       unawaited(drain());
     });
@@ -171,6 +173,7 @@ class ReliableUploadService {
   }
 
   Future<void> claimAnonymousOperations(String userId) async {
+    if (LocalDiagnosticsMode.enabled) return;
     final normalized = userId.trim();
     if (normalized.isEmpty) return;
     final db = await _databaseProvider();
@@ -236,6 +239,7 @@ class ReliableUploadService {
     required String operation,
     Map<String, dynamic> payload = const {},
   }) async {
+    LocalDiagnosticsMode.requireBusinessWritesAllowed();
     if ((await db.query(
       'locally_deleted_books',
       where: 'user_id = ? AND book_id = ?',
@@ -274,6 +278,7 @@ class ReliableUploadService {
     required String bookId,
     required List<String> localTraceIds,
   }) async {
+    LocalDiagnosticsMode.requireBusinessWritesAllowed();
     await db.insert('locally_deleted_books', {
       'user_id': userId,
       'book_id': bookId,
@@ -326,6 +331,7 @@ class ReliableUploadService {
     required String operation,
     required Map<String, dynamic> payload,
   }) async {
+    LocalDiagnosticsMode.requireBusinessWritesAllowed();
     final normalizedUserId = userId.trim();
     final existing = await db.query(
       'pending_upload_operations',
@@ -410,6 +416,7 @@ class ReliableUploadService {
   }
 
   Future<void> drain() {
+    if (LocalDiagnosticsMode.enabled) return Future<void>.value();
     final running = _activeDrain;
     if (running != null) return running;
     final future = _drainInternal();

@@ -16,12 +16,25 @@ import 'screens/xiaou/xiaou_home_screen.dart';
 import 'screens/notes_free/notes_free_screen.dart';
 import 'screens/settings/settings_screen.dart';
 import 'services/reliable_upload_service.dart';
+import 'config/local_diagnostics_mode.dart';
+import 'screens/settings/local_sync_diagnostics_screen.dart';
 
 class AiReaderApp extends StatelessWidget {
   const AiReaderApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    // Evidence builds must not mount providers, business routes, or their
+    // startup effects, including database upgrades and anonymous queue claims.
+    if (LocalDiagnosticsMode.enabled) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        theme: AppTheme.lightTheme,
+        home: const LocalSyncDiagnosticsScreen(),
+      );
+    }
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
@@ -83,6 +96,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (LocalDiagnosticsMode.enabled) return;
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       _wasBackgrounded = true;
