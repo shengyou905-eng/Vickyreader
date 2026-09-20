@@ -20,6 +20,7 @@ class XiaouCard extends StatefulWidget {
   final String? chapterTitle;
   final String? createdAt;
   final bool isImportant;
+  final bool pendingSync;
   final int followUpCount;
   final String? latestFollowUpQuestion;
   final VoidCallback? onBookTap;
@@ -38,6 +39,7 @@ class XiaouCard extends StatefulWidget {
     this.chapterTitle,
     this.createdAt,
     this.isImportant = false,
+    this.pendingSync = false,
     this.followUpCount = 0,
     this.latestFollowUpQuestion,
     this.onBookTap,
@@ -128,6 +130,16 @@ class _XiaouCardState extends State<XiaouCard> {
                     ),
                   ),
                   const Spacer(),
+                  if (widget.pendingSync)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Text(
+                        Localizations.localeOf(context).languageCode == 'zh'
+                            ? '待同步'
+                            : 'Pending sync',
+                        style: TextStyle(color: visuals.inkMuted, fontSize: 11),
+                      ),
+                    ),
                   if (widget.isImportant)
                     Icon(
                       Icons.star_rounded,

@@ -217,6 +217,7 @@ class _XiaouBookTracesScreenState extends State<XiaouBookTracesScreen> {
                         ? null
                         : () => _deleteItem(item),
                     child: XiaouCard(
+                      pendingSync: item['pending_sync'] == true,
                       entryId: item['remote_entry_id']?.toString() ?? '',
                       source: item['source']?.toString() ?? '',
                       originalText: item['original_text']?.toString() ?? '',

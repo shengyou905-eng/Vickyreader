@@ -5,6 +5,41 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets(
+    'local trace shows pending state without requiring remote identity',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.forTheme(AppThemeId.lavender),
+          home: const Scaffold(
+            body: XiaouCard(
+              source: 'thought',
+              originalText: 'Synthetic local excerpt',
+              userNote: 'Synthetic local thought',
+              pendingSync: true,
+            ),
+          ),
+        ),
+      );
+      expect(find.text('Synthetic local thought'), findsOneWidget);
+      expect(find.text('Pending sync'), findsOneWidget);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.forTheme(AppThemeId.lavender),
+          home: const Scaffold(
+            body: XiaouCard(
+              source: 'thought',
+              originalText: 'Synthetic local excerpt',
+              userNote: 'Synthetic local thought',
+              entryId: 'remote-id',
+            ),
+          ),
+        ),
+      );
+      expect(find.text('Pending sync'), findsNothing);
+      expect(find.byType(XiaouCard), findsOneWidget);
+    },
+  );
+  testWidgets(
     'AI explanation card opens the complete draggable reading layer',
     (tester) async {
       await tester.pumpWidget(

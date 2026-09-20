@@ -26,6 +26,7 @@ import 'epub_service.dart';
 import 'import_service.dart';
 import 'pdf_service.dart';
 import 'reliable_upload_service.dart';
+import 'xiaou_trace_snapshot.dart';
 
 class MingtaiOverview {
   final List<Map<String, dynamic>> items;
@@ -780,6 +781,7 @@ class BookService {
   static final Map<String, Future<String>> _mingtaiChapterContentTasks = {};
   static final Map<String, Future<void>> _mingtaiOpeningPrefetchTasks = {};
   static MingtaiOverview? _mingtaiOverviewCache;
+  static List<Map<String, dynamic>>? _xiaouRemoteEntryRows;
   static DateTime? _mingtaiOverviewCacheAt;
   static Future<MingtaiOverview>? _mingtaiOverviewInFlight;
   static XiaouHomeInsight? _xiaouHomeInsightCache;
@@ -3206,17 +3208,31 @@ class BookService {
     String? tag,
   }) async {
     final userId = await _ensureXiaouCacheOwner();
-    final memory = _mingtaiOverviewCache;
-    if (memory != null) return _filterMingtaiOverview(memory, tag);
+    final rows =
+        _xiaouRemoteEntryRows ??
+        await _readDiskMapList(
+          _scopedCacheKey(_xiaouOverviewDiskCacheKey, userId),
+        );
+    if (!_isCurrentXiaouCacheOwner(userId)) {
+      throw StateError('Reading account changed');
+    }
+    _xiaouRemoteEntryRows ??= rows ?? [];
+    final overview = await _readMingtaiOverview(userId);
+    return _filterMingtaiOverview(overview, tag);
+  }
 
-    final rows = await _readDiskMapList(
-      _scopedCacheKey(_xiaouOverviewDiskCacheKey, userId),
+  static Future<MingtaiOverview> _readMingtaiOverview(String userId) async {
+    final rows = await XiaouTraceSnapshot.read(
+      await DatabaseService.database,
+      userId: userId,
+      remoteRows: _xiaouRemoteEntryRows ?? [],
     );
-    if (rows == null) return null;
+    if (!_isCurrentXiaouCacheOwner(userId)) {
+      throw StateError('Reading account changed');
+    }
     final overview = _buildMingtaiOverviewFromRows(rows);
     _mingtaiOverviewCache = overview;
-    _mingtaiOverviewCacheAt = DateTime.now();
-    return _filterMingtaiOverview(overview, tag);
+    return overview;
   }
 
   static Future<MingtaiOverview> getMingtaiOverview({
@@ -3227,12 +3243,7 @@ class BookService {
     final api = BmobApi.instance;
     final userId = await _ensureXiaouCacheOwner();
     if (!api.isLoggedIn) {
-      return MingtaiOverview(
-        items: const [],
-        allItems: const [],
-        tags: const [],
-        insights: {7: MingtaiInsight.empty(7), 30: MingtaiInsight.empty(30)},
-      );
+      return _filterMingtaiOverview(await _readMingtaiOverview(userId), tag);
     }
 
     final cached = _mingtaiOverviewCache;
@@ -3242,12 +3253,13 @@ class BookService {
         cacheAt != null &&
         DateTime.now().difference(cacheAt) < _mingtaiOverviewCacheTtl;
     if (!forceRefresh && cacheFresh) {
-      return _filterMingtaiOverview(cached, tag);
+      return _filterMingtaiOverview(await _readMingtaiOverview(userId), tag);
     }
 
     final running = _mingtaiOverviewInFlight;
     if (running != null) {
-      return _filterMingtaiOverview(await running, tag);
+      await running;
+      return _filterMingtaiOverview(await _readMingtaiOverview(userId), tag);
     }
 
     late final Future<MingtaiOverview> request;
@@ -3259,8 +3271,8 @@ class BookService {
           throw StateError('登录账户已切换，本次阅读痕迹结果已忽略');
         }
       } catch (_) {
+        if (!_isCurrentXiaouCacheOwner(userId)) rethrow;
         if (!fallbackToCacheOnError) rethrow;
-        if (cached != null) return cached;
         final disk = await restoreCachedMingtaiOverview();
         if (disk != null) return disk;
         rethrow;
@@ -3272,8 +3284,8 @@ class BookService {
         ),
       );
 
-      final overview = _buildMingtaiOverviewFromRows(rows);
-      _mingtaiOverviewCache = overview;
+      _xiaouRemoteEntryRows = rows;
+      final overview = await _readMingtaiOverview(userId);
       _mingtaiOverviewCacheAt = DateTime.now();
       return overview;
     })();
@@ -3297,7 +3309,7 @@ class BookService {
       final rowTags = _remoteTags(row['auto_tags']);
       tags.addAll(rowTags);
       final item = _remoteUserEntryToMingtaiItem(row);
-      if (((item['remote_entry_id'] as String?) ?? '').isEmpty) {
+      if (((item['id'] as String?) ?? '').isEmpty) {
         continue;
       }
 
@@ -3607,6 +3619,7 @@ class BookService {
     if (_xiaouCacheUserId == userId) return userId;
 
     _xiaouCacheUserId = userId;
+    _xiaouRemoteEntryRows = null;
     _mingtaiOverviewCache = null;
     _mingtaiOverviewCacheAt = null;
     _mingtaiOverviewInFlight = null;
@@ -3632,6 +3645,7 @@ class BookService {
     Map<String, dynamic> row,
   ) {
     final remoteId = row['id']?.toString() ?? '';
+    final viewId = row['_view_id']?.toString() ?? remoteId;
     final metadata = _metadataToRemote(row['metadata_json']);
     final aiExplanation = row['ai_explanation']?.toString() ?? '';
     final autoSummary = row['auto_summary']?.toString() ?? '';
@@ -3640,7 +3654,8 @@ class BookService {
         : autoSummary;
 
     return {
-      'id': remoteId.isNotEmpty ? 'entry:$remoteId' : '',
+      'id': viewId.isNotEmpty ? 'entry:$viewId' : '',
+      'pending_sync': row['_pending_sync'] == true,
       'local_entry_id': metadata['local_id']?.toString() ?? '',
       'remote_entry_id': remoteId,
       'metadata_json': metadata,

@@ -125,7 +125,8 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   @override
   void didUpdateWidget(covariant XiaouHomeScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.refreshSignal != oldWidget.refreshSignal) {
+    if (widget.refreshSignal != oldWidget.refreshSignal ||
+        (widget.autoLoad && widget.isActive && !oldWidget.isActive)) {
       _load(forceRefresh: true);
     }
     if (widget.isActive && !oldWidget.isActive) {
@@ -186,16 +187,28 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
       '[XiaouLoad] start version=$requestVersion force=$forceRefresh '
       'visible=${_allItems.length}',
     );
-    final memoryOverview = BookService.cachedMingtaiOverview();
     final memoryInsight = BookService.cachedXiaouHomeInsight();
-    final restored = await Future.wait<Object?>([
-      memoryOverview == null
-          ? BookService.restoreCachedMingtaiOverview()
-          : Future<MingtaiOverview?>.value(memoryOverview),
-      memoryInsight == null
-          ? BookService.restoreCachedXiaouHomeInsight()
-          : Future<XiaouHomeInsight?>.value(memoryInsight),
-    ]);
+    late final List<Object?> restored;
+    try {
+      restored = await Future.wait<Object?>([
+        BookService.restoreCachedMingtaiOverview(),
+        memoryInsight == null
+            ? BookService.restoreCachedXiaouHomeInsight()
+            : Future<XiaouHomeInsight?>.value(memoryInsight),
+      ]);
+    } catch (error) {
+      // Without the local snapshot, remote rows cannot be tombstone-filtered.
+      if (mounted && _loadGuard.isCurrent(requestVersion)) {
+        setState(() {
+          _loading = false;
+          _refreshing = false;
+          _loadError = _friendlyLoadError(error);
+        });
+      }
+      _loadInFlight = false;
+      _runQueuedLoadIfNeeded();
+      return;
+    }
     final cached = restored[0] as MingtaiOverview?;
     final cachedHome = restored[1] as XiaouHomeInsight?;
     if (!mounted || !_loadGuard.isCurrent(requestVersion)) {
@@ -219,7 +232,6 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
       }
       if (cachedHome != null) {
         _homeInsight = cachedHome;
-        _useInsightSnapshotIfNeeded(cachedHome);
       }
       _loading = !hasVisibleContent;
       _refreshing = hasVisibleContent;
@@ -246,7 +258,6 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
             _presencePulseKey++;
           }
           _homeInsight = insight;
-          _useInsightSnapshotIfNeeded(insight);
         });
       } catch (error) {
         errors.add(error);
@@ -337,14 +348,6 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         _homeInsight.refreshedAt != null ||
         _homeInsight.recentEntries.isNotEmpty ||
         _homeInsight.longTermTopics.isNotEmpty;
-  }
-
-  void _useInsightSnapshotIfNeeded(XiaouHomeInsight insight) {
-    if (_allItems.isNotEmpty) return;
-    final snapshot = BookService.xiaouSnapshotItems(insight);
-    if (snapshot.isEmpty) return;
-    _items = snapshot;
-    _allItems = snapshot;
   }
 
   bool _shouldPulseForNewInsight(
@@ -593,6 +596,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
                       ? null
                       : () => _deleteItem(item),
                   child: XiaouCard(
+                    pendingSync: item['pending_sync'] == true,
                     entryId: (item['remote_entry_id'] as String?) ?? '',
                     source: source,
                     originalText: (item['original_text'] as String?) ?? '',
