@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:html/parser.dart' as html_parser;
+import 'package:html/dom.dart' as dom;
+import '../../../services/reading_anchor.dart';
 import '../../../config/reader_paging_mode.dart';
 import '../../../models/highlight.dart';
 import '../../../providers/settings_provider.dart';
@@ -476,11 +478,31 @@ ${_readerRuntimeScriptTail()}
         }
         assignReaderParagraphIndexes();
         var range = selection.getRangeAt(0);
+        var root = s.querySelector('.chapter-body');
+        if (!root || !root.contains(range.startContainer) || !root.contains(range.endContainer)) return '';
+        function rangeText(r) {
+          var fragment = r.cloneContents();
+          fragment.querySelectorAll('.reader-thought-marker').forEach(function(n) { n.remove(); });
+          return fragment.textContent || '';
+        }
+        var prefix = document.createRange();
+        prefix.selectNodeContents(root);
+        prefix.setEnd(range.startContainer, range.startOffset);
+        var suffix = document.createRange();
+        suffix.selectNodeContents(root);
+        suffix.setStart(range.endContainer, range.endOffset);
+        var before = rangeText(prefix), after = rangeText(suffix), selected = rangeText(range);
         var block = readerBlockForNode(range.startContainer);
-        if (!block) return '';
+        var blockCopy = block ? block.cloneNode(true) : null;
+        if (blockCopy) blockCopy.querySelectorAll('.reader-thought-marker').forEach(function(n) { n.remove(); });
         return JSON.stringify({
-          paragraphIndex: Number(block.getAttribute('data-reader-paragraph-index')),
-          paragraphText: (block.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 600)
+          paragraphIndex: block ? Number(block.getAttribute('data-reader-paragraph-index')) : -1,
+          paragraphText: blockCopy ? (blockCopy.textContent || '').slice(0, 8000) : selected,
+          selectedText: selected,
+          startOffset: before.length,
+          endOffset: before.length + selected.length,
+          contextBefore: before.slice(-3000),
+          contextAfter: after.slice(0, 3000)
         });
       };
 
@@ -908,26 +930,50 @@ ${_readerRuntimeScriptTail()}
 
   static String _injectHighlights(String html, List<Highlight> highlights) {
     if (highlights.isEmpty) return html;
-    var result = html;
-    final tagRe = RegExp(r'<[^>]*>');
+    final fragment = html_parser.parseFragment(html);
     for (final h in highlights) {
-      final search = h.selectedText;
-      if (search.isEmpty) continue;
-      final replacement =
-          '<span class="ai-reader-highlight" style="background-color:${h.color};border-radius:2px">$search</span>';
-      final buf = StringBuffer();
-      var pos = 0;
-      for (final m in tagRe.allMatches(result)) {
-        buf.write(
-          result.substring(pos, m.start).replaceAll(search, replacement),
-        );
-        buf.write(m.group(0));
-        pos = m.end;
+      final nodes = <dom.Text>[];
+      void collect(dom.Node node) {
+        if (node is dom.Text) nodes.add(node);
+        for (final child in node.nodes) {
+          collect(child);
+        }
       }
-      buf.write(result.substring(pos).replaceAll(search, replacement));
-      result = buf.toString();
+
+      collect(fragment);
+      final text = nodes.map((node) => node.data).join();
+      final anchor = ReadingAnchor.resolve(
+        text,
+        h.selectedText,
+        startOffset: h.startOffset,
+        endOffset: h.endOffset,
+        before: h.contextBefore,
+        after: h.contextAfter,
+      );
+      if (anchor == null) continue;
+      var offset = 0;
+      for (final node in nodes) {
+        final value = node.data;
+        final start = (anchor.start - offset).clamp(0, value.length);
+        final end = (anchor.end - offset).clamp(0, value.length);
+        offset += value.length;
+        if (end <= start) continue;
+        final span = dom.Element.tag('span')
+          ..classes.add('ai-reader-highlight')
+          ..attributes['style'] =
+              'background-color:${RegExp(r"^#[0-9a-fA-F]{6}$").hasMatch(h.color) ? h.color : '#B39DDB'};border-radius:2px'
+          ..text = value.substring(start, end);
+        final parent = node.parentNode!;
+        final index = parent.nodes.indexOf(node);
+        node.remove();
+        parent.nodes.insertAll(index, [
+          dom.Text(value.substring(0, start)),
+          span,
+          dom.Text(value.substring(end)),
+        ]);
+      }
     }
-    return result;
+    return fragment.outerHtml;
   }
 
   static String _escapeHtml(String text) {

@@ -16,6 +16,7 @@ import 'screens/xiaou/xiaou_home_screen.dart';
 import 'screens/notes_free/notes_free_screen.dart';
 import 'screens/settings/settings_screen.dart';
 import 'services/reliable_upload_service.dart';
+import 'services/auth_session_scope.dart';
 import 'config/local_diagnostics_mode.dart';
 import 'screens/settings/local_sync_diagnostics_screen.dart';
 
@@ -86,10 +87,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    AuthSessionScope.changes.addListener(_accountChanged);
+  }
+
+  void _accountChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    AuthSessionScope.changes.removeListener(_accountChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -121,10 +128,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     return switch (index) {
       0 => const BookshelfScreen(),
       1 => XiaouHomeScreen(
+        key: ValueKey('xiaou:${AuthSessionScope.changes.value}'),
         refreshSignal: _xiaouRefreshSignal,
         isActive: _currentIndex == 1,
       ),
-      2 => NotesFreeScreen(refreshSignal: _freeNotesRefreshSignal),
+      2 => NotesFreeScreen(
+        key: ValueKey('notes:${AuthSessionScope.changes.value}'),
+        refreshSignal: _freeNotesRefreshSignal,
+      ),
       3 => CommunityMingtaiScreen(
         refreshSignal: _mingtaiRefreshSignal,
         isActive: _currentIndex == 3,

@@ -20,12 +20,14 @@ import '../models/ai_conversation.dart';
 import '../models/user_entry.dart';
 import '../models/user_entry_follow_up.dart';
 import 'auth_service.dart';
+import 'auth_session_scope.dart';
 import 'bmob_api.dart';
 import 'database_service.dart';
 import 'epub_service.dart';
 import 'import_service.dart';
 import 'pdf_service.dart';
 import 'reliable_upload_service.dart';
+import 'reading_source_changes.dart';
 import 'xiaou_trace_snapshot.dart';
 
 class MingtaiOverview {
@@ -788,6 +790,7 @@ class BookService {
   static DateTime? _xiaouHomeInsightCacheAt;
   static Future<XiaouHomeInsight>? _xiaouHomeInsightInFlight;
   static String? _xiaouCacheUserId;
+  static AuthSessionScope? _xiaouCacheSession;
   static const Duration _mingtaiBooksCacheTtl = Duration(seconds: 90);
   static const Duration _mingtaiBookDetailCacheTtl = Duration(seconds: 60);
   static const Duration _mingtaiOverviewCacheTtl = Duration(seconds: 60);
@@ -838,7 +841,7 @@ class BookService {
 
   static Future<void> insertBook(Book book) async {
     final db = await DatabaseService.database;
-    await db.transaction((txn) async {
+    await db.readingSourceTransaction((txn) async {
       // UPDATE preserves dependent history when a stable book ID is restored.
       final owner = _uploadOwner(book.userId);
       if ((await txn.query(
@@ -865,7 +868,7 @@ class BookService {
 
   static Future<void> updateBook(Book book) async {
     final db = await DatabaseService.database;
-    await db.transaction((txn) async {
+    await db.readingSourceTransaction((txn) async {
       await txn.update(
         'books',
         book.toMap(),
@@ -884,7 +887,7 @@ class BookService {
   /// Removes shelf membership, not the user's reading history.
   static Future<void> removeFromLibrary(String id) async {
     final db = await DatabaseService.database;
-    await db.transaction((txn) async {
+    await db.readingSourceTransaction((txn) async {
       await txn.update(
         'books',
         {'is_archived': 1},
@@ -900,7 +903,7 @@ class BookService {
   /// One server transaction deletes all owned book history, including other devices.
   static Future<void> permanentlyDeleteBookData(String id) async {
     final db = await DatabaseService.database;
-    await db.transaction((txn) async {
+    await db.readingSourceTransaction((txn) async {
       final traces = await txn.query(
         'user_entries',
         columns: ['id', 'user_id'],
@@ -955,7 +958,7 @@ class BookService {
   /// leave the device through this method.
   static Future<void> syncMcpLibraryMetadata() async {
     final db = await DatabaseService.database;
-    await db.transaction(_enqueueLibrarySnapshot);
+    await db.readingSourceTransaction(_enqueueLibrarySnapshot);
     await ReliableUploadService.instance.drain();
   }
 
@@ -965,9 +968,13 @@ class BookService {
   /// deliberately excluded.
   static Future<void> enqueueReliableUploadSnapshot() async {
     final db = await DatabaseService.database;
-    await db.transaction((txn) async {
+    await db.readingSourceTransaction((txn) async {
       final entries = await txn.query('user_entries');
       for (final row in entries) {
+        if ((row['user_id']?.toString() ?? '').isEmpty &&
+            const ['ai_explanation', 'ai_question'].contains(row['source'])) {
+          continue;
+        }
         final localId = row['id']?.toString() ?? '';
         if (localId.isEmpty) continue;
         await ReliableUploadService.instance.enqueueTrace(
@@ -1051,19 +1058,32 @@ class BookService {
   // ---- Highlights ----
 
   static Future<List<Highlight>> getHighlights(String bookId) async {
+    final scope = AuthSessionScope.capture();
+    scope.check();
     final db = await DatabaseService.database;
+    scope.check();
     final maps = await db.query(
       'highlights',
-      where: 'bookId = ?',
-      whereArgs: [bookId],
+      where: "bookId = ? AND COALESCE(user_id, '') = ?",
+      whereArgs: [bookId, scope.userId ?? ''],
       orderBy: 'createdAt DESC',
     );
+    scope.check();
     return maps.map((m) => Highlight.fromMap(m)).toList();
   }
 
   static Future<List<Highlight>> getAllHighlights() async {
+    final scope = AuthSessionScope.capture();
+    scope.check();
     final db = await DatabaseService.database;
-    final maps = await db.query('highlights', orderBy: 'createdAt DESC');
+    scope.check();
+    final maps = await db.query(
+      'highlights',
+      where: "COALESCE(user_id, '') = ?",
+      whereArgs: [scope.userId ?? ''],
+      orderBy: 'createdAt DESC',
+    );
+    scope.check();
     return maps.map((m) => Highlight.fromMap(m)).toList();
   }
 
@@ -1079,7 +1099,7 @@ class BookService {
   static Future<void> updateHighlightNote(String id, String? note) async {
     final db = await DatabaseService.database;
     final linked = await _findLocalEntryBySourceRecordId(id, 'highlight');
-    await db.transaction((txn) async {
+    await db.readingSourceTransaction((txn) async {
       await txn.update(
         'highlights',
         {'note': note, 'updated_at': DateTime.now().toUtc().toIso8601String()},
@@ -1112,7 +1132,7 @@ class BookService {
   static Future<void> deleteHighlight(String id) async {
     final db = await DatabaseService.database;
     final linked = await _findLocalEntryBySourceRecordId(id, 'highlight');
-    await db.transaction((txn) async {
+    await db.readingSourceTransaction((txn) async {
       await txn.delete('highlights', where: 'id = ?', whereArgs: [id]);
       if (linked != null) {
         final entryId = linked['id']?.toString() ?? '';
@@ -1158,27 +1178,44 @@ class BookService {
   static Future<List<AiMessage>> getAiMessages(
     String bookId, {
     int limit = 6,
+    AuthSessionScope? session,
   }) async {
+    final scope = session ?? AuthSessionScope.capture();
+    scope.check();
+    if (scope.userId == null) return const [];
     final db = await DatabaseService.database;
+    scope.check();
     final maps = await db.query(
       'ai_messages',
-      where: 'bookId = ?',
-      whereArgs: [bookId],
+      where: 'bookId = ? AND user_id = ?',
+      whereArgs: [bookId, scope.userId],
       orderBy: 'timestamp DESC',
       limit: limit,
     );
+    scope.check();
     return maps.reversed.map((m) => AiMessage.fromMap(m)).toList();
   }
 
-  static Future<void> insertAiMessage(String bookId, AiMessage msg) async {
+  static Future<void> insertAiMessage(
+    String bookId,
+    AiMessage msg, {
+    AuthSessionScope? session,
+  }) async {
+    final scope = session ?? AuthSessionScope.capture();
+    final owner = scope.requireOwner();
     final db = await DatabaseService.database;
-    await db.insert('ai_messages', {
-      'id': msg.timestamp.microsecondsSinceEpoch.toString(),
-      'bookId': bookId,
-      'role': msg.role,
-      'content': msg.content,
-      'timestamp': msg.timestamp.toIso8601String(),
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.transaction((txn) async {
+      scope.check();
+      await txn.insert('ai_messages', {
+        'id': const Uuid().v4(),
+        'user_id': owner,
+        'bookId': bookId,
+        'role': msg.role,
+        'content': msg.content,
+        'timestamp': msg.timestamp.toIso8601String(),
+      }, conflictAlgorithm: ConflictAlgorithm.abort);
+      scope.check();
+    });
   }
 
   // ---- Reading Progress ----
@@ -1223,7 +1260,7 @@ class BookService {
         ? ((chapter + 1) / totalChapters).clamp(0.0, 1.0).toDouble()
         : 0.0;
 
-    await db.transaction((txn) async {
+    await db.readingSourceTransaction((txn) async {
       await txn.insert('reading_progress', {
         'bookId': bookId,
         'user_id': userId,
@@ -1251,8 +1288,18 @@ class BookService {
   // ---- Notes ----
 
   static Future<List<Map<String, dynamic>>> getAllNotes() async {
+    final scope = AuthSessionScope.capture();
+    scope.check();
     final db = await DatabaseService.database;
-    return db.query('notes', orderBy: 'updatedAt DESC');
+    scope.check();
+    final rows = await db.query(
+      'notes',
+      where: "COALESCE(user_id, '') = ?",
+      whereArgs: [scope.userId ?? ''],
+      orderBy: 'updatedAt DESC',
+    );
+    scope.check();
+    return rows;
   }
 
   static Future<void> insertNote({
@@ -1263,21 +1310,28 @@ class BookService {
     String? chapterTitle,
     required String content,
     String userId = '',
+    DatabaseExecutor? executor,
   }) async {
-    final db = await DatabaseService.database;
+    final db = executor ?? await DatabaseService.database;
     final now = DateTime.now().toUtc().toIso8601String();
-    await db.insert('notes', {
-      'id': id,
-      'user_id': userId,
-      'bookId': bookId,
-      'chapterIndex': chapterIndex,
-      'selectedText': selectedText,
-      'chapterTitle': chapterTitle,
-      'content': content,
-      'createdAt': now,
-      'updatedAt': now,
-      'updated_at': now,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert(
+      'notes',
+      {
+        'id': id,
+        'user_id': userId,
+        'bookId': bookId,
+        'chapterIndex': chapterIndex,
+        'selectedText': selectedText,
+        'chapterTitle': chapterTitle,
+        'content': content,
+        'createdAt': now,
+        'updatedAt': now,
+        'updated_at': now,
+      },
+      conflictAlgorithm: executor == null
+          ? ConflictAlgorithm.replace
+          : ConflictAlgorithm.abort,
+    );
   }
 
   static Future<void> deleteNote(String id) async {
@@ -1759,13 +1813,113 @@ class BookService {
 
   // ---- User Entries ----
 
-  static Future<String> insertUserEntry(UserEntry entry) async {
+  static Future<String> insertHighlightTrace(
+    Highlight highlight,
+    UserEntry entry, {
+    AuthSessionScope? session,
+  }) {
+    _validateReadingTrace(
+      entry,
+      highlight.id,
+      'highlight',
+      highlight.bookId,
+      highlight.userId,
+    );
+    return _insertUserEntry(
+      entry,
+      session: session,
+      writeBusiness: (txn) async {
+        await txn.insert('highlights', highlight.toMap());
+      },
+    );
+  }
+
+  static Future<String> insertThoughtTrace(
+    String noteId,
+    UserEntry entry, {
+    AuthSessionScope? session,
+  }) {
+    _validateReadingTrace(entry, noteId, 'thought', entry.bookId, entry.userId);
+    return _insertUserEntry(
+      entry,
+      session: session,
+      writeBusiness: (txn) => insertNote(
+        id: noteId,
+        bookId: entry.bookId,
+        chapterIndex: entry.chapterIndex,
+        selectedText: entry.originalText,
+        chapterTitle: entry.chapterTitle,
+        content: entry.userInput,
+        userId: entry.userId,
+        executor: txn,
+      ),
+    );
+  }
+
+  static void _validateReadingTrace(
+    UserEntry entry,
+    String sourceId,
+    String source,
+    String? bookId,
+    String userId,
+  ) {
+    final metadata = jsonDecode(
+      entry.metadataJson.isEmpty ? '{}' : entry.metadataJson,
+    );
+    if (entry.source != source ||
+        entry.bookId.isEmpty ||
+        entry.bookId != bookId ||
+        entry.userId != userId ||
+        metadata['source_record_id'] != sourceId) {
+      throw ArgumentError('Reading record and trace identity must match');
+    }
+  }
+
+  static Future<String> insertUserEntry(
+    UserEntry entry, {
+    AuthSessionScope? session,
+  }) => _insertUserEntry(entry, session: session);
+
+  /// Local-only lookup: opening a detail sheet must not initiate a sync.
+  static Future<UserEntry?> getLocalUserEntry(String id) async {
+    final scope = AuthSessionScope.capture();
+    scope.check();
+    if (scope.userId == null) return null;
     final db = await DatabaseService.database;
-    await db.transaction((txn) async {
+    scope.check();
+    final rows = await db.query(
+      'user_entries',
+      where: '(id = ? OR bmob_id = ?) AND user_id = ?',
+      whereArgs: [id, id, scope.userId],
+      limit: 1,
+    );
+    scope.check();
+    return rows.isEmpty ? null : UserEntry.fromMap(rows.first);
+  }
+
+  static Future<String> _insertUserEntry(
+    UserEntry entry, {
+    Future<void> Function(Transaction)? writeBusiness,
+    AuthSessionScope? session,
+  }) async {
+    final scope = session ?? AuthSessionScope.capture();
+    scope.check();
+    if (entry.userId != (scope.userId ?? '')) {
+      throw const StaleAuthSession();
+    }
+    if (const ['ai_explanation', 'ai_question'].contains(entry.source)) {
+      scope.requireOwner();
+    }
+    final db = await DatabaseService.database;
+    await db.readingSourceTransaction((txn) async {
+      scope.check();
+      await writeBusiness?.call(txn);
       await txn.insert(
         'user_entries',
         entry.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace,
+        conflictAlgorithm: writeBusiness == null
+            ? ConflictAlgorithm.replace
+            : ConflictAlgorithm.abort,
       );
       await ReliableUploadService.instance.enqueueTrace(
         txn,
@@ -1774,8 +1928,11 @@ class BookService {
         operation: 'create',
         payload: _userEntryToRemote(entry),
       );
+      scope.check();
     });
+    scope.check();
     await ReliableUploadService.instance.drain();
+    scope.check();
     final remoteRows = await db.query(
       'user_entries',
       columns: ['bmob_id'],
@@ -1786,6 +1943,7 @@ class BookService {
     final remoteId = remoteRows.isEmpty
         ? ''
         : remoteRows.first['bmob_id']?.toString() ?? '';
+    scope.check();
     _invalidateMingtaiOverviewCache();
     return remoteId.isNotEmpty ? remoteId : entry.id;
   }
@@ -1797,7 +1955,11 @@ class BookService {
     DateTime? createdAtFrom,
     DateTime? createdAtTo,
   }) async {
+    final scope = AuthSessionScope.capture();
+    scope.check();
+    if (scope.userId == null) return const [];
     final db = await DatabaseService.database;
+    scope.check();
     await _pullRemoteUserEntriesIfPossible(
       db,
       bookId: bookId,
@@ -1806,9 +1968,10 @@ class BookService {
       createdAtFrom: createdAtFrom,
       createdAtTo: createdAtTo,
     );
+    scope.check();
 
-    final whereParts = <String>[];
-    final whereArgs = <Object?>[];
+    final whereParts = <String>['user_id = ?'];
+    final whereArgs = <Object?>[scope.userId];
     if (bookId != null && bookId.isNotEmpty) {
       whereParts.add('book_id = ?');
       whereArgs.add(bookId);
@@ -1836,6 +1999,7 @@ class BookService {
       whereArgs: whereArgs.isEmpty ? null : whereArgs,
       orderBy: 'created_at DESC',
     );
+    scope.check();
     return maps.map((m) => UserEntry.fromMap(m)).toList();
   }
 
@@ -1848,7 +2012,15 @@ class BookService {
     String? source,
     String? userId,
   }) async {
+    final scope = AuthSessionScope.capture();
+    scope.check();
+    if (scope.userId == null) return const [];
+    if (userId != null && userId != scope.userId) {
+      throw const StaleAuthSession();
+    }
+    userId = scope.userId;
     final db = await DatabaseService.database;
+    scope.check();
     final whereParts = <String>[];
     final whereArgs = <Object?>[];
     if (bookId != null && bookId.isNotEmpty) {
@@ -1869,12 +2041,23 @@ class BookService {
       whereArgs: whereArgs.isEmpty ? null : whereArgs,
       orderBy: 'created_at DESC',
     );
+    scope.check();
     return maps.map(UserEntry.fromMap).toList(growable: false);
   }
 
   static Future<List<String>> getUserEntryTags() async {
+    final scope = AuthSessionScope.capture();
+    scope.check();
+    if (scope.userId == null) return const [];
     final db = await DatabaseService.database;
-    final maps = await db.query('user_entries', columns: ['auto_tags']);
+    scope.check();
+    final maps = await db.query(
+      'user_entries',
+      columns: ['auto_tags'],
+      where: 'user_id = ?',
+      whereArgs: [scope.userId],
+    );
+    scope.check();
     final tags = <String>{};
     for (final m in maps) {
       tags.addAll(_parseTags((m['auto_tags'] as String?) ?? ''));
@@ -1882,44 +2065,91 @@ class BookService {
     return tags.toList()..sort();
   }
 
+  static Future<Map<String, Object?>> _ownedFollowUpParent(
+    Database db,
+    String entryId,
+    AuthSessionScope scope,
+  ) async {
+    scope.requireOwner();
+    Future<List<Map<String, Object?>>> read() => db.query(
+      'user_entries',
+      where: '(id = ? OR bmob_id = ?) AND user_id = ?',
+      whereArgs: [entryId, entryId, scope.userId],
+    );
+    var rows = await read();
+    scope.check();
+    if (rows.isEmpty && BmobApi.instance.isLoggedIn) {
+      await _pullRemoteUserEntriesIfPossible(db);
+      scope.check();
+      rows = await read();
+      scope.check();
+    }
+    if (rows.length != 1) throw StateError('Reading trace is unavailable');
+    final deleted = await db.query(
+      'locally_deleted_books',
+      where: 'user_id = ? AND book_id = ?',
+      whereArgs: [scope.userId, rows.single['book_id']],
+    );
+    scope.check();
+    if (deleted.isNotEmpty) throw StateError('Reading trace was deleted');
+    return rows.single;
+  }
+
   static Future<List<UserEntryFollowUp>> getUserEntryFollowUps(
     String entryId, {
     bool forceRefresh = false,
   }) async {
+    final scope = AuthSessionScope.capture();
+    scope.check();
+    if (scope.userId == null) return const [];
     final normalizedId = entryId.trim();
     if (normalizedId.isEmpty) return const [];
     final db = await DatabaseService.database;
+    final parent = await _ownedFollowUpParent(db, normalizedId, scope);
+    final localId = parent['id']!.toString();
+    final remoteId = parent['bmob_id']?.toString() ?? '';
 
-    if (BmobApi.instance.isLoggedIn) {
-      await _syncPendingUserEntryFollowUps(db, normalizedId);
+    if (BmobApi.instance.isLoggedIn && remoteId.isNotEmpty) {
+      await _syncPendingUserEntryFollowUps(db, localId, remoteId, scope);
       try {
-        final rows = await BmobApi.instance.listUserEntryFollowUps(
-          normalizedId,
-        );
-        for (final row in rows) {
-          final followUp = UserEntryFollowUp.fromRemote(row);
-          if (followUp.id.isEmpty) continue;
-          await db.insert('user_entry_follow_ups', {
-            'id': 'remote:${followUp.id}',
-            'entry_id': normalizedId,
-            'question': followUp.question,
-            'answer': followUp.answer,
-            'created_at': followUp.createdAt.toUtc().toIso8601String(),
-            'remote_id': followUp.id,
-            'remote_synced': 1,
-          }, conflictAlgorithm: ConflictAlgorithm.replace);
-        }
+        final rows = await BmobApi.instance.listUserEntryFollowUps(remoteId);
+        scope.check();
+        await db.readingSourceTransaction((txn) async {
+          scope.check();
+          for (final row in rows) {
+            final followUp = UserEntryFollowUp.fromRemote(row);
+            if (followUp.id.isEmpty) continue;
+            await txn.insert(
+              'user_entry_follow_ups',
+              {
+                'id': 'remote:${scope.userId}:${followUp.id}',
+                'user_id': scope.userId,
+                'entry_id': localId,
+                'question': followUp.question,
+                'answer': followUp.answer,
+                'created_at': followUp.createdAt.toUtc().toIso8601String(),
+                'remote_id': followUp.id,
+                'remote_synced': 1,
+              },
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+          }
+          scope.check();
+        });
       } catch (_) {
+        scope.check();
         // The local timeline remains readable while the server is unavailable.
       }
     }
 
+    scope.check();
     final rows = await db.query(
       'user_entry_follow_ups',
-      where: 'entry_id = ?',
-      whereArgs: [normalizedId],
+      where: 'user_id = ? AND (entry_id = ? OR entry_id = ?)',
+      whereArgs: [scope.userId, localId, remoteId.isEmpty ? localId : remoteId],
       orderBy: 'created_at ASC',
     );
+    scope.check();
     final seenRemoteIds = <String>{};
     final result = <UserEntryFollowUp>[];
     for (final row in rows) {
@@ -1946,39 +2176,65 @@ class BookService {
     required String entryId,
     required String question,
     required String answer,
+    AuthSessionScope? session,
   }) async {
+    final scope = session ?? AuthSessionScope.capture();
+    final owner = scope.requireOwner();
     final db = await DatabaseService.database;
+    final parent = await _ownedFollowUpParent(db, entryId, scope);
+    final parentId = parent['id']!.toString();
+    final parentRemoteId = parent['bmob_id']?.toString() ?? '';
     final localId = const Uuid().v4();
     final createdAt = DateTime.now();
-    await db.insert('user_entry_follow_ups', {
-      'id': localId,
-      'entry_id': entryId,
-      'question': question.trim(),
-      'answer': answer.trim(),
-      'created_at': createdAt.toUtc().toIso8601String(),
-      'remote_id': '',
-      'remote_synced': 0,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.readingSourceTransaction((txn) async {
+      scope.check();
+      final exists = await txn.query(
+        'user_entries',
+        columns: ['id'],
+        where: 'id = ? AND user_id = ?',
+        whereArgs: [parentId, owner],
+      );
+      if (exists.isEmpty) throw StateError('Reading trace is unavailable');
+      await txn.insert('user_entry_follow_ups', {
+        'id': localId,
+        'user_id': owner,
+        'entry_id': parentId,
+        'question': question.trim(),
+        'answer': answer.trim(),
+        'created_at': createdAt.toUtc().toIso8601String(),
+        'remote_id': '',
+        'remote_synced': 0,
+      }, conflictAlgorithm: ConflictAlgorithm.abort);
+      scope.check();
+    });
 
     String remoteId = '';
-    if (BmobApi.instance.isLoggedIn) {
+    scope.check();
+    if (BmobApi.instance.isLoggedIn && parentRemoteId.isNotEmpty) {
       try {
         final row = await BmobApi.instance.createUserEntryFollowUp(
-          entryId: entryId,
+          entryId: parentRemoteId,
           question: question.trim(),
           answer: answer.trim(),
         );
+        scope.check();
         remoteId = row['id']?.toString() ?? '';
-        await db.update(
-          'user_entry_follow_ups',
-          {'remote_id': remoteId, 'remote_synced': 1},
-          where: 'id = ?',
-          whereArgs: [localId],
-        );
+        await db.readingSourceTransaction((txn) async {
+          scope.check();
+          await txn.update(
+            'user_entry_follow_ups',
+            {'remote_id': remoteId, 'remote_synced': 1},
+            where: 'id = ? AND user_id = ?',
+            whereArgs: [localId, owner],
+          );
+          scope.check();
+        });
       } catch (_) {
+        scope.check();
         // Keep a pending local copy and retry when the timeline opens again.
       }
     }
+    scope.check();
     _applyFollowUpSummary(entryId, question.trim());
     return UserEntryFollowUp(
       id: remoteId.isNotEmpty ? remoteId : localId,
@@ -1990,21 +2246,26 @@ class BookService {
   }
 
   static Future<void> deleteUserEntry(String id) async {
+    final scope = AuthSessionScope.capture();
+    final owner = scope.requireOwner();
     final db = await DatabaseService.database;
+    scope.check();
     final rows = await db.query(
       'user_entries',
       columns: ['id', 'user_id', 'bmob_id'],
-      where: 'id = ? OR bmob_id = ?',
-      whereArgs: [id, id],
+      where: '(id = ? OR bmob_id = ?) AND user_id = ?',
+      whereArgs: [id, id, owner],
       limit: 1,
     );
     final localId = rows.isNotEmpty ? (rows.first['id'] as String? ?? id) : id;
-    final owner = rows.isEmpty ? '' : rows.first['user_id']?.toString() ?? '';
-    await db.transaction((txn) async {
+    scope.check();
+    if (rows.isEmpty) throw StateError('Reading trace is unavailable');
+    await db.readingSourceTransaction((txn) async {
+      scope.check();
       await txn.delete(
         'user_entries',
-        where: 'id = ? OR bmob_id = ?',
-        whereArgs: [localId, id],
+        where: '(id = ? OR bmob_id = ?) AND user_id = ?',
+        whereArgs: [localId, id, owner],
       );
       await ReliableUploadService.instance.enqueueTrace(
         txn,
@@ -2012,7 +2273,9 @@ class BookService {
         entityId: localId,
         operation: 'delete',
       );
+      scope.check();
     });
+    scope.check();
     unawaited(ReliableUploadService.instance.drain());
   }
 
@@ -2028,19 +2291,24 @@ class BookService {
   }
 
   static XiaouHomeInsight? cachedXiaouHomeInsight() {
+    if (!(_xiaouCacheSession?.isCurrent ?? false)) return null;
     final currentUserId = BmobApi.instance.userId?.trim() ?? '';
     if (_xiaouCacheUserId != currentUserId) return null;
     return _xiaouHomeInsightCache;
   }
 
   static Future<XiaouHomeInsight?> restoreCachedXiaouHomeInsight() async {
+    final scope = await _cacheReadSession();
     final userId = await _ensureXiaouCacheOwner();
+    scope.check();
+    if (scope.userId == null) return null;
     final memory = _xiaouHomeInsightCache;
     if (memory != null) return memory;
 
     final row = await _readDiskMap(
       _scopedCacheKey(_xiaouHomeDiskCacheKey, userId),
     );
+    scope.check();
     if (row == null) return null;
     final insight = XiaouHomeInsight.fromRemote(row);
     _xiaouHomeInsightCache = insight;
@@ -2052,7 +2320,9 @@ class BookService {
     bool forceRefresh = false,
     bool fallbackToCacheOnError = true,
   }) async {
+    final scope = await _cacheReadSession();
     final userId = await _ensureXiaouCacheOwner();
+    scope.check();
     if (!BmobApi.instance.isLoggedIn) return XiaouHomeInsight.empty();
     final cached = _xiaouHomeInsightCache;
     final cacheAt = _xiaouHomeInsightCacheAt;
@@ -2069,6 +2339,7 @@ class BookService {
     request = (() async {
       try {
         final row = await BmobApi.instance.getXiaouHomeInsight();
+        scope.check();
         if (!_isCurrentXiaouCacheOwner(userId)) {
           throw StateError('登录账户已切换，本次小U结果已忽略');
         }
@@ -2076,10 +2347,15 @@ class BookService {
         _xiaouHomeInsightCache = insight;
         _xiaouHomeInsightCacheAt = DateTime.now();
         unawaited(
-          _writeDiskMap(_scopedCacheKey(_xiaouHomeDiskCacheKey, userId), row),
+          _writeDiskMap(
+            _scopedCacheKey(_xiaouHomeDiskCacheKey, userId),
+            row,
+            session: scope,
+          ),
         );
         return insight;
       } catch (_) {
+        scope.check();
         if (!fallbackToCacheOnError) rethrow;
         if (cached != null) return cached;
         final disk = await restoreCachedXiaouHomeInsight();
@@ -3197,6 +3473,7 @@ class BookService {
   }
 
   static MingtaiOverview? cachedMingtaiOverview({String? tag}) {
+    if (!(_xiaouCacheSession?.isCurrent ?? false)) return null;
     final currentUserId = BmobApi.instance.userId?.trim() ?? '';
     if (_xiaouCacheUserId != currentUserId) return null;
     final cached = _mingtaiOverviewCache;
@@ -3207,26 +3484,36 @@ class BookService {
   static Future<MingtaiOverview?> restoreCachedMingtaiOverview({
     String? tag,
   }) async {
+    final scope = await _cacheReadSession();
     final userId = await _ensureXiaouCacheOwner();
+    scope.check();
+    if (scope.userId == null) return _buildMingtaiOverviewFromRows([]);
     final rows =
         _xiaouRemoteEntryRows ??
         await _readDiskMapList(
           _scopedCacheKey(_xiaouOverviewDiskCacheKey, userId),
         );
+    scope.check();
     if (!_isCurrentXiaouCacheOwner(userId)) {
       throw StateError('Reading account changed');
     }
     _xiaouRemoteEntryRows ??= rows ?? [];
     final overview = await _readMingtaiOverview(userId);
+    scope.check();
     return _filterMingtaiOverview(overview, tag);
   }
 
   static Future<MingtaiOverview> _readMingtaiOverview(String userId) async {
+    final scope = AuthSessionScope.capture();
+    scope.check();
+    if (scope.userId == null) return _buildMingtaiOverviewFromRows([]);
+    if (scope.userId != userId) throw const StaleAuthSession();
     final rows = await XiaouTraceSnapshot.read(
       await DatabaseService.database,
       userId: userId,
       remoteRows: _xiaouRemoteEntryRows ?? [],
     );
+    scope.check();
     if (!_isCurrentXiaouCacheOwner(userId)) {
       throw StateError('Reading account changed');
     }
@@ -3240,8 +3527,10 @@ class BookService {
     bool forceRefresh = false,
     bool fallbackToCacheOnError = true,
   }) async {
+    final scope = await _cacheReadSession();
     final api = BmobApi.instance;
     final userId = await _ensureXiaouCacheOwner();
+    scope.check();
     if (!api.isLoggedIn) {
       return _filterMingtaiOverview(await _readMingtaiOverview(userId), tag);
     }
@@ -3259,6 +3548,7 @@ class BookService {
     final running = _mingtaiOverviewInFlight;
     if (running != null) {
       await running;
+      scope.check();
       return _filterMingtaiOverview(await _readMingtaiOverview(userId), tag);
     }
 
@@ -3267,10 +3557,12 @@ class BookService {
       List<Map<String, dynamic>> rows;
       try {
         rows = await api.listUserEntries(limit: 300);
+        scope.check();
         if (!_isCurrentXiaouCacheOwner(userId)) {
           throw StateError('登录账户已切换，本次阅读痕迹结果已忽略');
         }
       } catch (_) {
+        scope.check();
         if (!_isCurrentXiaouCacheOwner(userId)) rethrow;
         if (!fallbackToCacheOnError) rethrow;
         final disk = await restoreCachedMingtaiOverview();
@@ -3281,11 +3573,13 @@ class BookService {
         _writeDiskMapList(
           _scopedCacheKey(_xiaouOverviewDiskCacheKey, userId),
           rows,
+          session: scope,
         ),
       );
 
       _xiaouRemoteEntryRows = rows;
       final overview = await _readMingtaiOverview(userId);
+      scope.check();
       _mingtaiOverviewCacheAt = DateTime.now();
       return overview;
     })();
@@ -3349,7 +3643,10 @@ class BookService {
     String id, {
     Map<String, dynamic>? item,
   }) async {
+    final scope = AuthSessionScope.capture();
+    final owner = scope.requireOwner();
     final db = await DatabaseService.database;
+    scope.check();
     if (id.startsWith('entry:')) {
       final remoteId = id.substring(6);
       if (remoteId.isEmpty) {
@@ -3358,33 +3655,34 @@ class BookService {
 
       final localEntries = await db.query(
         'user_entries',
-        where: 'id = ? OR bmob_id = ?',
-        whereArgs: [remoteId, remoteId],
+        where: '(id = ? OR bmob_id = ?) AND user_id = ?',
+        whereArgs: [remoteId, remoteId, owner],
         limit: 1,
       );
-      final localEntry = localEntries.isEmpty ? null : localEntries.first;
+      scope.check();
+      final localEntry = localEntries.isEmpty
+          ? await _ownedFollowUpParent(db, remoteId, scope)
+          : localEntries.first;
       final metadata = _metadataToRemote(
-        localEntry?['metadata_json'] ?? item?['metadata_json'],
+        localEntry['metadata_json'] ?? item?['metadata_json'],
       );
       final source =
-          item?['source']?.toString() ??
-          localEntry?['source']?.toString() ??
-          '';
+          item?['source']?.toString() ?? localEntry['source']?.toString() ?? '';
       final bookId =
           item?['book_id']?.toString() ??
-          localEntry?['book_id']?.toString() ??
+          localEntry['book_id']?.toString() ??
           '';
       final chapterIndex =
           item?['chapter_index']?.toString() ??
-          localEntry?['chapter_index']?.toString() ??
+          localEntry['chapter_index']?.toString() ??
           '';
       final originalText =
           item?['original_text']?.toString() ??
-          localEntry?['original_text']?.toString() ??
+          localEntry['original_text']?.toString() ??
           '';
       final userInput =
           item?['user_note']?.toString() ??
-          localEntry?['user_input']?.toString() ??
+          localEntry['user_input']?.toString() ??
           '';
       final sourceRecord = await _findLinkedSourceRecord(
         db,
@@ -3401,10 +3699,13 @@ class BookService {
         endOffset: metadata['endOffset'],
       );
       final sourceRecordId = sourceRecord?['id']?.toString() ?? '';
+      scope.check();
 
-      final localEntryId = localEntry?['id']?.toString() ?? remoteId;
+      final localEntryId = localEntry['id']?.toString() ?? remoteId;
       await deleteUserEntry(localEntryId);
-      await db.transaction((txn) async {
+      scope.check();
+      await db.readingSourceTransaction((txn) async {
+        scope.check();
         if (sourceRecordId.isNotEmpty) {
           final table = source == 'highlight'
               ? 'highlights'
@@ -3414,17 +3715,19 @@ class BookService {
           if (table.isNotEmpty) {
             await txn.delete(
               table,
-              where: 'id = ?',
-              whereArgs: [sourceRecordId],
+              where: 'id = ? AND user_id = ?',
+              whereArgs: [sourceRecordId, owner],
             );
           }
         }
         await txn.delete(
           'user_entry_follow_ups',
-          where: 'entry_id = ? OR entry_id = ?',
-          whereArgs: [remoteId, localEntryId],
+          where: '(entry_id = ? OR entry_id = ?) AND user_id = ?',
+          whereArgs: [remoteId, localEntryId, owner],
         );
+        scope.check();
       });
+      scope.check();
       await _removeEntryFromXiaouDiskCache(remoteId);
       _invalidateMingtaiOverviewCache();
       debugPrint(
@@ -3515,22 +3818,26 @@ class BookService {
   }
 
   static Future<void> _removeEntryFromXiaouDiskCache(String remoteId) async {
+    final scope = AuthSessionScope.capture();
     final userId = await _ensureXiaouCacheOwner();
+    scope.check();
     final overviewKey = _scopedCacheKey(_xiaouOverviewDiskCacheKey, userId);
     final rows = await _readDiskMapList(overviewKey);
+    scope.check();
     if (rows != null) {
       rows.removeWhere((row) => row['id']?.toString() == remoteId);
-      await _writeDiskMapList(overviewKey, rows);
+      await _writeDiskMapList(overviewKey, rows, session: scope);
     }
 
     final homeKey = _scopedCacheKey(_xiaouHomeDiskCacheKey, userId);
     final home = await _readDiskMap(homeKey);
+    scope.check();
     final recentEntries = home?['recent_entries'];
     if (home != null && recentEntries is List) {
       recentEntries.removeWhere(
         (entry) => entry is Map && entry['id']?.toString() == remoteId,
       );
-      await _writeDiskMap(homeKey, home);
+      await _writeDiskMap(homeKey, home, session: scope);
     }
   }
 
@@ -3538,23 +3845,28 @@ class BookService {
     String id, {
     required bool isImportant,
   }) async {
+    final scope = AuthSessionScope.capture();
+    final owner = scope.requireOwner();
     final remoteId = id.startsWith('entry:') ? id.substring(6) : id;
     if (remoteId.isEmpty) {
       throw Exception('远端 entry id 为空，无法保存重要标记');
     }
     final db = await DatabaseService.database;
+    scope.check();
     final rows = await db.query(
       'user_entries',
-      where: 'id = ? OR bmob_id = ?',
-      whereArgs: [remoteId, remoteId],
+      where: '(id = ? OR bmob_id = ?) AND user_id = ?',
+      whereArgs: [remoteId, remoteId, owner],
       limit: 1,
     );
+    scope.check();
     if (rows.isEmpty) throw Exception('找不到本地阅读痕迹');
     final localId = rows.first['id']?.toString() ?? '';
     final updated = Map<String, Object?>.from(rows.first)
       ..['is_important'] = isImportant ? 1 : 0
       ..['updated_at'] = DateTime.now().toUtc().toIso8601String();
-    await db.transaction((txn) async {
+    await db.readingSourceTransaction((txn) async {
+      scope.check();
       await txn.update(
         'user_entries',
         {
@@ -3571,7 +3883,9 @@ class BookService {
         operation: 'update',
         payload: _localUserEntryMapToRemote(updated),
       );
+      scope.check();
     });
+    scope.check();
     unawaited(ReliableUploadService.instance.drain());
 
     final overview = _mingtaiOverviewCache;
@@ -3584,8 +3898,10 @@ class BookService {
       }
     }
     final userId = await _ensureXiaouCacheOwner();
+    scope.check();
     final cacheKey = _scopedCacheKey(_xiaouOverviewDiskCacheKey, userId);
     final cachedRows = await _readDiskMapList(cacheKey);
+    scope.check();
     if (cachedRows != null) {
       for (final row in cachedRows) {
         if (row['id']?.toString() == remoteId) {
@@ -3593,7 +3909,7 @@ class BookService {
           break;
         }
       }
-      unawaited(_writeDiskMapList(cacheKey, cachedRows));
+      unawaited(_writeDiskMapList(cacheKey, cachedRows, session: scope));
     }
   }
 
@@ -3613,12 +3929,24 @@ class BookService {
     _xiaouHomeInsightCacheAt = null;
   }
 
+  static Future<AuthSessionScope> _cacheReadSession() async {
+    if (!AuthSessionScope.initialized) await AuthService.init();
+    final scope = AuthSessionScope.capture();
+    scope.check();
+    return scope;
+  }
+
   static Future<String> _ensureXiaouCacheOwner() async {
-    await BmobApi.instance.init();
-    final userId = BmobApi.instance.userId?.trim() ?? '';
-    if (_xiaouCacheUserId == userId) return userId;
+    final scope = AuthSessionScope.capture();
+    scope.check();
+    final userId = scope.userId ?? '';
+    if (_xiaouCacheUserId == userId &&
+        (_xiaouCacheSession?.isCurrent ?? false)) {
+      return userId;
+    }
 
     _xiaouCacheUserId = userId;
+    _xiaouCacheSession = scope;
     _xiaouRemoteEntryRows = null;
     _mingtaiOverviewCache = null;
     _mingtaiOverviewCacheAt = null;
@@ -3633,12 +3961,16 @@ class BookService {
   }
 
   static bool _isCurrentXiaouCacheOwner(String userId) {
-    return _xiaouCacheUserId == userId &&
+    return (_xiaouCacheSession?.isCurrent ?? false) &&
+        _xiaouCacheUserId == userId &&
         (BmobApi.instance.userId?.trim() ?? '') == userId;
   }
 
   static String _scopedCacheKey(String base, String userId) {
-    return '${base}_${userId.isEmpty ? 'anonymous' : userId}';
+    final origin = sha256
+        .convert(utf8.encode(AppConstants.apiBaseUrl))
+        .toString();
+    return '${base}_${origin}_${userId.isEmpty ? 'anonymous' : userId}';
   }
 
   static Map<String, dynamic> _remoteUserEntryToMingtaiItem(
@@ -3882,27 +4214,38 @@ class BookService {
   static Future<void> _syncPendingUserEntryFollowUps(
     Database db,
     String entryId,
+    String remoteEntryId,
+    AuthSessionScope scope,
   ) async {
+    scope.check();
     final pending = await db.query(
       'user_entry_follow_ups',
-      where: 'entry_id = ? AND remote_synced = 0',
-      whereArgs: [entryId],
+      where:
+          'user_id = ? AND (entry_id = ? OR entry_id = ?) AND remote_synced = 0',
+      whereArgs: [scope.userId, entryId, remoteEntryId],
       orderBy: 'created_at ASC',
     );
     for (final row in pending) {
       try {
+        scope.check();
         final remote = await BmobApi.instance.createUserEntryFollowUp(
-          entryId: entryId,
+          entryId: remoteEntryId,
           question: row['question']?.toString() ?? '',
           answer: row['answer']?.toString() ?? '',
         );
-        await db.update(
-          'user_entry_follow_ups',
-          {'remote_id': remote['id']?.toString() ?? '', 'remote_synced': 1},
-          where: 'id = ?',
-          whereArgs: [row['id']],
-        );
+        scope.check();
+        await db.readingSourceTransaction((txn) async {
+          scope.check();
+          await txn.update(
+            'user_entry_follow_ups',
+            {'remote_id': remote['id']?.toString() ?? '', 'remote_synced': 1},
+            where: 'id = ? AND user_id = ?',
+            whereArgs: [row['id'], scope.userId],
+          );
+          scope.check();
+        });
       } catch (_) {
+        scope.check();
         break;
       }
     }
@@ -3916,6 +4259,8 @@ class BookService {
     DateTime? createdAtFrom,
     DateTime? createdAtTo,
   }) async {
+    final scope = AuthSessionScope.capture();
+    scope.check();
     final api = BmobApi.instance;
     if (!api.isLoggedIn) return;
 
@@ -3928,14 +4273,29 @@ class BookService {
         createdAtTo: createdAtTo?.toIso8601String(),
         limit: 500,
       );
-      for (final row in rows) {
-        await db.insert(
-          'user_entries',
-          _remoteUserEntryToLocal(row),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
+      scope.check();
+      await db.readingSourceTransaction((txn) async {
+        scope.check();
+        for (final row in rows) {
+          if (row['user_id'] != scope.userId || scope.userId == null) continue;
+          final local = _remoteUserEntryToLocal(row);
+          final previous = await txn.query(
+            'user_entries',
+            columns: ['user_id'],
+            where: 'id = ?',
+            whereArgs: [local['id']],
+          );
+          if (previous.any((r) => r['user_id'] != scope.userId)) continue;
+          await txn.insert(
+            'user_entries',
+            local,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        scope.check();
+      });
     } catch (_) {
+      scope.check();
       // Local cache remains the source of truth while offline.
     }
   }
@@ -4103,20 +4463,26 @@ class BookService {
 
   static Future<void> _writeDiskMap(
     String key,
-    Map<String, dynamic> value,
-  ) async {
+    Map<String, dynamic> value, {
+    AuthSessionScope? session,
+  }) async {
     try {
+      if (session != null && !session.isCurrent) return;
       final prefs = await SharedPreferences.getInstance();
+      if (session != null && !session.isCurrent) return;
       await prefs.setString(key, jsonEncode(value));
     } catch (_) {}
   }
 
   static Future<void> _writeDiskMapList(
     String key,
-    List<Map<String, dynamic>> value,
-  ) async {
+    List<Map<String, dynamic>> value, {
+    AuthSessionScope? session,
+  }) async {
     try {
+      if (session != null && !session.isCurrent) return;
       final prefs = await SharedPreferences.getInstance();
+      if (session != null && !session.isCurrent) return;
       await prefs.setString(key, jsonEncode(value));
     } catch (_) {}
   }

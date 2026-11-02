@@ -12,6 +12,7 @@ import '../../../providers/ai_provider.dart';
 import '../../../providers/reader_provider.dart';
 import '../../../utils/markdown_sanitizer.dart';
 import '../../../utils/ai_consent_gate.dart';
+import '../../../widgets/session_bound_state.dart';
 
 class AiExplanationCard extends StatefulWidget {
   final VoidCallback onClose;
@@ -29,7 +30,8 @@ class AiExplanationCard extends StatefulWidget {
   State<AiExplanationCard> createState() => _AiExplanationCardState();
 }
 
-class _AiExplanationCardState extends State<AiExplanationCard> {
+class _AiExplanationCardState extends State<AiExplanationCard>
+    with SessionBoundState<AiExplanationCard> {
   final TextEditingController _followUpController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _initialized = false;
@@ -43,6 +45,7 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
   String _chapterContent = '';
   String _chapterIndex = '';
   String _chapterTitle = '';
+  Map<String, dynamic> _selectionAnchor = const {};
 
   @override
   void initState() {
@@ -51,6 +54,7 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
   }
 
   Future<void> _loadExplanation() async {
+    if (!sessionActive) return;
     if (_initialized) return;
     _initialized = true;
     if (mounted) {
@@ -71,14 +75,16 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
 
     try {
       await ai.loadHistory(book.id);
-      if (!mounted) return;
+      if (!sessionActive) return;
       final chapter = await reader.ensureChapterLoaded();
-      if (!mounted) return;
+      if (!sessionActive) return;
       _selectedText = selectedText;
       _bookTitle = book.title;
       _bookAuthor = book.author;
       _chapterContent = chapter?.content ?? '';
-      _chapterIndex = reader.currentChapterIndex.toString();
+      _chapterIndex = (chapter?.sourceIndex ?? reader.currentChapterIndex)
+          .toString();
+      _selectionAnchor = Map.of(reader.selectionAnchor);
       _chapterTitle = chapter?.title ?? '';
       setState(() => _preparing = false);
       await _runExplanation(ai);
@@ -103,6 +109,7 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
   }
 
   Future<void> _runExplanation(AiProvider ai) async {
+    if (!sessionActive) return;
     if (_selectedText.isEmpty) return;
     _sessionStartIndex = ai.messages.length;
     if (mounted) {
@@ -116,6 +123,7 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
       chapterIndex: _chapterIndex,
       chapterTitle: _chapterTitle,
       mode: _activeMode,
+      selectionAnchor: _selectionAnchor,
     );
   }
 
@@ -147,6 +155,7 @@ class _AiExplanationCardState extends State<AiExplanationCard> {
 
   @override
   Widget build(BuildContext context) {
+    if (!sessionActive) return const SizedBox.shrink();
     final palette = context.appPalette;
     final primary = Theme.of(context).colorScheme.primary;
     final glassColor = Color.alphaBlend(

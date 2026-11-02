@@ -4,6 +4,7 @@ import '../../config/theme.dart';
 import '../../models/bookmark.dart';
 import '../../providers/reader_provider.dart';
 import '../../services/book_service.dart';
+import '../../services/epub_service.dart';
 import '../../l10n/l10n.dart';
 import '../reader/reader_screen.dart';
 
@@ -36,7 +37,12 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
 
     final readerProvider = context.read<ReaderProvider>();
     await readerProvider.openBook(book);
-    readerProvider.goToChapter(int.tryParse(bm.chapterIndex) ?? 0);
+    final index = EpubService.chapterListIndex(
+      readerProvider.chapters,
+      bm.chapterIndex,
+    );
+    if (index < 0) return;
+    readerProvider.goToChapter(index);
 
     // Restore scroll position from stored offset
     readerProvider.setScrollOffset(bm.scrollOffset);

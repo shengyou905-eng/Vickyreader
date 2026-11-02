@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../services/auth_session_scope.dart';
 import '../services/apple_auth_service.dart';
 import '../services/book_service.dart';
 import '../services/sync_service.dart';
@@ -27,10 +28,12 @@ class AuthProvider extends ChangeNotifier {
   Future<void> _init() async {
     if (LocalDiagnosticsMode.enabled) return;
     await AuthService.init();
+    final scope = AuthSessionScope.capture();
     if (AuthService.isLoggedIn && AuthService.userId?.isNotEmpty == true) {
       await ReliableUploadService.instance.claimAnonymousOperations(
         AuthService.userId!,
       );
+      if (!scope.isCurrent) return;
       ReliableUploadService.instance.start();
       unawaited(BookService.enqueueReliableUploadSnapshot());
     }
@@ -125,15 +128,19 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> _afterAuthSuccess() async {
     if (LocalDiagnosticsMode.enabled) return;
+    final scope = AuthSessionScope.capture();
     final userId = AuthService.userId;
     if (userId == null || userId.isEmpty) return;
     await ReliableUploadService.instance.claimAnonymousOperations(userId);
+    if (!scope.isCurrent) return;
     ReliableUploadService.instance.start();
 
     try {
       SyncService.instance.setUserId(userId);
       await SyncService.instance.mergeAnonymousData(userId);
+      if (!scope.isCurrent) return;
       await BookService.syncFreeNotes();
+      if (!scope.isCurrent) return;
       await SyncService.instance.pullAll();
     } catch (_) {
       // 登录不能被同步问题卡住；随心记页面进入时还会再次尝试同步。
@@ -143,6 +150,7 @@ class AuthProvider extends ChangeNotifier {
     // Keep it independent from the older sync flow so a transient failure in
     // either path cannot prevent the other one from completing.
     try {
+      if (!scope.isCurrent) return;
       await BookService.enqueueReliableUploadSnapshot();
     } catch (_) {
       // MCP stays opt-in and can retry from Settings without affecting login.

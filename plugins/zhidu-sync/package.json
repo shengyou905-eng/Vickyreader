@@ -1,0 +1,23 @@
+{
+  "name": "zhidu-sync",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-only Zhidu integration for an Obsidian vault",
+  "license": "MIT",
+  "scripts": {
+    "build": "npm run typecheck && node esbuild.config.mjs",
+    "build:test": "npm run typecheck && node esbuild.config.mjs --test-build",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/test.mjs",
+    "prepare:local": "node scripts/prepare-local.mjs",
+    "package:test": "npm run build:test && node scripts/package.mjs"
+  },
+  "dependencies": { "zod": "4.6.5" },
+  "devDependencies": {
+    "@types/node": "22.19.0",
+    "esbuild": "0.28.2",
+    "obsidian": "1.13.1",
+    "typescript": "5.9.3",
+    "yaml": "2.8.1"
+  }
+}

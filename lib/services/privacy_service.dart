@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 
 import 'package:http/http.dart' as http;
 
@@ -7,6 +8,8 @@ import 'app_http_client.dart';
 import 'auth_service.dart';
 
 class PrivacyService {
+  // Privacy withdrawal signal only; it does not claim the server request succeeded.
+  static final ValueNotifier<int> aiConsentChanges = ValueNotifier(0);
   static const _timeout = Duration(seconds: 20);
   static final Map<String, bool> _aiConsentCache = {};
 
@@ -17,6 +20,7 @@ class PrivacyService {
     if (!force && _aiConsentCache[userId] == true) return true;
     final data = await _send('GET', '/api/auth/ai-consent');
     final consented = data['consented'] == true;
+    if (!consented) aiConsentChanges.value++;
     _aiConsentCache[userId] = consented;
     return consented;
   }
@@ -32,8 +36,10 @@ class PrivacyService {
   }
 
   static Future<void> revokeAiConsent() async {
-    await _send('DELETE', '/api/auth/ai-consent');
     final userId = AuthService.userId;
+    if (userId != null) _aiConsentCache.remove(userId);
+    aiConsentChanges.value++;
+    await _send('DELETE', '/api/auth/ai-consent');
     if (userId != null) _aiConsentCache[userId] = false;
   }
 

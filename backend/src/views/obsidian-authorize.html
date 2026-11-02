@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Zhidu Sync · 知读授权</title>
+  <style>
+    :root{color-scheme:light dark;font-family:system-ui,sans-serif;letter-spacing:0}
+    body{margin:0;background:Canvas;color:CanvasText}
+    main{max-width:440px;margin:48px auto;padding:0 24px 40px}
+    header{display:flex;align-items:center;gap:16px;margin-bottom:28px}
+    img{width:56px;height:56px;border-radius:8px}
+    h1{font-size:24px;margin:0}h2{font-size:18px;margin:24px 0 12px}
+    p,li{line-height:1.65}ul{padding-left:22px}
+    label{display:block;margin:18px 0 6px}input{box-sizing:border-box;width:100%;padding:12px;font:inherit;border:1px solid #999;border-radius:6px;background:Field;color:FieldText}
+    button{font:inherit;min-height:44px;padding:10px 18px;border:1px solid #777;border-radius:6px;cursor:pointer}
+    button[type=submit]{margin-top:20px;background:#6849aa;color:white;border-color:#6849aa}
+    button:disabled{opacity:.5;cursor:default}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px}
+    #message{color:#bd4545;min-height:24px}small{display:block;line-height:1.6;margin-top:18px}
+    [hidden]{display:none!important}
+  </style>
+</head>
+<body>
+  <main>
+    <header><img src="/api/integrations/obsidian/brand.png" alt="知读"><h1>Zhidu Sync</h1></header>
+    <p>Zhidu Sync 希望读取并同步以下数据到你的 Obsidian Vault：</p>
+    <ul><li>书籍信息和阅读进度</li><li>划线、想法、小U解读与提问</li><li>阅读标签</li></ul>
+    <p>仅限读取。不会访问随心记、完整小U聊天或书籍文件，也不会修改知读中的数据。</p>
+    <form id="login">
+      <h2>登录知读</h2>
+      <label for="email">邮箱</label><input id="email" type="email" autocomplete="username" required maxlength="254">
+      <label for="password">密码</label><input id="password" type="password" autocomplete="current-password" required maxlength="1024">
+      <button type="submit">登录</button>
+      <small>当前测试阶段支持邮箱与密码登录。仅使用 Apple 登录的账号暂不支持此授权页面。</small>
+    </form>
+    <section id="consent" hidden>
+      <h2>确认授权</h2><p id="account"></p>
+      <p>授权有效期为 24 小时，可随时撤销。</p>
+      <div class="actions"><button id="allow">允许只读同步</button><button id="deny">取消</button></div>
+    </section>
+    <p id="message" role="status" aria-live="polite"></p>
+  </main>
+  <script src="/api/integrations/obsidian/authorize.js" defer></script>
+</body>
+</html>

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../config/theme.dart';
 import '../../../l10n/l10n.dart';
 import '../../../models/ai_conversation.dart';
+import '../../../widgets/session_bound_state.dart';
 import '../../../services/ai_service.dart';
 import '../../../utils/markdown_sanitizer.dart';
 
@@ -76,7 +77,8 @@ class ReaderQuestionSheet extends StatefulWidget {
   State<ReaderQuestionSheet> createState() => _ReaderQuestionSheetState();
 }
 
-class _ReaderQuestionSheetState extends State<ReaderQuestionSheet> {
+class _ReaderQuestionSheetState extends State<ReaderQuestionSheet>
+    with SessionBoundState<ReaderQuestionSheet> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<AiMessage> _messages = [];
@@ -101,10 +103,17 @@ class _ReaderQuestionSheetState extends State<ReaderQuestionSheet> {
     super.dispose();
   }
 
+  @override
+  void onSessionInvalidated() {
+    unawaited(_subscription?.cancel());
+  }
+
   Future<void> _send() async {
+    if (!sessionActive) return;
     final question = _controller.text.trim();
     if (question.isEmpty || _loading || _savingTurn) return;
     await _subscription?.cancel();
+    if (!sessionActive) return;
     final history = _messages
         .where((message) => message.content.trim().isNotEmpty)
         .toList(growable: false);
@@ -141,7 +150,7 @@ class _ReaderQuestionSheetState extends State<ReaderQuestionSheet> {
           conversationHistory: history,
         ).listen(
           (chunk) {
-            if (!mounted) return;
+            if (!sessionActive) return;
             buffer.write(chunk);
             setState(() {
               _messages[_messages.length - 1] = AiMessage(
@@ -161,6 +170,7 @@ class _ReaderQuestionSheetState extends State<ReaderQuestionSheet> {
             });
           },
           onDone: () {
+            if (!sessionActive) return;
             final answer = stripMarkdownMarkers(buffer.toString()).trim();
             if (answer.isEmpty) {
               if (!mounted) return;
@@ -188,6 +198,7 @@ class _ReaderQuestionSheetState extends State<ReaderQuestionSheet> {
   }
 
   Future<void> _saveTurn(String question, String answer) async {
+    if (!sessionActive) return;
     try {
       if (_entryId == null || _entryId!.isEmpty) {
         _entryId = await widget.onSaveFirstAnswer(question, answer, _scope);
@@ -210,9 +221,7 @@ class _ReaderQuestionSheetState extends State<ReaderQuestionSheet> {
   }
 
   void _removeEmptyAssistantTail() {
-    if (_messages.isNotEmpty &&
-        _messages.last.role == 'assistant' &&
-        _messages.last.content.trim().isEmpty) {
+    if (_messages.isNotEmpty && _messages.last.role == 'assistant') {
       _messages.removeLast();
     }
   }
@@ -230,6 +239,7 @@ class _ReaderQuestionSheetState extends State<ReaderQuestionSheet> {
 
   @override
   Widget build(BuildContext context) {
+    if (!sessionActive) return const SizedBox.shrink();
     final palette = context.appPalette;
     final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
     return FractionallySizedBox(

@@ -1,0 +1,13 @@
+{
+  "description": "Original synthetic text. No real reader data. Shared Dart/Node contract fixture.",
+  "owner": "synthetic-reader-a",
+  "bookId": "synthetic-book-v1",
+  "bookTitle": "Synthetic reading notes",
+  "chapterIndex": "7",
+  "excerpt": "Only registered visitors may enter. Registration alone does not guarantee entry.",
+  "question": "Does registration guarantee admission?",
+  "answer": "No. Registration is necessary, but the passage does not make it sufficient.",
+  "followUpQuestion": "So an unregistered visitor cannot enter under this rule?",
+  "followUpAnswer": "Yes, according to the stated rule.",
+  "createdAt": "2026-01-01T00:00:00.000Z"
+}

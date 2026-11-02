@@ -8,6 +8,7 @@ import 'upload_revision.dart';
 
 import 'bmob_api.dart';
 import 'database_service.dart';
+import 'reading_source_changes.dart';
 import '../config/local_diagnostics_mode.dart';
 
 typedef UploadDatabaseProvider = Future<Database> Function();
@@ -177,20 +178,54 @@ class ReliableUploadService {
     final normalized = userId.trim();
     if (normalized.isEmpty) return;
     final db = await _databaseProvider();
-    await db.transaction((txn) async {
+    await db.readingSourceTransaction((txn) async {
+      final hasEntries = await txn.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'user_entries'",
+      );
+      final unknownAi = hasEntries.isEmpty
+          ? <Map<String, Object?>>[]
+          : await txn.query(
+              'user_entries',
+              columns: ['id'],
+              where:
+                  "(user_id = '' OR user_id IS NULL) AND source IN ('ai_explanation', 'ai_question')",
+            );
+      final privateIds = unknownAi.map((row) => row['id'].toString()).toSet();
+      final anonymousRows = await txn.query(
+        'pending_upload_operations',
+        where: "user_id = ''",
+        orderBy: 'created_at ASC',
+      );
+      for (final row in anonymousRows) {
+        final pending = PendingUploadOperation.fromMap(row);
+        if (pending.entityType == 'trace' &&
+            const [
+              'ai_explanation',
+              'ai_question',
+            ].contains(pending.payload['source'])) {
+          privateIds.add(pending.entityId);
+        }
+      }
       await txn.rawInsert(
         '''INSERT OR IGNORE INTO locally_deleted_books (user_id, book_id)
         SELECT ?, book_id FROM locally_deleted_books WHERE user_id = '' ''',
         [normalized],
       );
       await txn.delete('locally_deleted_books', where: "user_id = ''");
-      await txn.rawInsert(
-        '''INSERT OR IGNORE INTO upload_entity_revisions
-        (user_id, entity_type, entity_id, last_revision, state_hash, book_id)
-        SELECT ?, entity_type, entity_id, last_revision, state_hash, book_id
-        FROM upload_entity_revisions WHERE user_id = '' ''',
-        [normalized],
+      final revisions = await txn.query(
+        'upload_entity_revisions',
+        where: "user_id = ''",
       );
+      for (final revision in revisions) {
+        if (revision['entity_type'] == 'trace' &&
+            privateIds.contains(revision['entity_id'])) {
+          continue;
+        }
+        await txn.insert('upload_entity_revisions', {
+          ...revision,
+          'user_id': normalized,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      }
       final rows = await txn.query(
         'pending_upload_operations',
         where: "user_id = ''",
@@ -198,6 +233,10 @@ class ReliableUploadService {
       );
       for (final row in rows) {
         final pending = PendingUploadOperation.fromMap(row);
+        if (pending.entityType == 'trace' &&
+            privateIds.contains(pending.entityId)) {
+          continue;
+        }
         await _enqueue(
           txn,
           userId: normalized,
@@ -215,6 +254,8 @@ class ReliableUploadService {
     });
   }
 
+  // Enqueue methods use the caller's executor. The outer transaction owner
+  // must publish via readingSourceTransaction, never before it commits.
   Future<String> enqueueTrace(
     DatabaseExecutor db, {
     required String userId,
@@ -467,6 +508,7 @@ class ReliableUploadService {
               where: 'id = ?',
               whereArgs: [pending.entityId],
             );
+            ReadingSourceChanges.committed();
           }
         }
         await db.delete(
@@ -474,6 +516,7 @@ class ReliableUploadService {
           where: 'operation_id = ? AND generation = ?',
           whereArgs: [pending.operationId, pending.generation],
         );
+        ReadingSourceChanges.committed();
         _log(pending, 'success', startedAt);
       } catch (_) {
         final retryCount = pending.retryCount + 1;
@@ -491,6 +534,7 @@ class ReliableUploadService {
           where: 'operation_id = ? AND generation = ?',
           whereArgs: [pending.operationId, pending.generation],
         );
+        ReadingSourceChanges.committed();
         _log(pending, 'retry_scheduled', startedAt, retryCount: retryCount);
       }
     }

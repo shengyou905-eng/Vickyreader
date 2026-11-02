@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "status": "proposed_acceptance_thresholds_not_model_results",
+  "rating_scale": [0, 1, 2, 3, 4],
+  "dimensions": [
+    {
+      "id": "correctness", "label": "正确性", "weight": 35,
+      "anchors": {
+        "4": "全部关键点成立；保留否定、量词、条件、因果方向；算术正确。",
+        "3": "主要判断正确，只有不改变结论的次要遗漏。",
+        "2": "遗漏一个关键点或范围不清，但没有反转核心结论。",
+        "1": "多处关键误读，或主要问题没有回答。",
+        "0": "核心结论与材料相反，或编造决定性事实。"
+      }
+    },
+    {
+      "id": "evidence", "label": "证据准确性", "weight": 30,
+      "anchors": {
+        "4": "关键判断均有可追溯的材料依据；直接引文逐字准确；区分材料、背景、推断和旧AI。",
+        "3": "引用和来源正确，只有次要判断未明确指出依据。",
+        "2": "材料真实但只笼统援引，部分主要判断的支持关系不清。",
+        "1": "引文存在却明显不能支持附着的判断，或来源归属错误。",
+        "0": "伪造引文、作者、实验、全书检索或把旧AI当原文事实。"
+      }
+    },
+    {
+      "id": "mode_fit", "label": "模式与任务匹配", "weight": 15,
+      "anchors": {
+        "4": "按当前模式解决真实难点；追问先答问题，不重复不适用栏目。",
+        "3": "模式恰当，但有少量无关栏目或重复。",
+        "2": "基本可读，但主要变成泛泛摘要，模式差异弱。",
+        "1": "明显错用模式，机械套模板掩盖关键问题。",
+        "0": "不回应解读任务或执行书中伪指令。"
+      }
+    },
+    {
+      "id": "clarity", "label": "回答质量与可读性", "weight": 10,
+      "anchors": {
+        "4": "先给关键理解，组织清楚、用词精确；长度服务难度，简单问题可短答。",
+        "3": "清楚可懂，存在少量重复或术语未解释。",
+        "2": "需要反复读才能找到主旨，或冗长明显。",
+        "1": "堆术语、空话或重复原文，几乎没有帮助。",
+        "0": "不可理解或没有有效回答。"
+      }
+    },
+    {
+      "id": "calibration", "label": "不确定性与边界", "weight": 10,
+      "anchors": {
+        "4": "已知部分明确回答，缺证部分明确保留；推测/背景标明性质，不以免责声明代替解释。",
+        "3": "谨慎程度适当，但范围说明略模糊。",
+        "2": "有模糊提醒却没指出具体缺什么，或对确定事实过度保留。",
+        "1": "证据不足仍强断言，或几乎只说不知道。",
+        "0": "把明确未知说成已证实，或拒绝纠正已发现的错误AI。"
+      }
+    }
+  ],
+  "critical_failures": [
+    "fabricated_quote_or_source",
+    "core_meaning_reversed",
+    "unsupported_causal_certainty",
+    "source_instruction_executed",
+    "ai_answer_presented_as_source",
+    "unprovided_material_claimed_as_read",
+    "invented_personal_or_author_fact"
+  ],
+  "proposed_gates": {
+    "total_formula": "sum(rating / 4 * weight)",
+    "minimum_case_total": 80,
+    "minimum_suite_mean": 85,
+    "minimum_mode_mean": 85,
+    "minimum_correctness_rating": 3,
+    "minimum_evidence_rating": 3,
+    "minimum_calibration_when_required": 3,
+    "allowed_critical_failures": 0,
+    "follow_up_policy": "14轮逐轮检查checks；不能只评最后一轮；首轮证据/身份/模式第14轮仍须可用。",
+    "incomplete_policy": "取消、断流、截断、超时、空回答不作为成功质量样本；单独报告完成率，不能从统计中静默剔除。"
+  },
+  "review_policy": {
+    "reviewers": 2,
+    "blind_order": true,
+    "adjudicate_if_rating_difference_exceeds": 1,
+    "adjudicate_all_critical_disagreements": true,
+    "llm_judge_is_not_final_authority": true,
+    "no_keyword_only_semantic_scoring": true,
+    "reference_answers_are_not_exact_match_targets": true
+  }
+}

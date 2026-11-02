@@ -53,6 +53,9 @@ function scriptedDb(steps, { failLedger = false } = {}) {
       let touchedBusiness = false;
       try {
         const value = await callback(async (sql, params = []) => {
+          if (sql.includes("to_regclass('reading_recaps')")) return result([
+            { recaps: false, sources: false, operations: false, feedback: false, conversation: false },
+          ]); // This legacy ledger fixture deliberately has no migration 010.
           if (/^INSERT INTO sync_user_cursors|FROM permanently_deleted_books|user_entry_upload_states|reading_progress_upload_states/.test(sql)) return result();
           calls.push({ sql, params });
           if (/sync_changes/.test(sql) && failLedger) {

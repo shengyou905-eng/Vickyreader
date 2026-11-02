@@ -1,6 +1,10 @@
 const { query, withTransaction } = require('../config/db');
+const httpError = require('../utils/httpError');
 
 async function createConversation(userId, payload = {}) {
+  if (Object.hasOwn(payload, 'recap_id') || payload.kind === 'book_recap') {
+    throw httpError(400, 'Use the dedicated recap interface');
+  }
   const kind = payload.kind === 'xiaou_asks' ? 'xiaou_asks' : 'chat';
   const title = clean(payload.title, 80);
   const bookId = clean(payload.book_id, 300) || null;
@@ -29,13 +33,14 @@ async function listConversations(userId, filters = {}) {
        (
          SELECT content
          FROM xiaou_messages latest
-         WHERE latest.conversation_id = c.id
+         WHERE latest.conversation_id = c.id AND latest.user_id = c.user_id
          ORDER BY latest.created_at DESC
          LIMIT 1
        ) AS last_message
      FROM xiaou_conversations c
-     LEFT JOIN xiaou_messages m ON m.conversation_id = c.id
-     WHERE c.user_id = $1
+     LEFT JOIN xiaou_messages m ON m.conversation_id = c.id AND m.user_id = c.user_id
+     WHERE c.user_id = $1 AND c.kind <> 'book_recap'
+       AND to_jsonb(c)->>'recap_id' IS NULL
      GROUP BY c.id
      ORDER BY c.updated_at DESC
      LIMIT $2`,
@@ -48,7 +53,8 @@ async function getConversation(userId, conversationId) {
   const conversationResult = await query(
     `SELECT *
      FROM xiaou_conversations
-     WHERE id = $1 AND user_id = $2`,
+     WHERE id = $1 AND user_id = $2 AND kind <> 'book_recap'
+       AND to_jsonb(xiaou_conversations)->>'recap_id' IS NULL`,
     [conversationId, userId],
   );
   if (conversationResult.rowCount === 0) return null;
@@ -75,7 +81,8 @@ async function appendMessage(userId, conversationId, payload = {}) {
     const conversation = await txQuery(
       `SELECT id, title
        FROM xiaou_conversations
-       WHERE id = $1 AND user_id = $2
+       WHERE id = $1 AND user_id = $2 AND kind <> 'book_recap'
+         AND to_jsonb(xiaou_conversations)->>'recap_id' IS NULL
        FOR UPDATE`,
       [conversationId, userId],
     );
@@ -113,7 +120,8 @@ async function appendMessage(userId, conversationId, payload = {}) {
 async function deleteConversation(userId, conversationId) {
   const result = await query(
     `DELETE FROM xiaou_conversations
-     WHERE id = $1 AND user_id = $2
+     WHERE id = $1 AND user_id = $2 AND kind <> 'book_recap'
+       AND to_jsonb(xiaou_conversations)->>'recap_id' IS NULL
      RETURNING id`,
     [conversationId, userId],
   );

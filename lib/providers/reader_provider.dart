@@ -10,8 +10,28 @@ import '../models/user_entry.dart';
 import '../services/book_service.dart';
 import '../services/epub_service.dart';
 import '../services/auth_service.dart';
+import '../services/auth_session_scope.dart';
 
 class ReaderProvider extends ChangeNotifier {
+  ReaderProvider() {
+    AuthSessionScope.changes.addListener(_accountChanged);
+  }
+
+  void _accountChanged() {
+    _openBookToken++;
+    _progressSaveTimer?.cancel();
+    _book = null;
+    _chapters = [];
+    _highlights = [];
+    _bookmarks = [];
+    _selectedText = null;
+    selectionAnchor = const {};
+    _showAiPanel = false;
+    _isLoading = false;
+    _loadError = null;
+    notifyListeners();
+  }
+
   static const _publicBookOpenTimeout = Duration(seconds: 30);
   Book? _book;
   List<EpubChapter> _chapters = [];
@@ -20,6 +40,7 @@ class ReaderProvider extends ChangeNotifier {
   List<Highlight> _highlights = [];
   bool _isLoading = false;
   String? _selectedText;
+  Map<String, dynamic> selectionAnchor = const {};
   bool _showAiPanel = false;
   String? _scrollToText;
   List<Bookmark> _bookmarks = [];
@@ -329,18 +350,21 @@ class ReaderProvider extends ChangeNotifier {
   }
 
   Future<void> saveProgress() async {
-    if (_book != null) {
+    final book = _book;
+    final session = AuthSessionScope.capture();
+    if (book != null && session.isCurrent) {
       final now = DateTime.now().toUtc().toIso8601String();
       await BookService.saveReadingProgress(
-        _book!.id,
+        book.id,
         currentChapter?.sourceIndex.toString() ??
             _currentChapterIndex.toString(),
         _scrollOffset,
         userId: _getUserId(),
         updatedAt: now,
       );
+      if (!session.isCurrent || _book?.id != book.id) return;
       await BookService.updateBook(
-        _book!.copyWith(
+        book.copyWith(
           readingProgress: progress,
           lastOpenedAt: DateTime.now(),
           updatedAt: now,
@@ -350,11 +374,13 @@ class ReaderProvider extends ChangeNotifier {
   }
 
   void selectText(String text) {
+    selectionAnchor = const {};
     _selectedText = text;
     notifyListeners();
   }
 
   void clearSelection() {
+    selectionAnchor = const {};
     _selectedText = null;
     _showAiPanel = false;
     notifyListeners();
@@ -378,6 +404,8 @@ class ReaderProvider extends ChangeNotifier {
     required int endOffset,
     String color = '#B39DDB',
   }) async {
+    final session = AuthSessionScope.capture();
+    session.check();
     if (_book == null) return;
     final now = DateTime.now().toUtc().toIso8601String();
     final h = Highlight(
@@ -396,8 +424,8 @@ class ReaderProvider extends ChangeNotifier {
       createdAt: DateTime.now(),
       updatedAt: now,
     );
-    await BookService.insertHighlight(h);
-    await BookService.insertUserEntry(
+    await BookService.insertHighlightTrace(
+      h,
       UserEntry(
         id: const Uuid().v4(),
         userId: _getUserId(),
@@ -423,7 +451,9 @@ class ReaderProvider extends ChangeNotifier {
         createdAt: DateTime.now(),
         updatedAt: now,
       ),
+      session: session,
     );
+    if (!session.isCurrent || _book?.id != h.bookId) return;
     _highlights.insert(0, h);
     notifyListeners();
   }
@@ -432,6 +462,8 @@ class ReaderProvider extends ChangeNotifier {
     required String content,
     Map<String, dynamic> anchorMetadata = const {},
   }) async {
+    final session = AuthSessionScope.capture();
+    session.check();
     if (_book == null || content.trim().isEmpty) return null;
     final now = DateTime.now().toUtc().toIso8601String();
     final selectedText = _selectedText ?? '';
@@ -439,18 +471,8 @@ class ReaderProvider extends ChangeNotifier {
     final entryId = const Uuid().v4();
     final noteId = const Uuid().v4();
 
-    await BookService.insertNote(
-      id: noteId,
-      bookId: _book!.id,
-      chapterIndex:
-          currentChapter?.sourceIndex.toString() ??
-          _currentChapterIndex.toString(),
-      selectedText: selectedText.isEmpty ? null : selectedText,
-      chapterTitle: chapterTitle,
-      content: content.trim(),
-      userId: _getUserId(),
-    );
-    await BookService.insertUserEntry(
+    await BookService.insertThoughtTrace(
+      noteId,
       UserEntry(
         id: entryId,
         userId: _getUserId(),
@@ -473,8 +495,9 @@ class ReaderProvider extends ChangeNotifier {
         createdAt: DateTime.now(),
         updatedAt: now,
       ),
+      session: session,
     );
-    return entryId;
+    return session.isCurrent ? entryId : null;
   }
 
   Future<String?> addAiQuestion({
@@ -483,7 +506,11 @@ class ReaderProvider extends ChangeNotifier {
     required String scope,
     required String contextText,
     required String pageText,
+    Map<String, String> readingContext = const {},
+    AuthSessionScope? session,
   }) async {
+    final identity = session ?? AuthSessionScope.capture();
+    final owner = identity.requireOwner();
     if (_book == null || question.trim().isEmpty || answer.trim().isEmpty) {
       return null;
     }
@@ -492,7 +519,7 @@ class ReaderProvider extends ChangeNotifier {
     return BookService.insertUserEntry(
       UserEntry(
         id: entryId,
-        userId: _getUserId(),
+        userId: owner,
         source: 'ai_question',
         bookId: _book!.id,
         bookTitle: _book!.title,
@@ -506,6 +533,7 @@ class ReaderProvider extends ChangeNotifier {
         autoTags: const ['问小U'],
         metadataJson: jsonEncode({
           'question_scope': scope,
+          'reading_ai_context': readingContext,
           'page_text': pageText.trim(),
           'reading_progress': progress,
           'scroll_offset': _scrollOffset,
@@ -515,6 +543,7 @@ class ReaderProvider extends ChangeNotifier {
         createdAt: DateTime.now(),
         updatedAt: now,
       ),
+      session: identity,
     );
   }
 
@@ -575,6 +604,7 @@ class ReaderProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    AuthSessionScope.changes.removeListener(_accountChanged);
     _progressSaveTimer?.cancel();
     _disposed = true;
     saveProgress(); // fire-and-forget: persists progress before disposal

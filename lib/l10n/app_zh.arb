@@ -229,6 +229,8 @@
   "thisMonth": "本月",
   "untitledMoment": "未命名的片刻",
   "xiaouLoadRetained": "暂时无法刷新，已保留上次看到的内容。",
+  "xiaouLoadSignInRequired": "登录状态已失效，请在设置中使用原账号重新登录。本地阅读内容已保留。",
+  "xiaouLoadConnectionFailed": "暂时无法连接服务器，请检查网络后重试。本地阅读内容已保留。",
   "deletedEntry": "已删除{type}",
   "deleteFailed": "删除失败：{error}",
   "importanceSaveFailed": "重要标记保存失败：{error}",

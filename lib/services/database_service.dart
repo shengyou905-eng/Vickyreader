@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 import '../config/constants.dart';
 import '../config/local_diagnostics_mode.dart';
 import 'upload_revision.dart';
+import 'reading_source_changes.dart';
 
 class DatabaseService {
   static Database? _db;
@@ -22,6 +23,7 @@ class DatabaseService {
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
+    ReadingSourceChanges.committed();
     return _db!;
   }
 
@@ -29,6 +31,9 @@ class DatabaseService {
     LocalDiagnosticsMode.requireBusinessWritesAllowed();
     if (_db != null) return _db!;
     _db = await _initDb();
+    // onCreate/onUpgrade run inside sqflite's open transaction. Publish only
+    // after open succeeds, with _db assigned for listeners that re-read it.
+    ReadingSourceChanges.committed();
     return _db!;
   }
 
@@ -199,6 +204,7 @@ class DatabaseService {
     await _createPendingUploadTable(db);
     await createUploadRevisionSchema(db);
     await createProgressRevisionSchema(db);
+    await createAiOwnershipSchema(db);
   }
 
   static Future<void> _onUpgrade(
@@ -351,6 +357,24 @@ class DatabaseService {
     if (oldVersion < 17) {
       await createProgressRevisionSchema(db);
     }
+    if (oldVersion < 18) {
+      await createAiOwnershipSchema(db);
+    }
+  }
+
+  /// Run inside onCreate/onUpgrade or an explicit transaction. NULL means
+  /// unknown legacy ownership, never an invitation to claim it on login.
+  static Future<void> createAiOwnershipSchema(DatabaseExecutor db) async {
+    await _addColumnIfMissing(db, 'ai_messages', 'user_id', 'TEXT');
+    await _addColumnIfMissing(db, 'user_entry_follow_ups', 'user_id', 'TEXT');
+    await db.execute(
+      '''CREATE INDEX IF NOT EXISTS idx_ai_messages_owner_book_time
+      ON ai_messages(user_id, bookId, timestamp)''',
+    );
+    await db.execute(
+      '''CREATE INDEX IF NOT EXISTS idx_follow_ups_owner_entry_time
+      ON user_entry_follow_ups(user_id, entry_id, created_at)''',
+    );
   }
 
   static Future<void> createProgressRevisionSchema(Database db) async {
@@ -458,7 +482,7 @@ class DatabaseService {
   }
 
   static Future<void> _addColumnIfMissing(
-    Database db,
+    DatabaseExecutor db,
     String table,
     String column,
     String definition,

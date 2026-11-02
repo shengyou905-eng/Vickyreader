@@ -43,6 +43,20 @@ class EpubMetadata {
 }
 
 class EpubService {
+  static int chapterListIndex(List<EpubChapter> chapters, String storedIndex) {
+    final sourceIndex = int.tryParse(storedIndex);
+    final found = chapters.indexWhere(
+      (chapter) => chapter.sourceIndex == sourceIndex,
+    );
+    if (found >= 0) return found;
+    // Compatibility with older records that stored the visible list index.
+    return sourceIndex != null &&
+            sourceIndex >= 0 &&
+            sourceIndex < chapters.length
+        ? sourceIndex
+        : -1;
+  }
+
   static Future<EpubMetadata?> readMetadata(String filePath) async {
     try {
       final bytes = await File(filePath).readAsBytes();
@@ -424,7 +438,11 @@ class EpubService {
   ) {
     final plainText = getPlainText(htmlContent);
     final idx = plainText.indexOf(selectedText);
-    if (idx == -1) return (before: '', after: '');
+    if (selectedText.isEmpty ||
+        idx == -1 ||
+        plainText.indexOf(selectedText, idx + 1) >= 0) {
+      return (before: '', after: '');
+    }
     final before = plainText.substring((idx - charCount).clamp(0, idx), idx);
     final after = plainText.substring(
       (idx + selectedText.length).clamp(0, plainText.length),
@@ -437,10 +455,29 @@ class EpubService {
     String htmlContent,
     String selectedText, {
     int surroundingChars = 600,
+    Map<String, dynamic> selectionAnchor = const {},
   }) {
+    if (_normalizeReadingText(
+              selectionAnchor['selectedText']?.toString() ?? '',
+            ) ==
+            _normalizeReadingText(selectedText) &&
+        selectedText.trim().isNotEmpty) {
+      return (
+        before: selectionAnchor['contextBefore']?.toString() ?? '',
+        paragraph: selectionAnchor['paragraphText']?.toString() ?? '',
+        after: selectionAnchor['contextAfter']?.toString() ?? '',
+      );
+    }
     final context = getContext(htmlContent, selectedText, surroundingChars);
     final document = html_parser.parse(htmlContent);
     final normalizedSelection = _normalizeReadingText(selectedText);
+    final normalizedBody = _normalizeReadingText(document.body?.text ?? '');
+    final first = normalizedBody.indexOf(normalizedSelection);
+    if (normalizedSelection.isEmpty ||
+        first < 0 ||
+        normalizedBody.indexOf(normalizedSelection, first + 1) >= 0) {
+      return (before: '', paragraph: '', after: '');
+    }
     var paragraph = '';
 
     if (normalizedSelection.isNotEmpty) {

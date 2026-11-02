@@ -3,6 +3,7 @@ const { appendSyncChange } = require('./syncChange.repository');
 const { lockUploadUser, assertBookWritable, beginEntryWrite, finishEntryWrite,
   assertLegacyEntryWritable } = require('./uploadState.repository');
 const httpError = require('../utils/httpError');
+const { invalidateSource } = require('./bookRecapInvalidation.repository');
 
 const allowedSources = new Set([
   'highlight',
@@ -163,6 +164,7 @@ async function upsertEntryByClientId(userId, clientEntryId, payload, version = p
       );
     }
     const entry = result.rows[0] || null;
+    if (entry && operation === 'updated') await invalidateSource(txQuery, userId, { entryId: entry.id });
     if (entry && operation) {
       await appendSyncChange(txQuery, {
         userId, entityType: 'trace', entityId: entry.id, operation,
@@ -189,6 +191,7 @@ async function deleteEntryByClientId(userId, clientEntryId, version) {
     );
     await finishEntryWrite(txQuery, userId, clientEntryId, state, true, result.rows[0]?.book_id);
     if (result.rowCount === 0) return false;
+    await invalidateSource(txQuery, userId, { entryId: result.rows[0].id, deleted: true });
     await appendSyncChange(txQuery, {
       userId, entityType: 'trace', entityId: result.rows[0].id,
       operation: 'deleted',
@@ -267,6 +270,7 @@ async function deleteEntry(userId, entryId) {
     );
     if (result.rowCount === 0) return false;
 
+    await invalidateSource(txQuery, userId, { entryId: result.rows[0].id, deleted: true });
     await appendSyncChange(txQuery, {
       userId,
       entityType: 'trace',
@@ -293,6 +297,7 @@ async function updateEntryImportance(userId, entryId, isImportant) {
 
     if (result.rowCount > 0) {
       const entry = result.rows[0];
+      await invalidateSource(txQuery, userId, { entryId: entry.id });
       await appendSyncChange(txQuery, {
         userId,
         entityType: 'trace',
@@ -325,6 +330,7 @@ async function listFollowUps(userId, entryId) {
 
 async function createFollowUp(userId, entryId, question, answer) {
   return withTransaction(async (txQuery) => {
+    await lockUploadUser(txQuery, userId);
     const owned = await txQuery(
       `SELECT id
        FROM user_entries
@@ -345,6 +351,7 @@ async function createFollowUp(userId, entryId, question, answer) {
        RETURNING id, entry_id, question, answer, created_at`,
       [entryId, userId, question, answer],
     );
+    await invalidateSource(txQuery, userId, { entryId });
     return result.rows[0];
   });
 }

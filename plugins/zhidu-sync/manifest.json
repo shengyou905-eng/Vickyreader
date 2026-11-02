@@ -1,0 +1,9 @@
+{
+  "id": "zhidu-sync",
+  "name": "Zhidu Sync",
+  "version": "0.1.0",
+  "minAppVersion": "1.11.4",
+  "description": "Sync your Zhidu reading highlights, notes, and reading progress to your vault.",
+  "author": "Zhidu",
+  "isDesktopOnly": false
+}

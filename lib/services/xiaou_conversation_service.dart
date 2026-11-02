@@ -6,6 +6,7 @@ import '../config/constants.dart';
 import '../models/xiaou_conversation.dart';
 import 'app_http_client.dart';
 import 'auth_service.dart';
+import 'auth_session_scope.dart';
 
 class XiaouConversationService {
   XiaouConversationService._();
@@ -91,7 +92,8 @@ class XiaouConversationService {
     Map<String, dynamic>? body,
     bool allowEmpty = false,
   }) async {
-    await AuthService.init();
+    final scope = AuthSessionScope.capture();
+    scope.requireOwner();
     final token = AuthService.token?.trim() ?? '';
     if (token.isEmpty) throw Exception('请先登录');
 
@@ -118,6 +120,7 @@ class XiaouConversationService {
         throw UnsupportedError('Unsupported method: $method');
     }
 
+    scope.check();
     if (response.statusCode >= 200 && response.statusCode < 300) {
       if (response.body.trim().isEmpty) return const {};
       return Map<String, dynamic>.from(

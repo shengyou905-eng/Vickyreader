@@ -2,6 +2,7 @@ const { withTransaction } = require('../config/db');
 const { appendSyncChange } = require('./syncChange.repository');
 const { lockUploadUser } = require('./uploadState.repository');
 const httpError = require('../utils/httpError');
+const { invalidateSource } = require('./bookRecapInvalidation.repository');
 
 async function permanentlyDeleteBookData(userId, bookId) {
   if (typeof bookId !== 'string' || !bookId.trim() || bookId.length > 200) {
@@ -18,6 +19,7 @@ async function permanentlyDeleteBookData(userId, bookId) {
     await tx(`UPDATE reading_progress_upload_states SET deleted=true, updated_at=now()
       WHERE user_id=$1 AND book_id=$2 AND deleted=false`, [userId, bookId]);
     const traces = await tx(`DELETE FROM user_entries WHERE user_id=$1 AND book_id=$2 RETURNING id`, [userId, bookId]);
+    await invalidateSource(tx, userId, { bookId, deleted: true });
     const progress = await tx(`DELETE FROM reading_progresses WHERE user_id=$1 AND book_id=$2 RETURNING id`, [userId, bookId]);
     const books = await tx(`DELETE FROM user_library_books WHERE user_id=$1 AND book_id=$2 RETURNING book_id`, [userId, bookId]);
     for (const [entityType, result, key] of [

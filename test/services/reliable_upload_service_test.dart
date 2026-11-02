@@ -6,6 +6,7 @@ import 'package:ai_reader/services/database_service.dart';
 import 'package:ai_reader/services/upload_revision.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import '../support/legacy_ai_schema.dart';
 
 class _Clock {
   DateTime value = DateTime.utc(2026, 8, 28, 8);
@@ -130,6 +131,7 @@ class _FakeUploadClient implements ReliableUploadClient {
 }
 
 Future<void> _createSchema(Database db) async {
+  await createLegacyAiHistoryTables(db);
   await db.execute('''
     CREATE TABLE pending_upload_operations (
       operation_id TEXT PRIMARY KEY,
@@ -150,6 +152,8 @@ Future<void> _createSchema(Database db) async {
   await db.execute('''
     CREATE TABLE user_entries (
       id TEXT PRIMARY KEY,
+      user_id TEXT DEFAULT '',
+      source TEXT DEFAULT '',
       bmob_id TEXT DEFAULT ''
     )
   ''');
@@ -354,7 +358,7 @@ void main() {
       await db.close();
       databaseFactory = databaseFactoryFfi;
       db = await DatabaseService.openForTesting(databasePath);
-      expect(await db.getVersion(), 17);
+      expect(await db.getVersion(), 18);
       final seeded = (await db.query('pending_upload_operations')).single;
       expect(seeded['client_revision'], 7);
       expect(seeded['operation_id'], 'v16-progress');
@@ -474,7 +478,7 @@ void main() {
       expect(pending['generation'], 7);
       await service().drain();
       expect(client.versions.single['client_revision'], 7);
-      expect(await db.getVersion(), 17);
+      expect(await db.getVersion(), 18);
     },
   );
 

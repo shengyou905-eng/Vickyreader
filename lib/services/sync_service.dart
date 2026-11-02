@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'database_service.dart';
+import 'reading_source_changes.dart';
 import 'bmob_api.dart';
 
 class SyncService {
@@ -77,6 +78,7 @@ class SyncService {
               localMap,
               conflictAlgorithm: ConflictAlgorithm.replace,
             );
+            if (table == 'user_entries') ReadingSourceChanges.committed();
           } else {
             // Compare timestamps, keep newer
             final localUpdated = localRecord['updated_at'] as String? ?? '';
@@ -89,6 +91,7 @@ class SyncService {
                 where: 'bmob_id = ?',
                 whereArgs: [bmobId],
               );
+              if (table == 'user_entries') ReadingSourceChanges.committed();
             }
           }
         } catch (e) {
@@ -156,6 +159,7 @@ class SyncService {
               where: '$keyColumn = ?',
               whereArgs: [r[keyColumn]],
             );
+            if (table == 'user_entries') ReadingSourceChanges.committed();
           } else {
             // Create new remote record
             final result = await api.create(bmobTable, remoteMap);
@@ -168,6 +172,7 @@ class SyncService {
                 where: '$keyColumn = ?',
                 whereArgs: [r[keyColumn]],
               );
+              if (table == 'user_entries') ReadingSourceChanges.committed();
             }
           }
         } catch (e) {
@@ -207,10 +212,13 @@ class SyncService {
       'user_id': newUserId,
       'updated_at': now,
     }, where: "user_id = '' OR user_id IS NULL");
-    await db.update('user_entries', {
-      'user_id': newUserId,
-      'updated_at': now,
-    }, where: "user_id = '' OR user_id IS NULL");
+    await db.update(
+      'user_entries',
+      {'user_id': newUserId, 'updated_at': now},
+      where:
+          "(user_id = '' OR user_id IS NULL) AND source NOT IN ('ai_explanation', 'ai_question')",
+    );
+    ReadingSourceChanges.committed();
     await db.execute('''
       CREATE TABLE IF NOT EXISTS free_notes (
         id TEXT PRIMARY KEY,

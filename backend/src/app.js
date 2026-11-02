@@ -13,6 +13,7 @@ const xiaouConversationRoutes = require('./routes/xiaouConversation.routes');
 const legalRoutes = require('./routes/legal.routes');
 const libraryRoutes = require('./routes/library.routes');
 const mcpSettingsRoutes = require('./routes/mcpSettings.routes');
+const { createObsidianRouter } = require('./routes/obsidian.routes');
 const { mcpAuth } = require('./middleware/mcpAuth');
 const { mcpNodeHandler } = require('./mcp/server');
 const errorHandler = require('./middleware/errorHandler');
@@ -35,6 +36,8 @@ app.use(
 );
 // Public e-book uploads are disabled; 8 MB still covers compressed avatars
 // while limiting oversized JSON request abuse.
+// IAP has its own bounded JSON parser and sanitized error boundary.
+app.use('/api', require('./routes/appleSubscriptions.routes').createAppleSubscriptionsRouter());
 app.use(express.json({ limit: '8mb' }));
 app.use(
   '/uploads',
@@ -63,6 +66,7 @@ app.use('/api/free-notes', freeNotesRoutes);
 app.use('/api/xiaou', xiaouConversationRoutes);
 app.use('/api/library', libraryRoutes);
 app.use('/api/mcp', mcpSettingsRoutes);
+app.use('/api/integrations/obsidian', createObsidianRouter());
 
 // MCP v0.1 uses one Streamable HTTP endpoint. The SDK handles modern 2026
 // requests and stateless legacy initialize negotiation on this same POST route;

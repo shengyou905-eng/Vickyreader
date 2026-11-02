@@ -229,6 +229,8 @@
   "thisMonth": "This Month",
   "untitledMoment": "Untitled Moment",
   "xiaouLoadRetained": "Could not refresh. The last content you saw has been kept.",
+  "xiaouLoadSignInRequired": "Please sign in again with the same account in Settings. Your local reading content has been kept.",
+  "xiaouLoadConnectionFailed": "Cannot connect to the server. Check your connection and try again. Your local reading content has been kept.",
   "deletedEntry": "Deleted {type}",
   "deleteFailed": "Could not delete: {error}",
   "importanceSaveFailed": "Could not update importance: {error}",

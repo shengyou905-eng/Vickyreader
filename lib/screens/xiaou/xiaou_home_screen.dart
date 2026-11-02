@@ -22,19 +22,25 @@ import 'widgets/xiaou_card.dart';
 import 'widgets/xiaou_presence_orb.dart';
 import 'widgets/xiaou_swipe_actions.dart';
 import 'xiaou_entry_grouping.dart';
+import 'xiaou_load_failure.dart';
 import '../../utils/markdown_sanitizer.dart';
 import '../../utils/latest_request_guard.dart';
+import '../../services/auth_session_scope.dart';
+import '../../widgets/session_bound_state.dart';
 
 class XiaouHomeScreen extends StatefulWidget {
   final int refreshSignal;
   final bool autoLoad;
   final bool isActive;
+  // Explicit isolated composition only; the shipped application supplies none.
+  final WidgetBuilder? recapEntryBuilder;
 
   const XiaouHomeScreen({
     super.key,
     this.refreshSignal = 0,
     this.autoLoad = true,
     this.isActive = true,
+    this.recapEntryBuilder,
   });
 
   @override
@@ -49,10 +55,10 @@ class _BookOption {
 }
 
 class _XiaouLoadNotice extends StatelessWidget {
-  final String message;
+  final XiaouLoadFailure failure;
   final VoidCallback onRetry;
 
-  const _XiaouLoadNotice({required this.message, required this.onRetry});
+  const _XiaouLoadNotice({required this.failure, required this.onRetry});
 
   @override
   Widget build(BuildContext context) {
@@ -67,11 +73,11 @@ class _XiaouLoadNotice extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.cloud_off_outlined, size: 18, color: palette.icon),
+          Icon(failure.icon, size: 18, color: palette.icon),
           const SizedBox(width: 9),
           Expanded(
             child: Text(
-              message,
+              failure.message(context.l10n),
               style: TextStyle(
                 color: palette.textSecondary,
                 fontSize: 13,
@@ -98,7 +104,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   bool _reloadAfterCurrent = false;
   bool _forceReloadAfterCurrent = false;
   DateTime? _lastLoadCompletedAt;
-  String? _loadError;
+  XiaouLoadFailure? _loadError;
   bool _hasResolvedLoad = false;
   final LatestRequestGuard _loadGuard = LatestRequestGuard();
   int _presencePulseKey = 0;
@@ -114,6 +120,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
   @override
   void initState() {
     super.initState();
+    AuthSessionScope.changes.addListener(_accountChanged);
     if (widget.autoLoad) {
       _load();
     }
@@ -136,10 +143,30 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
 
   @override
   void dispose() {
+    AuthSessionScope.changes.removeListener(_accountChanged);
     _loadGuard.invalidate();
     _presenceGuidePulseTimer?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _accountChanged() {
+    _loadGuard.invalidate();
+    if (!mounted) return;
+    setState(() {
+      _items = [];
+      _allItems = [];
+      _homeInsight = XiaouHomeInsight.empty();
+      _lastLoadCompletedAt = null;
+      _loadError = null;
+      _hasResolvedLoad = false;
+      _searchController.clear();
+      _searchQuery = '';
+      _bookFilter = 'all';
+      _deletingIds.clear();
+      _updatingImportanceIds.clear();
+    });
+    if (widget.autoLoad) unawaited(_load(forceRefresh: true));
   }
 
   Future<void> _maybeShowPresenceGuide() async {
@@ -202,7 +229,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
         setState(() {
           _loading = false;
           _refreshing = false;
-          _loadError = _friendlyLoadError(error);
+          _loadError = XiaouLoadFailure.fromErrors([error]);
         });
       }
       _loadInFlight = false;
@@ -262,7 +289,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
       } catch (error) {
         errors.add(error);
         debugPrint(
-          '[XiaouLoad] insight failed version=$requestVersion: $error',
+          '[XiaouLoad] insight failed version=$requestVersion type=${error.runtimeType}',
         );
       }
     }
@@ -292,7 +319,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
       } catch (error) {
         errors.add(error);
         debugPrint(
-          '[XiaouLoad] entries failed version=$requestVersion: $error',
+          '[XiaouLoad] entries failed version=$requestVersion type=${error.runtimeType}',
         );
       }
     }
@@ -306,7 +333,7 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
           _loading = false;
           _refreshing = false;
           _hasResolvedLoad = true;
-          _loadError = errors.isEmpty ? null : _friendlyLoadError(errors.first);
+          _loadError = XiaouLoadFailure.fromErrors(errors);
         });
         debugPrint(
           '[XiaouLoad] complete version=$requestVersion '
@@ -324,17 +351,6 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
     _reloadAfterCurrent = false;
     _forceReloadAfterCurrent = false;
     unawaited(_load(forceRefresh: nextForceRefresh));
-  }
-
-  String _friendlyLoadError(Object error) {
-    final message = error.toString().replaceFirst(
-      RegExp(r'^Exception:\s*'),
-      '',
-    );
-    if (message.contains('Timeout') || message.contains('timeout')) {
-      return context.l10n.xiaouLoadRetained;
-    }
-    return context.l10n.xiaouLoadRetained;
   }
 
   bool _recentlyLoadedWithContent() {
@@ -571,11 +587,13 @@ class _XiaouHomeScreenState extends State<XiaouHomeScreen> {
           if (_loadError != null)
             SliverToBoxAdapter(
               child: _XiaouLoadNotice(
-                message: _loadError!,
+                failure: _loadError!,
                 onRetry: () => _load(forceRefresh: true),
               ),
             ),
           SliverToBoxAdapter(child: _buildMemoryTools()),
+          if (widget.isActive && widget.recapEntryBuilder != null)
+            SliverToBoxAdapter(child: widget.recapEntryBuilder!(context)),
           if (visibleItems.isEmpty)
             SliverToBoxAdapter(
               child: _buildFilteredEmpty(loadFailed: _loadError != null),
@@ -1020,7 +1038,16 @@ class _XiaouAgentChatSheet extends StatefulWidget {
   State<_XiaouAgentChatSheet> createState() => _XiaouAgentChatSheetState();
 }
 
-class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
+class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet>
+    with SessionBoundState<_XiaouAgentChatSheet> {
+  @override
+  void onSessionInvalidated() {
+    unawaited(_subscription?.cancel());
+    _loading = false;
+    _messages.clear();
+    _conversationId = null;
+  }
+
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<AiMessage> _messages = [];
@@ -1071,6 +1098,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
   }
 
   Future<void> _send([String? preset]) async {
+    if (!sessionActive) return;
     final text = (preset ?? _controller.text).trim();
     if (text.isEmpty || _loading || _openingConversation) return;
     await _subscription?.cancel();
@@ -1101,6 +1129,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
 
     try {
       final conversationId = await _ensureConversation(text);
+      if (!sessionActive) return;
       await XiaouConversationService.appendMessage(
         conversationId: conversationId,
         role: 'user',
@@ -1109,7 +1138,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
     } catch (error) {
       _setHistorySyncWarning('这次对话暂未同步到历史记录：${_shortError(error)}');
     }
-    if (!mounted) return;
+    if (!sessionActive) return;
 
     final buffer = StringBuffer();
     _subscription =
@@ -1176,6 +1205,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
   }
 
   Future<String> _ensureConversation(String firstMessage) async {
+    sessionScope.requireOwner();
     final currentId = _conversationId;
     if (currentId != null && currentId.isNotEmpty) return currentId;
     final conversation = await XiaouConversationService.create(
@@ -1188,7 +1218,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
           ? _conversationBookTitle
           : widget.contextBookTitle,
     );
-    if (!mounted) return conversation.id;
+    if (!sessionActive) throw const StaleAuthSession();
     setState(() {
       _conversationId = conversation.id;
       _conversationTitle = _isXiaouAsks ? '小U问我' : _titleFrom(firstMessage);
@@ -1202,6 +1232,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
     String content, {
     String status = 'completed',
   }) async {
+    if (!sessionScope.isCurrent) return;
     if (_currentAssistantPersisted || content.trim().isEmpty) return;
     final conversationId = _conversationId;
     if (conversationId == null || conversationId.isEmpty) return;
@@ -1258,6 +1289,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
   }
 
   Future<void> _requestXiaouQuestion() async {
+    if (!sessionActive) return;
     if (_loading || _openingConversation || !_isXiaouAsks) return;
     await _subscription?.cancel();
     final history = _messages
@@ -1280,7 +1312,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
     } catch (error) {
       _setHistorySyncWarning('这次对谈暂未同步到历史记录：${_shortError(error)}');
     }
-    if (!mounted) return;
+    if (!sessionActive) return;
 
     final buffer = StringBuffer();
     _subscription =
@@ -1428,6 +1460,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
   }
 
   Future<void> _showHistory() async {
+    if (!sessionActive) return;
     if (_loading || _openingConversation) return;
     final conversationId = await showModalBottomSheet<String>(
       context: context,
@@ -1435,14 +1468,14 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
       isScrollControlled: true,
       builder: (_) => const _XiaouConversationHistorySheet(),
     );
-    if (conversationId == null || !mounted) return;
+    if (conversationId == null || !sessionActive) return;
     setState(() {
       _openingConversation = true;
       _error = null;
     });
     try {
       final thread = await XiaouConversationService.get(conversationId);
-      if (!mounted) return;
+      if (!sessionActive) return;
       setState(() {
         _conversationId = thread.conversation.id;
         _conversationTitle = thread.conversation.displayTitle;
@@ -1547,6 +1580,7 @@ class _XiaouAgentChatSheetState extends State<_XiaouAgentChatSheet> {
   Widget build(BuildContext context) {
     final palette = context.appPalette;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    if (!sessionActive) return const SizedBox.shrink();
     return FractionallySizedBox(
       heightFactor: 0.9,
       child: AnimatedPadding(
@@ -2022,7 +2056,8 @@ class _XiaouConversationHistorySheet extends StatefulWidget {
 }
 
 class _XiaouConversationHistorySheetState
-    extends State<_XiaouConversationHistorySheet> {
+    extends State<_XiaouConversationHistorySheet>
+    with SessionBoundState<_XiaouConversationHistorySheet> {
   List<XiaouConversationSummary> _conversations = const [];
   bool _loading = true;
   String? _error;
@@ -2035,13 +2070,14 @@ class _XiaouConversationHistorySheetState
   }
 
   Future<void> _load() async {
+    if (!sessionActive) return;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
       final conversations = await XiaouConversationService.list();
-      if (!mounted) return;
+      if (!sessionActive) return;
       setState(() => _conversations = conversations);
     } catch (error) {
       if (mounted) {
@@ -2070,7 +2106,7 @@ class _XiaouConversationHistorySheetState
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !sessionActive) return;
     setState(() => _deletingIds.add(conversation.id));
     try {
       await XiaouConversationService.delete(conversation.id);
@@ -2094,6 +2130,7 @@ class _XiaouConversationHistorySheetState
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
+    if (!sessionActive) return const SizedBox.shrink();
     return FractionallySizedBox(
       heightFactor: 0.82,
       child: Material(

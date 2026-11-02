@@ -23,6 +23,9 @@ function loadRepository(relativePath, responses) {
     exports: {
       query: async () => { throw new Error('Unexpected query'); },
       withTransaction: async (callback) => callback(async (sql, params = []) => {
+        if (sql.includes("to_regclass('reading_recaps')")) return result([
+          { recaps: false, sources: false, operations: false, feedback: false, conversation: false },
+        ]); // Legacy schema fixture; real invalidation is exercised in isolated PostgreSQL.
         if (/^INSERT INTO sync_user_cursors|FROM permanently_deleted_books|user_entry_upload_states|reading_progress_upload_states/.test(sql)) return result();
         if (/SELECT \* FROM user_entries/.test(sql) && !responses[0]?.sql.test(sql)) return result();
         calls.push({ sql, params });

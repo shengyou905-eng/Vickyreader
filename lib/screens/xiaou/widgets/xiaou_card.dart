@@ -1,6 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../../models/reading_ai_context.dart';
+import '../../../models/ai_explain_mode.dart';
 import '../../../config/theme.dart';
 import '../../../models/ai_conversation.dart';
+import '../../../widgets/session_bound_state.dart';
 import '../../../models/user_entry_follow_up.dart';
 import '../../../services/ai_service.dart';
 import '../../../services/book_service.dart';
@@ -404,6 +408,7 @@ class _XiaouCardState extends State<XiaouCard> {
       builder: (_) => _XiaouExplanationSheet(
         entryId: widget.entryId,
         originalText: widget.originalText,
+        initialQuestion: widget.userNote ?? '',
         explanation: explanation,
         bookTitle: widget.bookTitle ?? '',
         chapterTitle: widget.chapterTitle ?? '',
@@ -497,6 +502,7 @@ class _FollowUpSheetResult {
 }
 
 class _XiaouExplanationSheet extends StatefulWidget {
+  final String initialQuestion;
   final String entryId;
   final String originalText;
   final String explanation;
@@ -507,6 +513,7 @@ class _XiaouExplanationSheet extends StatefulWidget {
   final String title;
 
   const _XiaouExplanationSheet({
+    required this.initialQuestion,
     required this.entryId,
     required this.originalText,
     required this.explanation,
@@ -521,7 +528,8 @@ class _XiaouExplanationSheet extends StatefulWidget {
   State<_XiaouExplanationSheet> createState() => _XiaouExplanationSheetState();
 }
 
-class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet> {
+class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet>
+    with SessionBoundState<_XiaouExplanationSheet> {
   final TextEditingController _followUpController = TextEditingController();
   List<UserEntryFollowUp> _followUps = const [];
   bool _loadingFollowUps = true;
@@ -529,10 +537,26 @@ class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet> {
   String _streamingQuestion = '';
   String _streamingAnswer = '';
   String? _error;
+  ReadingAiContext? _readingContext;
+  StreamIterator<String>? _stream;
+  bool _closing = false;
 
   @override
   void initState() {
     super.initState();
+    _readingContext = ReadingAiContext({
+      'selectedText': widget.originalText,
+      'bookTitle': widget.bookTitle,
+      'chapterTitle': widget.chapterTitle,
+      'initialAnswer': widget.explanation,
+      'initialQuestion': widget.initialQuestion,
+      'mode':
+          AiExplainMode.values
+              .where((mode) => widget.tags.contains(mode.fullLabel))
+              .firstOrNull
+              ?.apiValue ??
+          'auto',
+    });
     _loadFollowUps();
   }
 
@@ -542,8 +566,11 @@ class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet> {
       return;
     }
     try {
+      final entry = await BookService.getLocalUserEntry(widget.entryId);
+      if (!sessionActive) return;
+      if (entry != null) _readingContext = ReadingAiContext.fromEntry(entry);
       final rows = await BookService.getUserEntryFollowUps(widget.entryId);
-      if (!mounted) return;
+      if (!sessionActive) return;
       setState(() {
         _followUps = rows;
         _loadingFollowUps = false;
@@ -558,10 +585,12 @@ class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet> {
   }
 
   Future<void> _sendFollowUp() async {
-    if (_sending || widget.entryId.isEmpty) return;
+    if (!sessionActive) return;
+    if (_sending || _loadingFollowUps || widget.entryId.isEmpty) return;
     final question = _followUpController.text.trim();
     if (question.isEmpty) return;
     if (!await AiConsentGate.ensure(context) || !mounted) return;
+    if (!sessionActive) return;
     _followUpController.clear();
     setState(() {
       _sending = true;
@@ -596,19 +625,27 @@ class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet> {
         ],
       ];
       final buffer = StringBuffer();
-      await for (final chunk in AiService.chatStream(
-        message: question,
-        conversationHistory: history,
-      )) {
-        buffer.write(chunk);
+      final stream = StreamIterator(
+        AiService.chatStream(
+          message: question,
+          conversationHistory: history,
+          readingContext: _readingContext,
+        ),
+      );
+      _stream = stream;
+      while (await stream.moveNext()) {
+        if (!sessionActive || _closing) return;
+        buffer.write(stream.current);
         if (mounted) setState(() => _streamingAnswer = buffer.toString());
       }
+      if (!sessionActive || _closing) return;
       final answer = buffer.toString().trim();
       if (answer.isEmpty) throw Exception('empty answer');
       final saved = await BookService.insertUserEntryFollowUp(
         entryId: widget.entryId,
         question: question,
         answer: answer,
+        session: sessionScope,
       );
       if (!mounted) return;
       setState(() {
@@ -626,7 +663,15 @@ class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet> {
     }
   }
 
+  @override
+  void onSessionInvalidated() {
+    _closing = true;
+    unawaited(_stream?.cancel());
+  }
+
   void _close() {
+    _closing = true;
+    unawaited(_stream?.cancel());
     Navigator.pop(
       context,
       _FollowUpSheetResult(
@@ -639,6 +684,7 @@ class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet> {
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
+    if (!sessionActive) return const SizedBox.shrink();
     return DraggableScrollableSheet(
       initialChildSize: 0.78,
       minChildSize: 0.52,
@@ -902,6 +948,7 @@ class _XiaouExplanationSheetState extends State<_XiaouExplanationSheet> {
 
   @override
   void dispose() {
+    unawaited(_stream?.cancel());
     _followUpController.dispose();
     super.dispose();
   }

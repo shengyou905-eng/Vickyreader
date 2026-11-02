@@ -7,6 +7,7 @@ import 'package:ai_reader/services/database_service.dart';
 import 'package:ai_reader/services/reliable_upload_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import '../support/legacy_ai_schema.dart';
 
 class _Remote implements ReliableUploadClient {
   final traces = <String>{'trace'};
@@ -318,6 +319,7 @@ void main() {
     () async {
       await db.close();
       db = await databaseFactory.openDatabase('${directory.path}/v14.db');
+      await createLegacyAiHistoryTables(db);
       await db.execute('CREATE TABLE books (id TEXT PRIMARY KEY)');
       await db.execute("INSERT INTO books VALUES ('old')");
       await db.execute(
@@ -334,7 +336,7 @@ void main() {
         (await db.query('pending_upload_operations')).single['operation_id'],
         'pending',
       );
-      expect(await db.getVersion(), 17);
+      expect(await db.getVersion(), 18);
       expect(
         (await db.query('pending_upload_operations')).single['client_revision'],
         7,

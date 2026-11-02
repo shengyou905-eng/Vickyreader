@@ -10,6 +10,7 @@ import '../../models/user_entry.dart';
 import '../../services/book_service.dart';
 import '../../services/share_service.dart';
 import '../../utils/latest_request_guard.dart';
+import '../../widgets/session_bound_state.dart';
 
 class NotesFreeScreen extends StatefulWidget {
   final int refreshSignal;
@@ -504,10 +505,12 @@ class _EchoDayScreen extends StatefulWidget {
   State<_EchoDayScreen> createState() => _EchoDayScreenState();
 }
 
-class _EchoDayScreenState extends State<_EchoDayScreen> {
+class _EchoDayScreenState extends State<_EchoDayScreen>
+    with SessionBoundState<_EchoDayScreen> {
   late final Future<_EchoDayData> _data = _loadData();
 
   Future<_EchoDayData> _loadData() async {
+    sessionScope.check();
     final day = _dateOnly(widget.day);
     final nextDay = day.add(const Duration(days: 1));
     final results = await Future.wait([
@@ -523,12 +526,14 @@ class _EchoDayScreenState extends State<_EchoDayScreen> {
     final entries = (results[1] as List<UserEntry>)
         .where((entry) => _isSameDay(entry.createdAt.toLocal(), day))
         .toList();
+    sessionScope.check();
     return _EchoDayData(notes: notes, entries: entries);
   }
 
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
+    if (!sessionActive) return const SizedBox.shrink();
     return Scaffold(
       appBar: AppBar(title: Text(context.l10n.thatDay)),
       body: FutureBuilder<_EchoDayData>(

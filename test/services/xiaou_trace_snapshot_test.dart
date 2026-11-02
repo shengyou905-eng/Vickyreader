@@ -2,6 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ai_reader/services/book_service.dart';
+import 'package:ai_reader/services/auth_service.dart';
+import 'package:ai_reader/config/constants.dart';
+import 'package:crypto/crypto.dart';
 import 'package:ai_reader/services/database_service.dart';
 import 'package:ai_reader/services/upload_revision.dart';
 import 'package:ai_reader/services/xiaou_trace_snapshot.dart';
@@ -30,6 +33,7 @@ void main() {
     db = await DatabaseService.openForTesting('${dir.path}/test.db');
     owner = 'synthetic-user-${serial++}';
     SharedPreferences.setMockInitialValues({'auth_user_id': owner});
+    await AuthService.init();
   });
   tearDown(() async {
     await db.close();
@@ -199,11 +203,13 @@ void main() {
   test(
     'authenticated offline fetch falls back to local + disk without consuming queue',
     () async {
+      final origin = sha256.convert(utf8.encode(AppConstants.apiBaseUrl));
       SharedPreferences.setMockInitialValues({
         'auth_user_id': owner,
         'auth_token': 'synthetic-invalid-test-token',
-        'xiaou_overview_cache_v4_$owner': jsonEncode([remote('a')]),
+        'xiaou_overview_cache_v4_${origin}_$owner': jsonEncode([remote('a')]),
       });
+      await AuthService.init();
       await local('a');
       await pending('a');
       final before = await db.query('pending_upload_operations');

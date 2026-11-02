@@ -26,6 +26,8 @@ import '../mingtai/community_mingtai_screen.dart';
 import 'widgets/ai_explanation_card.dart';
 import 'widgets/reader_settings.dart';
 import 'widgets/reader_question_sheet.dart';
+import '../../services/auth_session_scope.dart';
+import '../../widgets/session_bound_state.dart';
 import 'widgets/selection_menu.dart';
 import 'widgets/pdf_reader.dart';
 import 'widgets/reader_document_html.dart';
@@ -38,7 +40,7 @@ class ReaderScreen extends StatefulWidget {
 }
 
 class _ReaderScreenState extends State<ReaderScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SessionBoundState<ReaderScreen> {
   late WebViewController _webViewController;
   bool _showControls = true;
   bool _ignoreChapterMessages = false;
@@ -907,6 +909,7 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (!sessionActive) return const SizedBox.shrink();
     return PopScope(
       canPop: _isExiting,
       onPopInvokedWithResult: (didPop, _) async {
@@ -1028,17 +1031,26 @@ class _ReaderScreenState extends State<ReaderScreen>
                         _hideSelectionGuideTip();
                         final chapter = reader.currentChapter;
                         if (chapter != null) {
+                          final anchor = await _captureSelectionAnchor();
                           final scrollRatio = await _captureScrollRatio();
                           if (!mounted) return;
                           final plainText = EpubService.getPlainText(
                             chapter.content,
                           );
-                          final selectedText = reader.selectedText!;
-                          final startIdx = _findSelectedTextOffset(
-                            plainText,
-                            selectedText,
-                          );
-                          final textContext = startIdx >= 0
+                          final selectedText =
+                              anchor['selectedText'] as String? ??
+                              reader.selectedText!;
+                          final startIdx =
+                              anchor['startOffset'] as int? ??
+                              _findSelectedTextOffset(plainText, selectedText);
+                          final textContext = anchor.isNotEmpty
+                              ? (
+                                  before:
+                                      anchor['contextBefore'] as String? ?? '',
+                                  after:
+                                      anchor['contextAfter'] as String? ?? '',
+                                )
+                              : startIdx >= 0
                               ? EpubService.getContext(
                                   chapter.content,
                                   selectedText,
@@ -1049,10 +1061,12 @@ class _ReaderScreenState extends State<ReaderScreen>
                             selectedText: selectedText,
                             contextBefore: textContext.before,
                             contextAfter: textContext.after,
-                            startOffset: startIdx >= 0 ? startIdx : 0,
-                            endOffset: startIdx >= 0
-                                ? startIdx + selectedText.length
-                                : selectedText.length,
+                            startOffset: startIdx,
+                            endOffset:
+                                anchor['endOffset'] as int? ??
+                                (startIdx >= 0
+                                    ? startIdx + selectedText.length
+                                    : -1),
                             color: color,
                           );
                           _webViewController.runJavaScript(
@@ -1146,7 +1160,10 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   int _findSelectedTextOffset(String plainText, String selectedText) {
     final direct = plainText.indexOf(selectedText);
-    if (direct >= 0) return direct;
+    if (selectedText.isEmpty) return -1;
+    if (direct >= 0) {
+      return plainText.indexOf(selectedText, direct + 1) < 0 ? direct : -1;
+    }
 
     final normalized = _normalizeWithIndexMap(plainText);
     final normalizedSelected = selectedText
@@ -1155,6 +1172,10 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (normalizedSelected.isEmpty) return -1;
 
     final normalizedIndex = normalized.text.indexOf(normalizedSelected);
+    if (normalizedIndex >= 0 &&
+        normalized.text.indexOf(normalizedSelected, normalizedIndex + 1) >= 0) {
+      return -1;
+    }
     if (normalizedIndex < 0 || normalizedIndex >= normalized.indexMap.length) {
       return -1;
     }
@@ -1268,6 +1289,18 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
   }
 
+  Future<Map<String, dynamic>> _captureSelectionAnchor() async {
+    try {
+      final raw = await _webViewController.runJavaScriptReturningResult(
+        'window.readerSelectionAnchor ? window.readerSelectionAnchor() : "";',
+      );
+      dynamic value = jsonDecode(raw.toString());
+      if (value is String) value = jsonDecode(value);
+      if (value is Map<String, dynamic>) return value;
+    } catch (_) {}
+    return const {};
+  }
+
   Future<_ReaderParagraphAnchor?> _captureReaderParagraphAnchor() async {
     try {
       final raw = await _webViewController.runJavaScriptReturningResult(
@@ -1319,6 +1352,8 @@ class _ReaderScreenState extends State<ReaderScreen>
   Future<void> _beginAiExplanation(ReaderProvider reader) async {
     if (reader.selectedText == null || reader.showAiPanel) return;
     if (!await AiConsentGate.ensure(context) || !mounted) return;
+    reader.selectionAnchor = await _captureSelectionAnchor();
+    if (!mounted) return;
 
     _controlsBeforeAi ??= _showControls;
     if (_showControls && mounted) {
@@ -1367,6 +1402,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     ReaderProvider reader, {
     bool fromSelection = false,
   }) async {
+    final questionSession = AuthSessionScope.capture();
     final book = reader.book;
     final chapter = reader.currentChapter;
     if (book == null || chapter == null || book.format == 'pdf') {
@@ -1378,6 +1414,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       return;
     }
     if (!await AiConsentGate.ensure(context) || !mounted) return;
+    if (!questionSession.isCurrent) return;
 
     final selectedText = fromSelection
         ? (reader.selectedText?.trim() ?? '')
@@ -1386,9 +1423,9 @@ class _ReaderScreenState extends State<ReaderScreen>
       chapter.content,
     ).replaceAll(RegExp(r'\s+'), ' ').trim();
     final ratio = await _captureScrollRatio() ?? 0.5;
-    if (!mounted) return;
+    if (!mounted || !questionSession.isCurrent) return;
     var pageText = await _captureVisibleReaderText();
-    if (!mounted) return;
+    if (!mounted || !questionSession.isCurrent) return;
     if (pageText.isEmpty) {
       pageText = _textWindowAtRatio(plainText, ratio, 5000);
     }
@@ -1396,8 +1433,12 @@ class _ReaderScreenState extends State<ReaderScreen>
     var contextBefore = '';
     var contextAfter = '';
     if (selectedText.isNotEmpty) {
+      final anchor = await _captureSelectionAnchor();
+      if (!mounted) return;
+      contextBefore = anchor['contextBefore'] as String? ?? '';
+      contextAfter = anchor['contextAfter'] as String? ?? '';
       final selectedOffset = _findSelectedTextOffset(plainText, selectedText);
-      if (selectedOffset >= 0) {
+      if (anchor.isEmpty && selectedOffset >= 0) {
         final beforeStart = (selectedOffset - 2600).clamp(0, selectedOffset);
         contextBefore = plainText.substring(beforeStart, selectedOffset);
         final afterStart = (selectedOffset + selectedText.length).clamp(
@@ -1448,11 +1489,21 @@ class _ReaderScreenState extends State<ReaderScreen>
         readerContext: questionContext,
         initialScope: initialScope,
         onSaveFirstAnswer: (question, answer, scope) {
+          questionSession.check();
           final recordText = questionContext.previewFor(scope);
           return reader.addAiQuestion(
+            session: questionSession,
             question: question,
             answer: answer,
             scope: scope.apiValue,
+            readingContext: {
+              'scope': scope.apiValue,
+              'selectedText': questionContext.selectedText,
+              'pageText': questionContext.pageText,
+              'chapterText': questionContext.chapterText,
+              'contextBefore': questionContext.contextBefore,
+              'contextAfter': questionContext.contextAfter,
+            },
             contextText: recordText.length > 6000
                 ? '${recordText.substring(0, 6000)}……'
                 : recordText,
@@ -1462,10 +1513,12 @@ class _ReaderScreenState extends State<ReaderScreen>
           );
         },
         onSaveFollowUp: (entryId, question, answer) async {
+          questionSession.check();
           await BookService.insertUserEntryFollowUp(
             entryId: entryId,
             question: question,
             answer: answer,
+            session: questionSession,
           );
         },
       ),

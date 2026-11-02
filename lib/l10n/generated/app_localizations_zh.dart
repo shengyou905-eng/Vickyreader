@@ -710,6 +710,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get xiaouLoadRetained => '暂时无法刷新，已保留上次看到的内容。';
 
   @override
+  String get xiaouLoadSignInRequired => '登录状态已失效，请在设置中使用原账号重新登录。本地阅读内容已保留。';
+
+  @override
+  String get xiaouLoadConnectionFailed => '暂时无法连接服务器，请检查网络后重试。本地阅读内容已保留。';
+
+  @override
   String deletedEntry(Object type) {
     return '已删除$type';
   }

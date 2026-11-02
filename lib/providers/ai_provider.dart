@@ -5,12 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../models/ai_conversation.dart';
 import '../models/ai_explain_mode.dart';
+import '../models/reading_ai_context.dart';
 import '../models/user_entry.dart';
 import '../l10n/app_locale_state.dart';
 import '../services/auth_service.dart';
+import '../services/auth_session_scope.dart';
 import '../services/ai_service.dart';
 import '../services/book_service.dart';
 import '../services/epub_service.dart';
+import '../services/reading_history.dart';
 
 class AiProvider extends ChangeNotifier {
   List<AiMessage> _messages = [];
@@ -24,6 +27,32 @@ class AiProvider extends ChangeNotifier {
   bool _cancelRequested = false;
   final Map<String, String> _explanationCache = {};
   String? _activeExplanationEntryId;
+  ReadingAiContext? _readingContext;
+  List<AiMessage> _readingHistory = [];
+  String? _sessionUserId;
+  AuthSessionScope? _session;
+
+  AiProvider() {
+    AuthSessionScope.changes.addListener(_identityChanged);
+  }
+
+  void _identityChanged() {
+    _bookId = null;
+    _session = null;
+    _sessionUserId = null;
+    _explanationCache.clear();
+    clearMessages();
+  }
+
+  @override
+  void dispose() {
+    AuthSessionScope.changes.removeListener(_identityChanged);
+    _activeGeneration++;
+    _activeSubscription?.cancel();
+    final pending = _activeCompleter;
+    if (pending != null && !pending.isCompleted) pending.complete();
+    super.dispose();
+  }
 
   List<AiMessage> get messages => _messages;
   bool get isLoading => _isLoading;
@@ -31,9 +60,18 @@ class AiProvider extends ChangeNotifier {
   String? get loadingText => _loadingText;
 
   Future<void> loadHistory(String bookId) async {
+    final session = AuthSessionScope.capture();
+    await cancelGeneration();
+    session.check();
+    final generation = ++_activeGeneration;
     _bookId = bookId;
     _activeExplanationEntryId = null;
-    _messages = await BookService.getAiMessages(bookId);
+    _readingContext = null;
+    _readingHistory = [];
+    final messages = await BookService.getAiMessages(bookId, session: session);
+    session.check();
+    if (generation != _activeGeneration) return;
+    _messages = messages;
     notifyListeners();
   }
 
@@ -45,30 +83,51 @@ class AiProvider extends ChangeNotifier {
     required String chapterIndex,
     String chapterTitle = '',
     AiExplainMode mode = AiExplainMode.auto,
+    Map<String, dynamic> selectionAnchor = const {},
   }) async {
+    if (_isLoading) return;
     _activeExplanationEntryId = null;
+    _readingHistory = [];
+    _sessionUserId = AuthService.userId;
+    _session = AuthSessionScope.capture();
     final generation = _startGeneration(
       AppLocaleState.isEnglish ? _englishLoadingText(mode) : mode.loadingText,
     );
     notifyListeners();
 
     try {
+      _session!.requireOwner();
       final context = EpubService.getReadingContext(
         chapterContent,
         selectedText,
+        selectionAnchor: selectionAnchor,
       );
-      final cacheKey = [
+      _readingContext = ReadingAiContext({
+        'selectedText': selectedText,
+        'bookTitle': bookTitle,
+        'bookAuthor': bookAuthor,
+        'chapterTitle': chapterTitle,
+        'mode': mode.apiValue,
+        'contextBefore': context.before,
+        'paragraph': context.paragraph,
+        'contextAfter': context.after,
+      });
+      final cacheKey = jsonEncode([
+        readingPromptVersion,
+        AuthService.userId ?? '',
+        AppLocaleState.languageCode,
         _bookId ?? '',
         chapterIndex,
         mode.apiValue,
+        bookTitle,
+        bookAuthor,
+        chapterTitle,
         selectedText,
         context.paragraph,
-      ].join('|');
+        context.before,
+        context.after,
+      ]);
       final cached = _explanationCache[cacheKey];
-
-      final previousHistory = _messages.length > 6
-          ? _messages.sublist(_messages.length - 6)
-          : List<AiMessage>.from(_messages);
 
       final userMsg = AiMessage(
         role: 'user',
@@ -93,6 +152,7 @@ class AiProvider extends ChangeNotifier {
           timestamp: aiMsg.timestamp,
         );
         await _persistExplanation(
+          generation: generation,
           userMessage: userMsg,
           assistantTimestamp: aiMsg.timestamp,
           result: cached,
@@ -117,9 +177,7 @@ class AiProvider extends ChangeNotifier {
         bookAuthor: bookAuthor,
         chapterTitle: chapterTitle,
         mode: mode,
-        conversationHistory: previousHistory
-            .where((message) => message.content.trim().isNotEmpty)
-            .toList(growable: false),
+        conversationHistory: const [],
       );
 
       final completed = await _consumeStream(
@@ -140,6 +198,7 @@ class AiProvider extends ChangeNotifier {
       }
 
       await _persistExplanation(
+        generation: generation,
         userMessage: userMsg,
         assistantTimestamp: aiMsg.timestamp,
         result: result,
@@ -174,6 +233,11 @@ class AiProvider extends ChangeNotifier {
   }
 
   Future<void> sendFollowUp(String question) async {
+    if (_isLoading ||
+        _readingContext == null ||
+        _activeExplanationEntryId == null) {
+      return;
+    }
     final entryId = _activeExplanationEntryId;
     final generation = _startGeneration(
       AppLocaleState.isEnglish ? 'Xiaou is organizing an answer…' : '正在组织语言…',
@@ -196,13 +260,11 @@ class AiProvider extends ChangeNotifier {
       _messages.add(aiMsg);
       notifyListeners();
 
-      final history = _messages.where((m) => m.content.isNotEmpty).toList();
-      history.removeLast(); // 去掉刚加的占位
-
       final buffer = StringBuffer();
       final stream = AiService.chatStream(
         message: question,
-        conversationHistory: history,
+        conversationHistory: _readingHistory,
+        readingContext: _readingContext,
       );
 
       final completed = await _consumeStream(
@@ -219,7 +281,8 @@ class AiProvider extends ChangeNotifier {
       }
 
       if (_bookId != null) {
-        await BookService.insertAiMessage(_bookId!, userMsg);
+        await BookService.insertAiMessage(_bookId!, userMsg, session: _session);
+        if (!_isActiveGeneration(generation)) return;
         await BookService.insertAiMessage(
           _bookId!,
           AiMessage(
@@ -227,16 +290,29 @@ class AiProvider extends ChangeNotifier {
             content: result,
             timestamp: aiMsg.timestamp,
           ),
+          session: _session,
         );
       }
       if (entryId != null && entryId.isNotEmpty) {
+        if (!_isActiveGeneration(generation)) return;
         await BookService.insertUserEntryFollowUp(
           entryId: entryId,
           question: question,
           answer: result,
+          session: _session,
         );
       }
 
+      if (!_isActiveGeneration(generation)) return;
+      _readingHistory = selectReadingHistory([
+        ..._readingHistory,
+        userMsg,
+        AiMessage(
+          role: 'assistant',
+          content: result,
+          timestamp: aiMsg.timestamp,
+        ),
+      ]);
       if (_messages.length > 20) {
         _messages = _messages.sublist(_messages.length - 20);
       }
@@ -268,6 +344,7 @@ class AiProvider extends ChangeNotifier {
   }
 
   Future<void> _persistExplanation({
+    required int generation,
     required AiMessage userMessage,
     required DateTime assistantTimestamp,
     required String result,
@@ -278,9 +355,15 @@ class AiProvider extends ChangeNotifier {
     required String selectedText,
     required AiExplainMode mode,
   }) async {
+    final session = _session;
+    if (session == null || !_isActiveGeneration(generation)) return;
+    session.requireOwner();
     final bookId = _bookId;
     if (bookId == null) return;
-    await BookService.insertAiMessage(bookId, userMessage);
+    final owner = _sessionUserId ?? '';
+    final evidence = _readingContext?.withAnswer(result);
+    await BookService.insertAiMessage(bookId, userMessage, session: session);
+    session.check();
     await BookService.insertAiMessage(
       bookId,
       AiMessage(
@@ -288,12 +371,14 @@ class AiProvider extends ChangeNotifier {
         content: result,
         timestamp: assistantTimestamp,
       ),
+      session: session,
     );
     final localEntryId = const Uuid().v4();
-    _activeExplanationEntryId = await BookService.insertUserEntry(
+    session.check();
+    final savedEntryId = await BookService.insertUserEntry(
       UserEntry(
         id: localEntryId,
-        userId: AuthService.userId ?? '',
+        userId: owner,
         source: 'ai_explanation',
         bookId: bookId,
         bookTitle: bookTitle,
@@ -306,11 +391,25 @@ class AiProvider extends ChangeNotifier {
         metadataJson: jsonEncode({
           'book_author': bookAuthor,
           'explain_mode': mode.apiValue,
+          'reading_ai_context': evidence?.toJson(),
         }),
         createdAt: DateTime.now(),
         updatedAt: DateTime.now().toUtc().toIso8601String(),
       ),
+      session: session,
     );
+    if (_isActiveGeneration(generation)) {
+      _activeExplanationEntryId = savedEntryId;
+      _readingContext = evidence;
+      _readingHistory = [
+        userMessage,
+        AiMessage(
+          role: 'assistant',
+          content: result,
+          timestamp: assistantTimestamp,
+        ),
+      ];
+    }
   }
 
   int _startGeneration(String loadingText) {
@@ -330,7 +429,10 @@ class AiProvider extends ChangeNotifier {
   }
 
   bool _isActiveGeneration(int generation) {
-    return generation == _activeGeneration && !_cancelRequested;
+    return generation == _activeGeneration &&
+        !_cancelRequested &&
+        (_session?.isCurrent ?? false) &&
+        _sessionUserId == AuthService.userId;
   }
 
   Future<bool> _consumeStream({
@@ -400,7 +502,7 @@ class AiProvider extends ChangeNotifier {
   void _removeEmptyAssistantTail() {
     if (_messages.isNotEmpty &&
         _messages.last.role == 'assistant' &&
-        _messages.last.content.isEmpty) {
+        _isLoading == false) {
       _messages.removeLast();
     }
   }
@@ -424,6 +526,8 @@ class AiProvider extends ChangeNotifier {
     _error = null;
     _loadingText = null;
     _activeExplanationEntryId = null;
+    _readingContext = null;
+    _readingHistory = [];
     _messages.clear();
     notifyListeners();
   }

@@ -9,6 +9,8 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/constants.dart';
 import 'app_http_client.dart';
+import 'api_request_exception.dart';
+import 'auth_session_scope.dart';
 
 class BmobApi {
   static const _tokenKey = 'auth_token';
@@ -16,6 +18,7 @@ class BmobApi {
   static const _emailKey = 'auth_email';
   static const _hasPasswordKey = 'auth_has_password';
   static const _appleLinkedKey = 'auth_apple_linked';
+  static const _sessionKey = 'auth_session_v2';
   static const _authTimeout = Duration(seconds: 20);
   static const _mingtaiTimeout = Duration(seconds: 20);
   static const _mingtaiUploadTimeout = Duration(seconds: 75);
@@ -25,18 +28,109 @@ class BmobApi {
   String? _email;
   bool _hasPassword = true;
   bool _appleLinked = false;
+  int _authOperation = 0;
+  bool _authChanging = false;
+  Future<void> _sessionWrites = Future<void>.value();
 
   BmobApi._();
 
   static final BmobApi instance = BmobApi._();
 
   Future<void> init() async {
+    if (_authChanging) return;
+    final operation = _authOperation;
     final prefs = await SharedPreferences.getInstance();
-    _token = prefs.getString(_tokenKey);
-    _userId = prefs.getString(_userIdKey);
-    _email = prefs.getString(_emailKey);
-    _hasPassword = prefs.getBool(_hasPasswordKey) ?? true;
-    _appleLinked = prefs.getBool(_appleLinkedKey) ?? false;
+    if (_authChanging || operation != _authOperation) return;
+    final envelope = prefs.getString(_sessionKey);
+    if (envelope == null) {
+      _token = prefs.getString(_tokenKey);
+      _userId = prefs.getString(_userIdKey);
+      _email = prefs.getString(_emailKey);
+      _hasPassword = prefs.getBool(_hasPasswordKey) ?? true;
+      _appleLinked = prefs.getBool(_appleLinkedKey) ?? false;
+    } else {
+      try {
+        final data = jsonDecode(envelope) as Map<String, dynamic>;
+        if (data['version'] != 2) throw const FormatException();
+        _token = data['token'] as String?;
+        _userId = data['user_id'] as String?;
+        if (_token?.isNotEmpty == true && (_userId?.isEmpty ?? true)) {
+          throw const FormatException();
+        }
+        _email = data['email'] as String?;
+        _hasPassword = data['has_password'] as bool? ?? true;
+        _appleLinked = data['apple_linked'] as bool? ?? false;
+      } catch (_) {
+        _token = null;
+        _userId = null;
+        _email = null;
+        _hasPassword = true;
+        _appleLinked = false;
+      }
+    }
+    AuthSessionScope.publish(_userId, _token);
+  }
+
+  int _beginAuth() {
+    _authChanging = true;
+    _authOperation++;
+    AuthSessionScope.beginTransition();
+    return _authOperation;
+  }
+
+  void _checkAuth(int operation) {
+    if (operation != _authOperation) throw const StaleAuthSession();
+  }
+
+  Future<void> _finishAuth(int operation) async {
+    if (operation != _authOperation) return;
+    // A superseded write may already have reached preferences. Reconcile to
+    // the committed identity before allowing readers to initialize again.
+    await _writeSession(() async {
+      if (operation != _authOperation) return;
+      final prefs = await SharedPreferences.getInstance();
+      await _persistEnvelope(prefs, _sessionEnvelope());
+      final values = <String, Object?>{
+        _tokenKey: _token,
+        _userIdKey: _userId,
+        _emailKey: _email,
+        _hasPasswordKey: _userId == null ? null : _hasPassword,
+        _appleLinkedKey: _userId == null ? null : _appleLinked,
+      };
+      for (final item in values.entries) {
+        if (item.value == null) {
+          await prefs.remove(item.key);
+        } else if (item.value is bool) {
+          await prefs.setBool(item.key, item.value as bool);
+        } else {
+          await prefs.setString(item.key, item.value as String);
+        }
+      }
+      if (operation != _authOperation) return;
+      _authChanging = false;
+      AuthSessionScope.publish(_userId, _token);
+    });
+  }
+
+  Future<void> _writeSession(Future<void> Function() write) {
+    final result = _sessionWrites.then((_) => write());
+    _sessionWrites = result.catchError((Object _) {});
+    return result;
+  }
+
+  String _sessionEnvelope() => jsonEncode({
+    'version': 2,
+    'token': _token,
+    'user_id': _userId,
+    'email': _email,
+    'has_password': _hasPassword,
+    'apple_linked': _appleLinked,
+  });
+
+  Future<void> _persistEnvelope(SharedPreferences prefs, String value) async {
+    if (!await prefs.setString(_sessionKey, value)) {
+      throw StateError('Unable to save account session');
+    }
   }
 
   bool get isLoggedIn => _token?.trim().isNotEmpty ?? false;
@@ -49,6 +143,7 @@ class BmobApi {
   // ---- Auth ----
 
   Future<Map<String, dynamic>?> signUp(String email, String password) async {
+    final operation = _beginAuth();
     try {
       final res = await _postJsonWithRetry(
         Uri.parse('${AppConstants.apiBaseUrl}/api/auth/register'),
@@ -59,6 +154,7 @@ class BmobApi {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         final user = data['user'] as Map<String, dynamic>;
         await _saveSession(
+          operation: operation,
           token: data['token'] as String,
           userId: user['id'] as String,
           email: user['email'] as String? ?? email,
@@ -71,10 +167,13 @@ class BmobApi {
       return {'error': err};
     } catch (e) {
       return {'error': _friendlyError(e)};
+    } finally {
+      await _finishAuth(operation);
     }
   }
 
   Future<Map<String, dynamic>?> signIn(String email, String password) async {
+    final operation = _beginAuth();
     try {
       final res = await _postJsonWithRetry(
         Uri.parse('${AppConstants.apiBaseUrl}/api/auth/login'),
@@ -85,6 +184,7 @@ class BmobApi {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         final user = data['user'] as Map<String, dynamic>;
         await _saveSession(
+          operation: operation,
           token: data['token'] as String,
           userId: user['id'] as String,
           email: user['email'] as String? ?? email,
@@ -97,6 +197,8 @@ class BmobApi {
       return {'error': err};
     } catch (e) {
       return {'error': _friendlyError(e)};
+    } finally {
+      await _finishAuth(operation);
     }
   }
 
@@ -115,36 +217,71 @@ class BmobApi {
     required Map<String, dynamic> credential,
     required bool bind,
   }) async {
-    final endpoint = bind ? 'bind' : 'login';
-    final res = await _postJsonOnce(
-      Uri.parse('${AppConstants.apiBaseUrl}/api/auth/apple/$endpoint'),
-      credential,
-      headers: bind ? _authHeaders(contentType: '') : null,
-    );
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(_tryDecodeError(res.body, res.statusCode));
-    }
-    if (bind) {
-      _appleLinked = true;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_appleLinkedKey, true);
-      return data;
-    }
+    final operation = bind ? _authOperation : _beginAuth();
+    try {
+      final endpoint = bind ? 'bind' : 'login';
+      final res = await _postJsonOnce(
+        Uri.parse('${AppConstants.apiBaseUrl}/api/auth/apple/$endpoint'),
+        credential,
+        headers: bind ? _authHeaders(contentType: '') : null,
+      );
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      if (res.statusCode != 200 && res.statusCode != 201) {
+        throw Exception(_tryDecodeError(res.body, res.statusCode));
+      }
+      if (bind) {
+        await _writeSession(() async {
+          _checkAuth(operation);
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool(_appleLinkedKey, true);
+          _checkAuth(operation);
+          _appleLinked = true;
+          await _persistEnvelope(prefs, _sessionEnvelope());
+        });
+        return data;
+      }
 
-    final user = data['user'] as Map<String, dynamic>;
-    await _saveSession(
-      token: data['token'] as String,
-      userId: user['id'] as String,
-      email: user['email'] as String? ?? '',
-      hasPassword: user['has_password'] == true,
-      appleLinked: true,
-    );
-    return data;
+      final user = data['user'] as Map<String, dynamic>;
+      await _saveSession(
+        operation: operation,
+        token: data['token'] as String,
+        userId: user['id'] as String,
+        email: user['email'] as String? ?? '',
+        hasPassword: user['has_password'] == true,
+        appleLinked: true,
+      );
+      return data;
+    } finally {
+      if (!bind) await _finishAuth(operation);
+    }
   }
 
   Future<void> signOut() async {
     final token = _token?.trim() ?? '';
+    final operation = _beginAuth();
+    _token = null;
+    _userId = null;
+    _email = null;
+    _hasPassword = true;
+    _appleLinked = false;
+    final signedOutEnvelope = _sessionEnvelope();
+    try {
+      await _writeSession(() async {
+        final prefs = await SharedPreferences.getInstance();
+        await _persistEnvelope(prefs, signedOutEnvelope);
+        for (final key in [
+          _tokenKey,
+          _userIdKey,
+          _emailKey,
+          _hasPasswordKey,
+          _appleLinkedKey,
+        ]) {
+          await prefs.remove(key);
+        }
+      });
+    } finally {
+      await _finishAuth(operation);
+    }
     if (token.isNotEmpty) {
       try {
         await AppHttp.client
@@ -160,17 +297,6 @@ class BmobApi {
         // 本地退出不能被网络状态阻塞；服务端 JWT 仍会按过期时间失效。
       }
     }
-    _token = null;
-    _userId = null;
-    _email = null;
-    _hasPassword = true;
-    _appleLinked = false;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_tokenKey);
-    await prefs.remove(_userIdKey);
-    await prefs.remove(_emailKey);
-    await prefs.remove(_hasPasswordKey);
-    await prefs.remove(_appleLinkedKey);
   }
 
   // ---- Data CRUD ----
@@ -348,7 +474,7 @@ class BmobApi {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       return List<Map<String, dynamic>>.from(data['entries'] ?? []);
     }
-    throw Exception('查询 user_entries 失败 (HTTP ${res.statusCode}): ${res.body}');
+    throw ApiRequestException(res.statusCode);
   }
 
   Future<bool> deleteUserEntry(String id) async {
@@ -525,7 +651,7 @@ class BmobApi {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       return Map<String, dynamic>.from(data['insight'] ?? {});
     }
-    throw Exception('读取小U首页失败 (HTTP ${res.statusCode}): ${res.body}');
+    throw ApiRequestException(res.statusCode);
   }
 
   Future<Map<String, dynamic>> publishMingtaiBook({
@@ -1440,23 +1566,41 @@ class BmobApi {
   // ---- Internal ----
 
   Future<void> _saveSession({
+    required int operation,
     required String token,
     required String userId,
     required String email,
     bool hasPassword = true,
     bool appleLinked = false,
   }) async {
+    await _writeSession(() async {
+      _checkAuth(operation);
+      final prefs = await SharedPreferences.getInstance();
+      // One value is authoritative across process death; legacy keys remain
+      // for diagnostics/compatibility but are never combined with this value.
+      await _persistEnvelope(
+        prefs,
+        jsonEncode({
+          'version': 2,
+          'token': token,
+          'user_id': userId,
+          'email': email,
+          'has_password': hasPassword,
+          'apple_linked': appleLinked,
+        }),
+      );
+      await prefs.setString(_tokenKey, token);
+      await prefs.setString(_userIdKey, userId);
+      await prefs.setString(_emailKey, email);
+      await prefs.setBool(_hasPasswordKey, hasPassword);
+      await prefs.setBool(_appleLinkedKey, appleLinked);
+    });
+    _checkAuth(operation);
     _token = token;
     _userId = userId;
     _email = email;
     _hasPassword = hasPassword;
     _appleLinked = appleLinked;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_tokenKey, token);
-    await prefs.setString(_userIdKey, userId);
-    await prefs.setString(_emailKey, email);
-    await prefs.setBool(_hasPasswordKey, hasPassword);
-    await prefs.setBool(_appleLinkedKey, appleLinked);
   }
 
   Future<http.Response> _postJsonOnce(

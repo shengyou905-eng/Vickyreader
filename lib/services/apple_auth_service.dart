@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import 'auth_service.dart';
+import 'auth_session_scope.dart';
 
 enum AppleAuthStatus { success, cancelled, unavailable }
 
@@ -51,13 +52,17 @@ class AppleAuthService {
     AppleCredentialRequest? credentialRequest,
     AppleAuthCompletion? completion,
   }) async {
+    final session = AuthSessionScope.capture();
+    session.check();
     final checkAvailability = availabilityCheck ?? isAvailable;
     if (!await checkAvailability()) {
       return const AppleAuthResult(AppleAuthStatus.unavailable);
     }
+    session.check();
 
     final preparation =
         await (preparationLoader ?? AuthService.prepareAppleAuth)();
+    session.check();
     final expectedState = preparation['state']?.toString() ?? '';
     if (expectedState.isEmpty) throw Exception('Apple auth preparation failed');
 
@@ -68,6 +73,7 @@ class AppleAuthService {
       nonce: hashedNonce,
       state: expectedState,
     );
+    session.check();
     if (credential == null) {
       return const AppleAuthResult(AppleAuthStatus.cancelled);
     }

@@ -1472,6 +1472,18 @@ abstract class AppLocalizations {
   /// **'暂时无法刷新，已保留上次看到的内容。'**
   String get xiaouLoadRetained;
 
+  /// No description provided for @xiaouLoadSignInRequired.
+  ///
+  /// In zh, this message translates to:
+  /// **'登录状态已失效，请在设置中使用原账号重新登录。本地阅读内容已保留。'**
+  String get xiaouLoadSignInRequired;
+
+  /// No description provided for @xiaouLoadConnectionFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂时无法连接服务器，请检查网络后重试。本地阅读内容已保留。'**
+  String get xiaouLoadConnectionFailed;
+
   /// No description provided for @deletedEntry.
   ///
   /// In zh, this message translates to:

@@ -10,11 +10,21 @@ class XiaouTraceSnapshot {
     Database db, {
     required String userId,
     required List<Map<String, dynamic>> remoteRows,
-  }) => db.transaction((txn) async {
+  }) => db.transaction(
+    (txn) => readInTransaction(txn, userId: userId, remoteRows: remoteRows),
+  );
+
+  /// Lets evidence readers include follow-ups in the same committed snapshot.
+  static Future<List<Map<String, dynamic>>> readInTransaction(
+    DatabaseExecutor txn, {
+    required String userId,
+    required List<Map<String, dynamic>> remoteRows,
+    String? bookId,
+  }) async {
     final local = await txn.query(
       'user_entries',
-      where: 'user_id = ?',
-      whereArgs: [userId],
+      where: bookId == null ? 'user_id = ?' : 'user_id = ? AND book_id = ?',
+      whereArgs: [userId, ?bookId],
     );
     final pending = await txn.query(
       'pending_upload_operations',
@@ -116,7 +126,7 @@ class XiaouTraceSnapshot {
           ? order
           : a['_view_id'].toString().compareTo(b['_view_id'].toString());
     });
-  });
+  }
 
   static Map<String, dynamic> metadata(dynamic value) {
     if (value is Map) return Map<String, dynamic>.from(value);

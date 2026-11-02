@@ -744,6 +744,14 @@ class AppLocalizationsEn extends AppLocalizations {
       'Could not refresh. The last content you saw has been kept.';
 
   @override
+  String get xiaouLoadSignInRequired =>
+      'Please sign in again with the same account in Settings. Your local reading content has been kept.';
+
+  @override
+  String get xiaouLoadConnectionFailed =>
+      'Cannot connect to the server. Check your connection and try again. Your local reading content has been kept.';
+
+  @override
   String deletedEntry(Object type) {
     return 'Deleted $type';
   }
