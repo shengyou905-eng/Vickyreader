@@ -42,6 +42,7 @@ void main() {
     double textScale = 1,
     bool dark = false,
     double safeBottom = 0,
+    Future<bool> Function()? checkAccess,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -73,12 +74,20 @@ void main() {
           child: child!,
         ),
         theme: dark ? ThemeData.dark() : AppTheme.forTheme(AppThemeId.babyBlue),
-        home: Scaffold(body: BookRecapEntry(workspace: workspace)),
+        home: Scaffold(body: BookRecapEntry(workspace: workspace, checkAccess: checkAccess)),
       ),
     );
     await tester.tap(find.text('阅读回望'));
     await settle(tester);
   }
+
+  testWidgets('revoked pilot capability cannot navigate from a previously visible entry', (tester) async {
+    var checks = 0;
+    await mount(tester, checkAccess: () async { checks++; return false; });
+    expect(checks, 1);
+    expect(find.byType(BookRecapScreen), findsNothing);
+    expect(find.byType(BookRecapEntry), findsOneWidget);
+  });
 
   Future<void> tap(WidgetTester tester, String label) async {
     if (find.text(label).evaluate().isEmpty) {

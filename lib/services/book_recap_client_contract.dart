@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+const recapDisplayPolicy = 'reading-recap-v1';
+
 class RecapClientException implements Exception {
   final String code;
   const RecapClientException(this.code);
@@ -24,6 +26,10 @@ class RecapClientException implements Exception {
     'OFFLINE' || 'NETWORK' || 'TIMEOUT' => '网络异常，暂时无法查看回望。',
     'BUSY' || 'RECAP_BUSY' => '已有操作正在处理，请稍后再试。',
     'NOT_CONFIGURED' => '回望功能尚未开放。',
+    'RECAP_PILOT_DISABLED' => '阅读回望暂未开放。',
+    'RECAP_RATE_LIMIT' => '请求较频繁，请稍后再试。',
+    'RECAP_BUDGET_OR_BUSY' => '本次生成暂不可用：已有请求在处理，或今日预算已用完。',
+    'RECAP_COST_LIMIT' => '本次生成超出费用限制，或服务计价尚待确认。',
     'CONFIRM_REQUIRED' => '请先确认本次阅读材料范围。',
     'INVALID_SELECTION' => '请选择可核验的阅读材料，并确认追问范围。',
     'RECAP_DISPLAY_EXPIRED' => '本次查看已到期，请重新在线核验。',

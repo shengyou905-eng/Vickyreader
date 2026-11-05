@@ -60,10 +60,11 @@ class BookRecapWorkspace {
   )..setOnline(online.value);
 }
 
-/// Inject into XiaouHomeScreen only in an explicitly configured isolated host.
+/// Production composition checks server capability before opening this page.
 class BookRecapEntry extends StatelessWidget {
   final BookRecapWorkspace workspace;
-  const BookRecapEntry({super.key, required this.workspace});
+  final Future<bool> Function()? checkAccess;
+  const BookRecapEntry({super.key, required this.workspace, this.checkAccess});
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -75,11 +76,20 @@ class BookRecapEntry extends StatelessWidget {
       ),
       title: const Text('阅读回望'),
       trailing: const Icon(Icons.chevron_right),
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => BookRecapScreen(workspace: workspace),
-        ),
-      ),
+      onTap: () async {
+        if (checkAccess != null && !await checkAccess!()) return;
+        if (!context.mounted ||
+            !workspace.session.isCurrent ||
+            !workspace.online.value ||
+            ModalRoute.of(context)?.isCurrent == false) {
+          return;
+        }
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => BookRecapScreen(workspace: workspace),
+          ),
+        );
+      },
     ),
   );
 }

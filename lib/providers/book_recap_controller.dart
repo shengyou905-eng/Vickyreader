@@ -285,7 +285,9 @@ class BookRecapController extends ChangeNotifier {
   }
 
   void _accept(Map<String, dynamic> data, RecapLocalProof proof) {
-    final next = RecapHeader.parse(data);
+    final next = data.containsKey('result')
+        ? RecapHeader.parse(data)
+        : RecapHeader.fromScope(data);
     if (next.id != _id || next.bookId != bookId) {
       recapReject('RECAP_SCOPE_CHANGED');
     }

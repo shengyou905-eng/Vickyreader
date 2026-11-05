@@ -8,16 +8,8 @@ on:
         required: true
         default: https://wonyoung.taild268af.ts.net
         type: string
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/ios-unsigned.yml
-      - lib/**
-      - ios/**
-      - assets/**
-      - pubspec.yaml
-      - pubspec.lock
+
+# IPA builds are initiated by the owner in Codemagic. Never run on a push.
 
 permissions:
   contents: read

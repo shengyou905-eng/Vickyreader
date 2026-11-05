@@ -14,8 +14,7 @@ class RecapRequestAbort {
   }
 }
 
-/// No default production endpoint or singleton. The server adapter is unmounted.
-/// Enable only in explicitly composed tests until deployment is separately approved.
+/// No implicit endpoint or singleton. Pilot availability is enforced on the server.
 class BookRecapClientApi {
   final Uri baseUri;
   final http.Client Function() clientFactory;
@@ -57,7 +56,7 @@ class BookRecapClientApi {
       recapReject('AUTH_CHANGED');
     }
     if (!RegExp(
-          r'^(prepare|display/history|display/[a-f0-9-]{36}/(scope|view|evidence|validate)|[a-f0-9-]{36}(/(generate|save|feedback|follow-ups|operations/[a-f0-9-]{36}/cancel))?)$',
+          r'^(capability|prepare|display/history|display/[a-f0-9-]{36}/(scope|view|evidence|validate)|[a-f0-9-]{36}(/(generate|save|feedback|follow-ups|operations/[a-f0-9-]{36}/cancel))?)$',
         ).hasMatch(relative) ||
         !['GET', 'POST', 'DELETE'].contains(method)) {
       recapReject('INVALID_REQUEST');
@@ -110,6 +109,10 @@ class BookRecapClientApi {
         }
         final data = recapObject(decoded);
         if (response.statusCode < 200 || response.statusCode >= 300) {
+          if (response.statusCode == 403 &&
+              data['error_code'] == 'RECAP_PILOT_DISABLED') {
+            recapReject('RECAP_PILOT_DISABLED');
+          }
           if (response.statusCode == 401 || response.statusCode == 403) {
             recapReject('RECAP_AUTH_REQUIRED');
           }

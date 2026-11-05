@@ -302,6 +302,14 @@ void main() {
       expect(await db.query('user_entries'), hasLength(1));
     },
   );
+  test('personal pilot ready status restores metadata but no display permit', () async {
+    handler = (_) async => http.Response(
+      jsonEncode(Map.of(current)..remove('result')), 200);
+    final c = await opened();
+    expect(c.header!.state, RecapServerState.ready);
+    expect(c.content, isNull);
+    expect(requests.single.method, 'GET');
+  });
   for (final operation in ['upsert', 'delete']) {
     test('pending $operation blocks whole selection without upload', () async {
       await pending(operation);

@@ -13,6 +13,7 @@ import 'screens/bookmarks/bookmarks_screen.dart';
 import 'screens/bookshelf/bookshelf_screen.dart';
 import 'screens/mingtai/community_mingtai_screen.dart';
 import 'screens/xiaou/xiaou_home_screen.dart';
+import 'screens/xiaou/recap_pilot_entry.dart';
 import 'screens/notes_free/notes_free_screen.dart';
 import 'screens/settings/settings_screen.dart';
 import 'services/reliable_upload_service.dart';
@@ -57,6 +58,7 @@ class AiReaderApp extends StatelessWidget {
           themeAnimationDuration: AppVisualFoundation.standard.motionDuration,
           themeAnimationCurve: Curves.easeOutCubic,
           home: const MainScreen(),
+          navigatorObservers: [recapPilotRoutes],
           routes: {
             '/bookmarks': (_) => const BookmarksScreen(),
             '/settings': (_) => const SettingsScreen(),
@@ -131,6 +133,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         key: ValueKey('xiaou:${AuthSessionScope.changes.value}'),
         refreshSignal: _xiaouRefreshSignal,
         isActive: _currentIndex == 1,
+        recapEntryBuilder: (_) => RecapPilotEntry(
+          isActive: _currentIndex == 1,
+          refreshSignal: _xiaouRefreshSignal,
+        ),
       ),
       2 => NotesFreeScreen(
         key: ValueKey('notes:${AuthSessionScope.changes.value}'),

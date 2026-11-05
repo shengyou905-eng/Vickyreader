@@ -32,7 +32,7 @@ class XiaouHomeScreen extends StatefulWidget {
   final int refreshSignal;
   final bool autoLoad;
   final bool isActive;
-  // Explicit isolated composition only; the shipped application supplies none.
+  // Composition owns availability; the production entry checks server capability.
   final WidgetBuilder? recapEntryBuilder;
 
   const XiaouHomeScreen({
